@@ -116,10 +116,9 @@ El sistema tiene tres actores externos que interactúan con él directamente o i
 # Diagrama C4 de contexto (Nivel 1)
 
 <p align="center">
-  <img src="docs/C4.jpg" alt="Diagrama C4 Nivel 1 - Gimnasio UTB" width="85%">
+  <img src="C4.jpg" alt="Diagrama C4 Nivel 1 - Gimnasio UTB" width="85%">
 </p>
 
-### Descripción
 
 El **Sistema Gimnasio UTB** es el sistema de software que gestiona el registro de entradas y salidas, el cálculo del aforo disponible, el estado operativo del gimnasio y el envío de notificaciones.
 
