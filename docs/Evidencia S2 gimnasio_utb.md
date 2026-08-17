@@ -115,25 +115,9 @@ El sistema tiene tres actores externos que interactúan con él directamente o i
 
 # Diagrama C4 de contexto (Nivel 1)
 
-```mermaid
-graph LR
-    Est["👤 Estudiante<br/><br/>Consulta cupos,<br/>registra entrada/salida<br/>y recibe notificaciones"]
-    Enc["👤 Encargado del gimnasio<br/><br/>Gestiona accesos<br/>y estado del gimnasio"]
-    Bien["👤 Bienestar Universitario<br/><br/>Consulta información<br/>sobre el uso del gimnasio"]
-
-    Sys["🏋️ Sistema Gimnasio UTB<br/><br/>Gestiona el aforo, los accesos,<br/>el estado del gimnasio<br/>y las notificaciones"]
-
-    FCM["☁️ Firebase Cloud Messaging (FCM)<br/><br/>Servicio externo de<br/>notificaciones push"]
-
-    Est -->|"Consulta aforo y registra accesos"| Sys
-
-    
-    Enc -->|"Gestiona accesos y apertura/cierre"| Sys
-    Bien -->|"Consulta reportes de uso"| Sys
-
-    Sys -->|"Envía notificaciones push"| FCM
-    FCM -->|"Entrega notificaciones"| Est
-```
+<p align="center">
+  <img src="docs/C4.jpg" alt="Diagrama C4 Nivel 1 - Gimnasio UTB" width="85%">
+</p>
 
 ### Descripción
 
