@@ -24,3 +24,4 @@ Los integrantes son responsables de las decisiones, documentación, diseño y c�
 ## Registro de futuras interacciones
 
 Este documento se actualizará durante el desarrollo del proyecto para registrar nuevos usos relevantes de herramientas de inteligencia artificial.
+
