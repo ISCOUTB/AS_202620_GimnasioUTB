@@ -21,6 +21,51 @@ Se propone una aplicación móvil, potencialmente integrable con la aplicación 
 - Enviar notificaciones personalizadas según las horas preferidas del estudiante.
 - Considerar la ocupación actual y la disponibilidad real del gimnasio.
 
+## Stack tecnológico
+
+- **App móvil:** Flutter
+- **Backend:** Node.js + Express, organizado con Arquitectura Hexagonal (ver `docs/adr/0001-arquitectura-hexagonal.md`)
+- **Base de datos:** PostgreSQL
+- **Despliegue:** Render
+
+## Cómo ejecutar el backend
+
+Requisitos: Node.js ≥ 18.
+
+```bash
+npm install && npm start
+```
+
+Levanta el servidor en `http://localhost:3000`. Verifica que está corriendo con:
+
+```bash
+curl http://localhost:3000/health
+# {"status":"ok","service":"gimnasio-utb-backend"}
+```
+
+Para correr la prueba automatizada:
+
+```bash
+npm test
+```
+
+> Esta entrega no incluye lógica de negocio: el backend es un esqueleto arquitectónico listo para recibir funcionalidad desde la semana 5, sin necesidad de decidir estructura sobre la marcha.
+
+## Estructura del backend
+
+```
+src/
+├── server.js               # arranque del servidor (composition root)
+├── modules/
+│   └── aforo/               # primer módulo de dominio
+│       ├── domain/          # reglas de negocio puras, sin Express ni PostgreSQL
+│       ├── application/     # casos de uso y puertos (interfaces)
+│       └── infrastructure/  # adaptadores concretos (HTTP, persistencia)
+└── shared/                  # utilidades compartidas entre módulos
+
+tests/                       # pruebas automatizadas
+```
+
 ## Stakeholders
 
 - Estudiantes de la Universidad Tecnológica de Bolívar.
@@ -34,7 +79,13 @@ La documentación del proyecto se encuentra en la carpeta `docs`:
 
 - `problema.md`: descripción y delimitación del problema.
 - `aspectos.md`: aspectos y atributos de calidad relevantes para la arquitectura.
-- `ia.md`: registro inicial del uso de herramientas de inteligencia artificial.
+- `ia.md`: registro del uso de herramientas de inteligencia artificial.
+- `arc42_gimnasio_utb.md`: documentación de arquitectura completa (arc42), incluyendo restricciones, contexto, diagrama C4, árbol de utilidad y escenarios de calidad.
+- `adr/0001-arquitectura-hexagonal.md`: decisión de arquitectura sobre el estilo del backend, con alternativas y consecuencias.
+
+## Integración continua
+
+Cada `push` corre la prueba automatizada del backend vía GitHub Actions (`.github/workflows/ci.yml`).
 
 ## Integrantes
 
