@@ -92,3 +92,115 @@ Cada `push` corre la prueba automatizada del backend vía GitHub Actions (`.gith
 - Sebastián Felipe Caicedo Acosta
 - Pedro Luis Pallares De La Hoz
 - Rodrigo Andrés Facio Lince Beltrán
+
+- ## Esqueleto ejecutable
+
+Este repositorio contiene el esqueleto inicial ejecutable del backend del proyecto Gimnasio UTB.
+
+La lógica de negocio aún no está implementada completamente. En esta etapa se establece la estructura inicial de la arquitectura, un servidor funcional, un endpoint de verificación y una prueba automatizada.
+
+### Requisitos
+
+Para ejecutar el proyecto se requiere:
+
+- Node.js versión 18 o superior.
+- npm.
+
+### Instalación
+
+Desde la carpeta principal del repositorio, instalar las dependencias:
+
+```bash
+npm install
+```
+
+### Ejecución
+
+Para iniciar el servidor ejecutar:
+
+```bash
+npm start
+```
+
+El proyecto se inicia mediante el comando definido en el archivo `package.json`.
+
+Una vez iniciado, el servidor estará disponible en:
+
+```text
+http://localhost:3000
+```
+
+### Endpoint de verificación
+
+El esqueleto incluye un endpoint de salud:
+
+```text
+GET /health
+```
+
+La respuesta esperada es:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+### Prueba automatizada
+
+El proyecto incluye una prueba automatizada para verificar el funcionamiento del endpoint de salud.
+
+Para ejecutarla:
+
+```bash
+npm test
+```
+
+La prueba verifica que:
+
+- El endpoint `/health` responda correctamente.
+- El código de respuesta sea `200`.
+- La respuesta incluya el estado `"ok"`.
+
+### Integración continua
+
+El repositorio cuenta con un flujo de Integración Continua (CI) mediante GitHub Actions.
+
+Cada vez que se realiza un `push` o se abre o actualiza un `pull request`, el flujo automático:
+
+1. Utiliza un entorno Ubuntu.
+2. Configura Node.js versión 20.
+3. Instala las dependencias mediante `npm install`.
+4. Ejecuta las pruebas mediante `npm test`.
+
+Esto permite verificar automáticamente que la prueba de salud continúe funcionando correctamente.
+
+## Arquitectura inicial
+
+El backend adopta una arquitectura hexagonal como estilo arquitectónico inicial.
+
+El módulo principal se encuentra organizado en:
+
+```text
+src/
+├── modules/
+│   └── aforo/
+│       ├── application/
+│       │   └── ports/
+│       ├── domain/
+│       └── infrastructure/
+│           ├── http/
+│           └── persistence/
+├── shared/
+└── server.js
+```
+
+### Responsabilidades iniciales
+
+- **Domain:** representa el núcleo del dominio y las reglas del negocio.
+- **Application:** contendrá los casos de uso de la aplicación.
+- **Ports:** define los contratos o interfaces necesarios para comunicar la aplicación con elementos externos.
+- **Infrastructure:** contiene los adaptadores concretos, como HTTP y persistencia.
+- **Shared:** contiene elementos que pueden ser compartidos entre módulos.
+
+Actualmente estas capas se encuentran preparadas como estructura inicial del proyecto. La lógica de negocio será incorporada progresivamente en las siguientes iteraciones.
