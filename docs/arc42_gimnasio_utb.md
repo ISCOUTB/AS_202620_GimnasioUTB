@@ -151,7 +151,7 @@ Ver el detalle completo de alternativas y consecuencias en el ADR 0001.
 # Diagrama C4 de contexto (Nivel 1)
 
 <p align="center">
-  <img src="C4.jpg" alt="Diagrama C4 Nivel 1 - Gimnasio UTB" width="85%">
+  <img src="C4 Level 1.svg" alt="Diagrama C4 Nivel 1 - Gimnasio UTB" width="85%">
 </p>
 
 
