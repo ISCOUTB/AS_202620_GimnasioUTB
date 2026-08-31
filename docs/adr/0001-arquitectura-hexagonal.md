@@ -8,10 +8,10 @@ Aceptada — semana 4, corte 1 continuación.
 
 El backend de Gimnasio UTB (Node.js + Express + PostgreSQL, restricción **TC3** del arc42) necesita una forma de organizar el código antes de empezar a escribir lógica de negocio. Los atributos de calidad priorizados en el árbol de utilidad del documento [arc42](../arc42_gimnasio_utb.md) que más dependen de esta decisión son:
 
-- **[ES1 — Consistencia de datos](../arc42_gimnasio_utb.md#es1--consistencia-del-conteo-de-aforo-consistencia-de-datos)**: el conteo de aforo debe poder probarse de forma aislada y confiable mediante transacciones atómicas.
-- **[ES2 — Disponibilidad](../arc42_gimnasio_utb.md#es2--estado-real-del-gimnasio-abiertocerrado-disponibilidad)**: la lógica para determinar el estado real del gimnasio (abierto/cerrado) debe estar desacoplada de los controladores de Express.
-- **[ES3 — Usabilidad operativa](../arc42_gimnasio_utb.md#es3--registro-manual-del-encargado-usabilidad-operativa)**: los casos de uso de registro manual deben ejecutarse de forma ágil y limpia sin depender de interfaces concretas.
-- **[ES4 — Rendimiento](../arc42_gimnasio_utb.md#es4--actualización-de-aforo-en-tiempo-real-rendimiento)**: la emisión de eventos de aforo por WebSockets requiere separar los adaptadores de infraestructura de la lógica del dominio.
+- **[ES1 — Consistencia de datos](../arc42/arc42_gimnasio_utb.md#es1--consistencia-del-conteo-de-aforo-consistencia-de-datos)**: el conteo de aforo debe poder probarse de forma aislada y confiable mediante transacciones atómicas.
+- **[ES2 — Disponibilidad](../arc42/arc42_gimnasio_utb.md#es2--estado-real-del-gimnasio-abiertocerrado-disponibilidad)**: la lógica para determinar el estado real del gimnasio (abierto/cerrado) debe estar desacoplada de los controladores de Express.
+- **[ES3 — Usabilidad operativa](../arc42/arc42_gimnasio_utb.md#es3--registro-manual-del-encargado-usabilidad-operativa)**: los casos de uso de registro manual deben ejecutarse de forma ágil y limpia sin depender de interfaces concretas.
+- **[ES4 — Rendimiento](../arc42/arc42_gimnasio_utb.md#es4--actualización-de-aforo-en-tiempo-real-rendimiento)**: la emisión de eventos de aforo por WebSockets requiere separar los adaptadores de infraestructura de la lógica del dominio.
 
 Restricciones organizacionales relevantes: equipo de 4 personas (**OC5**), cortes de evaluación cada pocas semanas (**OC1**), lo que limita cuánto tiempo se puede invertir en andamiaje antes de mostrar funcionalidad.
 
@@ -66,6 +66,6 @@ Separar el código por carpetas de dominio (`aforo/`, `notificaciones/`, etc.) s
 
 ## Referencias
 
-- Documento de arquitectura: [arc42 — Sección 4: Estrategia de Solución](../arc42_gimnasio_utb.md#4-estrategia-de-solución).
+- Documento de arquitectura: [arc42 — Sección 4](../arc42/arc42_gimnasio_utb.md#4-estrategia-de-solución).
 - Aspectos de arquitectura: [docs/aspectos.md — Aspecto S1](../aspectos.md#desarrollo-del-aspecto-s1).
-- Escenarios vinculados en arc42: [ES1](../arc42_gimnasio_utb.md#es1--consistencia-del-conteo-de-aforo-consistencia-de-datos), [ES2](../arc42_gimnasio_utb.md#es2--estado-real-del-gimnasio-abiertocerrado-disponibilidad), [ES3](../arc42_gimnasio_utb.md#es3--registro-manual-del-encargado-usabilidad-operativa) y [ES4](../arc42_gimnasio_utb.md#es4--actualización-de-aforo-en-tiempo-real-rendimiento).
+- Escenarios vinculados en arc42: [ES1](../arc42/arc42_gimnasio_utb.md#es1--consistencia-del-conteo-de-aforo-consistencia-de-datos), [ES2](../arc42/arc42_gimnasio_utb.md#es2--estado-real-del-gimnasio-abiertocerrado-disponibilidad), [ES3](../arc42/arc42_gimnasio_utb.md#es3--registro-manual-del-encargado-usabilidad-operativa) y [ES4](../arc42/arc42_gimnasio_utb.md#es4--actualización-de-aforo-en-tiempo-real-rendimiento).
