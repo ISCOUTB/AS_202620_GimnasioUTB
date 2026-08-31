@@ -59,3 +59,21 @@ El prototipo contemplará:
 - Consulta de cupos disponibles.
 - Visualización del estado abierto o cerrado del gimnasio.
 - Notificaciones relacionadas con la disponibilidad.
+
+- ## Tensiones de calidad enfrentadas
+
+### Tensión 1: Consistencia de datos vs. Facilidad de operación
+
+El sistema necesita mantener información confiable sobre la cantidad real de estudiantes que se encuentran dentro del gimnasio para calcular correctamente los cupos disponibles.
+
+Sin embargo, exigir un registro estricto de cada entrada y salida mediante código QR puede dificultar la operación cuando existen problemas de uso, olvidos por parte de los estudiantes o situaciones que requieren intervención manual.
+
+Por esta razón, existe una tensión entre mantener una alta consistencia de los datos y permitir una operación flexible y sencilla para los usuarios y el encargado del gimnasio.
+
+### Tensión 2: Información en tiempo real vs. Flexibilidad ante situaciones operativas
+
+El sistema busca mostrar la disponibilidad real del gimnasio en tiempo real. Para lograrlo, es necesario que los cambios en las entradas, salidas y el estado del gimnasio se reflejen rápidamente en el sistema.
+
+Sin embargo, el gimnasio también puede presentar situaciones operativas que requieren ajustes manuales, como correcciones realizadas por el encargado, cambios en el estado de apertura o problemas en el registro mediante códigos QR.
+
+Por lo tanto, existe una tensión entre mantener la información actualizada inmediatamente y permitir la flexibilidad necesaria para gestionar situaciones excepcionales o correcciones manuales.
