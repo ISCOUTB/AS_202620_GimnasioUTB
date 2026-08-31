@@ -203,4 +203,54 @@ src/
 - **Infrastructure:** contiene los adaptadores concretos, como HTTP y persistencia.
 - **Shared:** contiene elementos que pueden ser compartidos entre módulos.
 
-Actualmente estas capas se encuentran preparadas como estructura inicial del proyecto. La lógica de negocio será incorporada progresivamente en las siguientes iteraciones.
+## 🚀 Corte Vertical Ejecutable (MVP)
+
+Este repositorio contiene un corte vertical funcional que demuestra la implementación de la **Arquitectura Hexagonal** y la conexión a **PostgreSQL**. El flujo implementado atraviesa todas las capas del sistema comprobando el **Registro de Acceso y la Consulta de Aforo**.
+
+### Requisitos previos
+* Node.js v20+
+* PostgreSQL en ejecución (local o mediante Docker)
+
+### Pasos para ejecutar localmente
+
+1. **Clonar e instalar dependencias:**
+   ```bash
+   git clone [https://github.com/tu-usuario/gimnasio-utb.git](https://github.com/tu-usuario/gimnasio-utb.git)
+   cd gimnasio-utb/backend
+   npm install
+   ```
+
+2. **Configurar variables de entorno:**
+   Copia el archivo `.env.example` y renómbralo a `.env`. Ajusta la cadena de conexión a tu base de datos:
+   ```env
+   DATABASE_URL=postgres://usuario:password@localhost:5432/gimnasio_utb
+   PORT=3000
+   ```
+
+3. **Ejecutar migraciones (Estructura inicial de BD):**
+   ```bash
+   npm run db:migrate
+   ```
+
+4. **Iniciar el servidor en modo desarrollo:**
+   ```bash
+   npm run dev
+   ```
+   *Deberías ver en consola: `Servidor corriendo en el puerto 3000` y `Conexión a PostgreSQL exitosa`.*
+
+### Prueba de las capas de la arquitectura (Endpoints)
+Para validar que el caso de uso se comunica correctamente con la base de datos a través de los puertos, puedes ejecutar las siguientes pruebas con cURL, Postman o ThunderClient:
+
+**1. Registrar un acceso (Atraviesa HTTP Adapter → UseCase → Postgres Adapter):**
+```bash
+curl -X POST http://localhost:3000/api/v1/aforo/acceso \
+     -H "Content-Type: application/json" \
+     -d '{"estudianteId": "T00012345", "tipoAcceso": "ENTRADA"}'
+```
+*Respuesta esperada:* `201 Created` con el JSON del nuevo aforo.
+
+**2. Consultar el aforo actual (Validación de persistencia):**
+```bash
+curl -X GET http://localhost:3000/api/v1/aforo
+```
+*Respuesta esperada:* `200 OK` devolviendo `{"status": "success", "data": {"aforoActual": 1, "cupoDisponible": 49}}`.
