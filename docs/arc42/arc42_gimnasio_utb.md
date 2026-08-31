@@ -422,9 +422,9 @@ Este glosario define los términos técnicos y del dominio de negocio centrales 
 | **Registro de Excepción (Manual)** | Proceso operativo secundario mediante el cual el encargado del gimnasio registra la entrada o salida de un estudiante desde su propio panel, utilizado únicamente cuando falla el método principal (ej. estudiante sin carné o fallo en la cámara). |
 | **Render** | Plataforma como servicio (PaaS) en la nube seleccionada para el despliegue continuo del backend (Node.js) y el alojamiento de la base de datos (PostgreSQL). |
 | **Transacción ACID** | Conjunto de propiedades (Atomicidad, Consistencia, Aislamiento, Durabilidad) garantizadas por PostgreSQL al procesar registros concurrentes, asegurando que el conteo del aforo nunca se duplique o pierda bajo carga. |
-*Documento generado como parte de la entrega del corte 1 del proyecto Gimnasio UTB. Uso de IA generativa registrado en `docs/ia.md` según lo requerido por el curso.*
+|   **Estímulo:** |Realiza un `push` o `pull request` en la rama principal de GitHub.
+|   **Entorno:** | Pipeline de GitHub Actions (Ubuntu / Node.js 20).
+|   **Respuesta:** |Se instalan dependencias y se ejecuta la suite de pruebas (`npm test`) sobre el endpoint `/health`.
+|  **Medida de Calidad:** |La prueba de salud responde con código `200 OK` y status `"ok"` en un tiempo total de ejecución del pipeline inferior a **2 minutos**.
 
-  * **Estímulo:** Realiza un `push` o `pull request` en la rama principal de GitHub.
-  * **Entorno:** Pipeline de GitHub Actions (Ubuntu / Node.js 20).
-  * **Respuesta:** Se instalan dependencias y se ejecuta la suite de pruebas (`npm test`) sobre el endpoint `/health`.
-  * **Medida de Calidad:** La prueba de salud responde con código `200 OK` y status `"ok"` en un tiempo total de ejecución del pipeline inferior a **2 minutos**.
+*Documento generado como parte de la entrega del corte 1 del proyecto Gimnasio UTB. Uso de IA generativa registrado en `docs/ia.md` según lo requerido por el curso.*
