@@ -171,3 +171,82 @@ graph TD
     Encargado -->|Registra accesos manuales y gestiona apertura/cierre| Sistema
     Sistema -->|Envía alertas push| FCM
     FCM -->|Entrega notificaciones| Estudiante
+
+# Árbol de utilidad
+
+
+```
+
+Calidad del sistema — Gimnasio UTB
+│
+├── Consistencia de datos [adicional al dominio]
+│   └── Refinamiento: integridad transaccional del conteo de aforo
+│         └── ES1 · Prioridad: Alta · Dificultad: Media
+│
+├── Disponibilidad [canónico]
+│   └── Refinamiento: el estado abierto/cerrado refleja la presencia real del encargado
+│         └── ES2 · Prioridad: Alta · Dificultad: Alta
+│
+├── Usabilidad operativa [adicional al dominio]
+│   └── Refinamiento: eficiencia de la interacción del encargado en registro manual
+│         └── ES3 · Prioridad: Media · Dificultad: Baja
+│
+└── Rendimiento [canónico]
+└── Refinamiento: latencia de actualización de aforo bajo carga normal
+└── ES4 · Prioridad: Alta · Dificultad: Media
+
+```
+
+---
+
+# Escenarios de calidad (con medida)
+
+## ES1 — Consistencia del conteo de aforo *(Consistencia de datos)*
+
+| Campo | Descripción |
+|---|---|
+| **Fuente** | Dos estudiantes escaneando su QR de entrada casi simultáneamente |
+| **Estímulo** | Dos solicitudes de registro de entrada llegan al backend en la misma ventana de tiempo |
+| **Artefacto** | Servicio de registro de aforo (API + tabla de ocupación en PostgreSQL) |
+| **Ambiente** | Operación normal, hora pico |
+| **Respuesta** | El sistema procesa ambos registros de forma atómica, sin perder ni duplicar el conteo |
+| **Medida** | 100% de las transacciones concurrentes reflejan el conteo correcto en una prueba de carga con ≥20 solicitudes simultáneas; 0 inconsistencias detectadas |
+
+## ES2 — Estado real del gimnasio (abierto/cerrado) *(Disponibilidad)*
+
+| Campo | Descripción |
+|---|---|
+| **Fuente** | Encargado del gimnasio |
+| **Estímulo** | El encargado no ha marcado su llegada 15 minutos después del horario programado de apertura |
+| **Artefacto** | Módulo de estado del gimnasio |
+| **Ambiente** | Horario habitual de apertura |
+| **Respuesta** | El sistema cambia automáticamente el estado visible a "cerrado" y notifica a los estudiantes con horario preferido coincidente |
+| **Medida** | Cambio de estado reflejado en la app en ≤2 minutos desde que se cumple el umbral de ausencia |
+
+## ES3 — Registro manual del encargado *(Usabilidad operativa)*
+
+| Campo | Descripción |
+|---|---|
+| **Fuente** | Encargado del gimnasio |
+| **Estímulo** | Necesita registrar manualmente la entrada de un estudiante sin QR disponible (carné olvidado) |
+| **Artefacto** | Interfaz de gestión manual de accesos |
+| **Ambiente** | Operación normal |
+| **Respuesta** | El encargado completa el registro manual sin pasos adicionales innecesarios |
+| **Medida** | Registro completado en ≤10 segundos y máximo 2 toques, verificado en prueba de usabilidad con 5 usuarios |
+
+## ES4 — Actualización de aforo en tiempo real *(Rendimiento)*
+
+| Campo | Descripción |
+|---|---|
+| **Fuente** | Estudiante |
+| **Estímulo** | Escanea su QR de entrada |
+| **Artefacto** | API de registro + vista de aforo en tiempo real (WebSocket) |
+| **Ambiente** | Hora pico, hasta 50 usuarios concurrentes conectados a la vista de aforo |
+| **Respuesta** | El conteo de aforo visible para todos los usuarios conectados se actualiza |
+| **Medida** | Latencia ≤2 segundos en el percentil 95 (P95). **Población:** todos los clientes con la app abierta en la vista de aforo. **Ventana:** 30 minutos continuos en hora pico. **Carga:** hasta 50 usuarios concurrentes. **Método:** tiempo medido desde el evento de escaneo registrado en el backend hasta la recepción de la actualización por WebSocket en el cliente, instrumentado en ambos extremos. |
+
+---
+
+*Documento generado como parte de la entrega del corte 1 del proyecto Gimnasio UTB. Uso de IA generativa registrado en `docs/ia.md` según lo requerido por el curso.*
+
+```
