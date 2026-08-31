@@ -7,7 +7,7 @@ date: Agosto 2026
 
 **Equipo:** Sebastián Felipe Caicedo Acosta, Pedro Luis Pallares De La Hoz, Rodrigo Andrés Facio Lince Beltrán
 **Curso:** Arquitectura de Software — Universidad Tecnológica de Bolívar
-**Corte:** 1 (semana 2)
+**Corte:** 1 (semana 4)
 
 > Basado en arc42 Template v9.0-EN. © Dr. Peter Hruschka, Dr. Gernot Starke y colaboradores — https://arc42.org
 
@@ -117,6 +117,41 @@ El sistema tiene tres actores externos que interactúan con él directa o indire
 
 - *Entrada*: escaneo QR o registro manual → API REST → escritura transaccional en PostgreSQL.
 - *Salida*: aforo actualizado → difusión por WebSocket a clientes conectados; alertas → notificación push vía FCM.
+
+---
+
+# 4. Estrategia de Solución
+
+## 4.1 Decisiones tecnológicas clave
+
+El stack ya quedó fijado y justificado como restricción técnica en la sección 2.2: **Flutter** (app móvil), **Node.js + Express** (backend) y **PostgreSQL** (persistencia), con despliegue en **Render**. La estrategia de solución de esta entrega se enfoca en **cómo se organiza el código dentro de ese backend**, para que desde la semana 4 el equipo pueda avanzar sobre una base ya montada en vez de decidir estructura sobre la marcha.
+
+## 4.2 Matriz comparativa de estilos arquitectónicos
+
+Se evaluaron tres estilos para organizar el backend, frente a los atributos de calidad priorizados en la sección 1.2 y las restricciones organizacionales (equipo pequeño, entregas incrementales):
+
+| Criterio | Arquitectura en Capas | Arquitectura Hexagonal (Puertos y Adaptadores) | Monolito Modular (sin capas ni hexagonal) |
+|---|---|---|---|
+| Acoplamiento del dominio con el framework/DB | Alto — la lógica de negocio suele mezclarse con Express y el ORM | Bajo — el dominio no conoce Express ni PostgreSQL, solo interfaces (puertos) | Medio-alto — cada módulo resuelve su propio acoplamiento, sin regla explícita |
+| Testabilidad del dominio (ES1) | Media — requiere mocks del framework para probar reglas de negocio | Alta — el dominio se prueba con funciones puras, sin levantar servidor ni DB | Variable — depende de la disciplina de cada módulo, no está garantizado por la estructura |
+| Curva de aprendizaje para el equipo (OC5) | Baja — es el estilo más conocido y usado en cursos previos | Media-alta — requiere entender puertos/adaptadores, nuevo para el equipo | Baja-media — es organizar por carpetas de dominio, sin conceptos nuevos |
+| Facilidad de cambio ante nuevas reglas (Mantenibilidad) | Media — un cambio de regla puede tocar varias capas transversales | Alta — cambiar una regla de negocio no toca los adaptadores de infraestructura | Media — depende de qué tan bien delimitado esté cada módulo |
+| Aislamiento para validar seguridad | Media — la validación suele vivir en el controlador, junto al framework | Alta — las políticas de acceso pueden probarse como parte del dominio, desacopladas de Express | Media — igual que capas, depende del módulo |
+| Velocidad para el MVP con los cortes actuales (OC1) | Alta — se escribe rápido, hay muchos ejemplos y plantillas | Media — el andamiaje inicial (puertos, adaptadores) toma más tiempo antes de la primera funcionalidad | Alta — igual de rápido que capas al inicio |
+| Preparación para crecer (Escalabilidad) | Baja-media — separar módulos después implica refactor grande | Alta — cada módulo hexagonal ya está desacoplado, es más fácil extraerlo si hace falta | Media-alta — ya está modularizado, pero sin el aislamiento de dominio que facilita extraer un módulo limpiamente |
+| Riesgo de sobre-ingeniería para un MVP académico | Bajo | Medio — si no se disciplina, los puertos pueden volverse ceremonia sin beneficio real | Bajo |
+
+**Lectura de la matriz:** Capas gana en velocidad inicial y curva de aprendizaje; Monolito Modular es un punto intermedio razonable; Hexagonal es el único que responde directamente a los escenarios de calidad con mayor prioridad del árbol de utilidad (ES1, ES4), a costa de una curva de aprendizaje algo mayor. La decisión final y sus consecuencias completas están documentadas en `docs/adr/0001-arquitectura-hexagonal.md`.
+
+## 4.3 Decisión adoptada
+
+El equipo adopta **Arquitectura Hexagonal (Puertos y Adaptadores)**, desplegada como **un único monolito** (no microservicios), organizada internamente por módulo de dominio (empezando por el módulo `aforo`). Esto significa:
+
+- El **dominio** (reglas de negocio puras, ej. cómo se calcula el aforo) no importa ni Express ni el driver de PostgreSQL.
+- La **aplicación** define casos de uso y puertos (interfaces) que el dominio necesita (ej. "guardar un registro de acceso").
+- La **infraestructura** implementa esos puertos con tecnología concreta: adaptadores HTTP (Express), de persistencia (PostgreSQL) y de tiempo real (WebSocket).
+
+Ver el detalle completo de alternativas y consecuencias en el ADR 0001.
 
 ---
 
