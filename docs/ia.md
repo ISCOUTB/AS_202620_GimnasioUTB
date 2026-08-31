@@ -62,7 +62,7 @@ Este documento registra, de forma trazable, el uso de IA generativa (Claude, Ant
 
 | Campo | Detalle |
 |---|---|
-| **Fecha** | [Insertar fecha actual, ej: 30 de agosto] |
+| **Fecha** | 30 de agosto |
 | **Herramienta** | Claude |
 | **Prompt utilizado** | Se solicitó la creación del glosario inicial (Sección 12 de arc42), el diseño de un corte vertical ejecutable para el README que conectara el backend con PostgreSQL, y la actualización de la tabla de aspectos de calidad añadiendo trazabilidad completa hasta las pruebas. |
 | **Salida generada** | (1) Definiciones glosario inicial del arc42 (aforo, arquitectura hexagonal, cold start, estado operativo, FCM, registro de excepción y transacciones ACID); (2) bloque para el `README.md` unificado con la guía del corte vertical ejecutable y comandos de instalación; (3) código base en Node.js y PostgreSQL para conectar el primer caso de uso extremo a extremo; (4) fila completa para la tabla de aspectos evaluando la consistencia transaccional y su estrategia de pruebas de carga/integración. |
