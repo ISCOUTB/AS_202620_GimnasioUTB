@@ -203,7 +203,7 @@ src/
 - **Infrastructure:** contiene los adaptadores concretos, como HTTP y persistencia.
 - **Shared:** contiene elementos que pueden ser compartidos entre módulos.
 
-## 🚀 Corte Vertical Ejecutable (MVP)
+## Corte Vertical Ejecutable (MVP)
 
 Este repositorio contiene un corte vertical funcional que demuestra la implementación de la **Arquitectura Hexagonal** y la conexión a **PostgreSQL**. El flujo implementado atraviesa todas las capas del sistema comprobando el **Registro de Acceso y la Consulta de Aforo**.
 
