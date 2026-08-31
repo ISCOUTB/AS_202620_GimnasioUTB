@@ -20,6 +20,7 @@ Restricciones organizacionales relevantes: equipo de 4 personas (**OC5**), corte
 Se adopta **Arquitectura Hexagonal (Puertos y Adaptadores)**, desplegada como un **monolito único** (no microservicios), organizada internamente por módulo de dominio. El primer módulo es `aforo` (registro de entrada/salida y conteo de ocupación).
 
 Estructura resultante por módulo:
+```
 src/modules//
 ├── domain/           # entidades y reglas de negocio puras, sin dependencias externas
 ├── application/       # casos de uso y puertos (interfaces) que el dominio necesita
@@ -27,6 +28,7 @@ src/modules//
 └── infrastructure/    # adaptadores concretos: HTTP (Express), persistencia (PostgreSQL), tiempo real (WebSocket)
 ├── http/
 └── persistence/
+```
 
 ## Alternativas consideradas
 
