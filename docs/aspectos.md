@@ -1,22 +1,18 @@
 # Aspectos de Arquitectura
 
-## Aspecto declarado: Consistencia de datos
+| ID | Aspecto | Estímulo | Fuente del estímulo | Entorno | Respuesta | Medida de respuesta | Tensión |
+|---|---|---|---|---|---|---|---|
+| S1 | Consistencia de datos | Se registra una entrada, una salida o una corrección manual de un estudiante. | Estudiante o encargado del gimnasio. | Operación normal del sistema de gestión de aforo. | El sistema valida el evento y actualiza de forma coherente el estado de ocupación del gimnasio. Evita que un estudiante sea contabilizado simultáneamente más de una vez dentro del gimnasio y registra las modificaciones manuales para su seguimiento. | El estado de ocupación debe permanecer coherente después de cada operación y no deben existir duplicidades en el conteo de estudiantes. | La consistencia de los datos puede entrar en tensión con la facilidad de operación, ya que permitir correcciones o registros manuales facilita el trabajo del encargado, pero aumenta el riesgo de errores humanos. |
 
-La consistencia de los datos es un aspecto de calidad fundamental para la arquitectura del sistema de gestión de aforo del Gimnasio UTB.
+## Desarrollo del aspecto S1
 
-El sistema debe mantener un registro coherente de los estudiantes que se encuentran dentro y fuera del gimnasio, ya que la información de ocupación se utiliza para calcular los cupos disponibles y enviar notificaciones a los usuarios.
+### Contexto
 
-## Contexto
+El sistema permitirá registrar la entrada y salida de estudiantes mediante códigos QR. También existirá la posibilidad de realizar una gestión manual por parte del encargado del gimnasio.
 
-El sistema permitirá registrar la entrada y salida de estudiantes mediante códigos QR. Sin embargo, también existirá la posibilidad de realizar una gestión manual por parte del encargado del gimnasio.
+El sistema debe mantener un registro coherente de los estudiantes que se encuentran dentro y fuera del gimnasio, ya que esta información se utiliza para calcular los cupos disponibles y enviar notificaciones a los usuarios.
 
-Esta combinación genera una tensión entre la consistencia de los datos y la facilidad de operación.
-
-El escaneo obligatorio de entrada y salida permite obtener información más confiable sobre la ocupación actual. Sin embargo, puede aumentar la carga operativa y depender del correcto uso del sistema por parte de los usuarios.
-
-Por otro lado, permitir correcciones o registros manuales facilita la operación, pero aumenta el riesgo de errores humanos.
-
-## Decisión arquitectónica inicial
+### Decisión arquitectónica inicial
 
 El sistema mantendrá un estado centralizado de la ocupación del gimnasio.
 
@@ -26,7 +22,7 @@ Los registros realizados manualmente por el encargado deberán quedar identifica
 
 El sistema deberá evitar que un mismo estudiante sea contabilizado simultáneamente más de una vez dentro del gimnasio.
 
-## Riesgo
+### Riesgo
 
 Si las entradas y salidas no se registran correctamente, el número de cupos disponibles puede ser incorrecto.
 
