@@ -139,7 +139,7 @@ Se evaluaron tres estilos para organizar el backend, frente a los atributos de c
 | Preparación para crecer (Escalabilidad) | Baja-media — separar módulos después implica refactor grande | Alta — cada módulo hexagonal ya está desacoplado, es más fácil extraerlo si hace falta | Media-alta — ya está modularizado, pero sin el aislamiento de dominio que facilita extraer un módulo limpiamente |
 | Riesgo de sobre-ingeniería para un MVP académico | Bajo | Medio — si no se disciplina, los puertos pueden volverse ceremonia sin beneficio real | Bajo |
 
-**Lectura de la matriz:** Capas gana en velocidad inicial y curva de aprendizaje; Monolito Modular es un punto intermedio razonable; Hexagonal es el único que responde directamente a los escenarios de calidad con mayor prioridad del árbol de utilidad (ES1, ES4), a costa de una curva de aprendizaje algo mayor. La decisión final y sus consecuencias completas están documentadas en `docs/adr/0001-arquitectura-hexagonal.md`.
+**Lectura de la matriz:** Capas gana en velocidad inicial y curva de aprendizaje; Monolito Modular es un punto intermedio razonable; Hexagonal es el único que responde directamente a los escenarios de calidad con mayor prioridad del árbol de utilidad (ES1, ES4), a costa de una curva de aprendizaje algo mayor. La decisión final y sus consecuencias completas están documentadas en [ADR-0001](../adr/0001-arquitectura-hexagonal.md).
 
 ## 4.3 Decisión adoptada
 
@@ -149,7 +149,7 @@ El equipo adopta **Arquitectura Hexagonal (Puertos y Adaptadores)**, desplegada 
 - La **aplicación** define casos de uso y puertos (interfaces) que el dominio necesita (ej. "guardar un registro de acceso").
 - La **infraestructura** implementa esos puertos con tecnología concreta: adaptadores HTTP (Express), de persistencia (PostgreSQL) y de tiempo real (WebSocket).
 
-Ver el detalle completo de alternativas y consecuencias en el ADR 0001.
+Ver el detalle completo de alternativas y consecuencias documentadas en [ADR-0001](../adr/0001-arquitectura-hexagonal.md).
 
 ---
 
@@ -233,6 +233,7 @@ Calidad del sistema — Gimnasio UTB
 | **Ambiente** | Operación normal, hora pico |
 | **Respuesta** | El sistema procesa ambos registros de forma atómica, sin perder ni duplicar el conteo |
 | **Medida** | 100% de las transacciones concurrentes reflejan el conteo correcto en una prueba de carga con ≥20 solicitudes simultáneas; 0 inconsistencias detectadas |
+| **ADR Motivado** | [ADR-0001: Selección de Arquitectura Hexagonal](../adr/0001-arquitectura-hexagonal.md) |
 
 ## ES2 — Estado real del gimnasio (abierto/cerrado) *(Disponibilidad)*
 
@@ -244,6 +245,7 @@ Calidad del sistema — Gimnasio UTB
 | **Ambiente** | Horario habitual de apertura |
 | **Respuesta** | El sistema cambia automáticamente el estado visible a "cerrado" y notifica a los estudiantes con horario preferido coincidente |
 | **Medida** | Cambio de estado reflejado en la app en ≤2 minutos desde que se cumple el umbral de ausencia |
+| **ADR Motivado** | [ADR-0001: Selección de Arquitectura Hexagonal](../adr/0001-arquitectura-hexagonal.md) |
 
 ## ES3 — Registro manual del encargado *(Usabilidad operativa)*
 
@@ -255,6 +257,7 @@ Calidad del sistema — Gimnasio UTB
 | **Ambiente** | Operación normal |
 | **Respuesta** | El encargado completa el registro manual sin pasos adicionales innecesarios |
 | **Medida** | Registro completado en ≤10 segundos y máximo 2 toques, verificado en prueba de usabilidad con 5 usuarios |
+| **ADR Motivado** | [ADR-0001: Selección de Arquitectura Hexagonal](../adr/0001-arquitectura-hexagonal.md) |
 
 ## ES4 — Actualización de aforo en tiempo real *(Rendimiento)*
 
@@ -266,6 +269,7 @@ Calidad del sistema — Gimnasio UTB
 | **Ambiente** | Hora pico, hasta 50 usuarios concurrentes conectados a la vista de aforo |
 | **Respuesta** | El conteo de aforo visible para todos los usuarios conectados se actualiza |
 | **Medida** | Latencia ≤2 segundos en el percentil 95 (P95). **Población:** todos los clientes con la app abierta en la vista de aforo. **Ventana:** 30 minutos continuos en hora pico. **Carga:** hasta 50 usuarios concurrentes. **Método:** tiempo medido desde el evento de escaneo registrado en el backend hasta la recepción de la actualización por WebSocket en el cliente, instrumentado en ambos extremos. |
+| **ADR Motivado** | [ADR-0001: Selección de Arquitectura Hexagonal](../adr/0001-arquitectura-hexagonal.md) |
 
 ---
 
