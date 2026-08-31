@@ -40,6 +40,9 @@ Este documento registra, de forma trazable, el uso de IA generativa (Claude, Ant
 | **Prompt utilizado (resumido)** | Se solicitó estructurar el arc42 (secciones 1 a 3) a partir del problema ya definido por el equipo (aforo del gimnasio, registro QR/manual, notificaciones), pidiendo explícitamente que preguntara por cualquier decisión técnica pendiente antes de redactar. Ante la pregunta de la IA sobre el stack, el equipo definió: app móvil en Flutter, backend en Node.js + Express, base de datos PostgreSQL, despliegue en Render. |
 | **Salida generada** | Documento arc42 con secciones 1 (Introducción y Objetivos), 2 (Restricciones), 3 (Contexto y Alcance), árbol de utilidad, 5 escenarios de calidad con medida, y un primer diagrama C4 de contexto en sintaxis Mermaid. |
 | **Verificación del equipo** | Se revisaron los objetivos de calidad y restricciones frente al problema real del gimnasio; se validó que las medidas de los escenarios fueran razonables para el alcance del MVP, se cambio el diagrama C4 de contexto por uno hecho por el equipo de trabajo. |
+| **Aceptado** | Se aceptó la estructura inicial del arc42, los escenarios de calidad y la comparación de alternativas como base para la documentación del proyecto. |
+| **Rechazado** | Se rechazó el primer diagrama C4 generado por la IA. |
+| **Motivo** | El equipo consideró que el diagrama debía representar con mayor precisión el contexto real del Gimnasio UTB y sus actores, por lo que decidió elaborar y ajustar el diagrama directamente. |
 
 
 ## Semana 3 — arc42 sección 4, matriz comparativa, ADR 0001, esqueleto del repositorio
@@ -51,6 +54,9 @@ Este documento registra, de forma trazable, el uso de IA generativa (Claude, Ant
 | **Prompt utilizado** | *"La entrega de esta semana es: arc42 sección 4, matriz comparativa de capas / hexagonal / monolito modular y docs/adr/0001-*.md con alternativas y consecuencias. [...] ayudame con la creacion del esqueleto y archivos teniendo en cuenta las correciones realizadas de la anterior entrega* |
 | **Salida generada** | (1) Sección 4 del arc42 con matriz comparativa (Capas / Hexagonal / Monolito Modular) evaluada contra los escenarios de calidad y restricciones ya definidos por el equipo; (2) ADR 0001 con las tres alternativas, decisión (Arquitectura Hexagonal) y consecuencias positivas/negativas; (3) esqueleto de repositorio Node.js/Express con estructura `domain/`, `application/`, `infrastructure/` por módulo, prueba automatizada (`node:test`) y workflow de CI. |
 | **Verificación del equipo** | Se ejecutó `npm install && npm start` y `npm test` de forma local antes de integrar el esqueleto al repositorio, confirmando que la prueba pasaba en verde sin necesidad de base de datos. La decisión de arquitectura (Hexagonal) fue evaluada por el equipo contra las alternativas antes de aceptarla — no se tomó por default. |
+| **Aceptado** | Se aceptó la estructura inicial del esqueleto ejecutable, la organización basada en arquitectura hexagonal, la prueba automatizada y la propuesta de integración continua, después de ser revisadas y probadas por el equipo. |
+| **Rechazado o ajustado** | Se rechazaron o modificaron las propuestas que no coincidían completamente con las decisiones arquitectónicas y necesidades específicas del proyecto. |
+| **Motivo** | El equipo decidió mantener únicamente las propuestas compatibles con el problema del Gimnasio UTB, la arquitectura hexagonal seleccionada y el alcance definido para el MVP. La decisión final sobre la arquitectura fue tomada por el equipo después de comparar las alternativas y no directamente por la IA. |
 
 ---
 
