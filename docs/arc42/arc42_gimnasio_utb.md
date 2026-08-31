@@ -408,6 +408,20 @@ Calidad del sistema — Gimnasio UTB
 
 ---
 
+# 12. Glosario
+
+Este glosario define los términos técnicos y del dominio de negocio centrales para el sistema Gimnasio UTB, con el fin de evitar ambigüedades entre los stakeholders y el equipo de desarrollo.
+
+| Término | Definición |
+|---|---|
+| **Aforo** | Número de estudiantes presentes físicamente en el gimnasio en un momento dado. Se calcula dinámicamente sumando las entradas y restando las salidas. Es el dato transaccional más crítico del sistema. |
+| **Arquitectura Hexagonal** | Patrón de diseño de software (también conocido como Puertos y Adaptadores) utilizado en el backend para aislar la lógica de negocio (dominio) de las tecnologías externas como bases de datos (PostgreSQL) o frameworks web (Express). |
+| **Cold Start (Arranque en frío)** | Demora inicial en el tiempo de respuesta del backend al procesar una solicitud HTTP después de un período de inactividad. Es una restricción técnica derivada del uso del plan gratuito de la plataforma Render. |
+| **Estado Operativo** | Condición real de disponibilidad del gimnasio (abierto o cerrado). No depende exclusivamente del horario oficial del bloque, sino de la presencia física confirmada del encargado en las instalaciones. |
+| **FCM (Firebase Cloud Messaging)** | Servicio en la nube proporcionado por Google que el sistema utiliza como infraestructura para enviar y entregar notificaciones push a los dispositivos móviles de los estudiantes. |
+| **Registro de Excepción (Manual)** | Proceso operativo secundario mediante el cual el encargado del gimnasio registra la entrada o salida de un estudiante desde su propio panel, utilizado únicamente cuando falla el método principal (ej. estudiante sin carné o fallo en la cámara). |
+| **Render** | Plataforma como servicio (PaaS) en la nube seleccionada para el despliegue continuo del backend (Node.js) y el alojamiento de la base de datos (PostgreSQL). |
+| **Transacción ACID** | Conjunto de propiedades (Atomicidad, Consistencia, Aislamiento, Durabilidad) garantizadas por PostgreSQL al procesar registros concurrentes, asegurando que el conteo del aforo nunca se duplique o pierda bajo carga. |
 *Documento generado como parte de la entrega del corte 1 del proyecto Gimnasio UTB. Uso de IA generativa registrado en `docs/ia.md` según lo requerido por el curso.*
 
   * **Estímulo:** Realiza un `push` o `pull request` en la rama principal de GitHub.
