@@ -6,11 +6,11 @@ Aceptada — semana 4, corte 1 continuación.
 
 ## Contexto
 
-El backend de Gimnasio UTB (Node.js + Express + PostgreSQL, restricción **TC3** del arc42) necesita una forma de organizar el código antes de empezar a escribir lógica de negocio. Los atributos de calidad priorizados en el árbol de utilidad (sección "Árbol de utilidad" del arc42) que más dependen de esta decisión son:
+El backend de Gimnasio UTB (Node.js + Express + PostgreSQL, restricción **TC3** del arc42) necesita una forma de organizar el código antes de empezar a escribir lógica de negocio. Los atributos de calidad priorizados en el árbol de utilidad del documento [arc42](../arc42_gimnasio_utb.md) que más dependen de esta decisión son:
 
-- **ES1 — Consistencia**: el conteo de aforo debe poder probarse de forma aislada y confiable.
-- **ES7 — Seguridad**: la validación de accesos (QR reutilizado, panel sin autenticación) debe poder probarse sin depender de Express.
-- **ES8 — Mantenibilidad**: las reglas de horario/operación cambian con frecuencia y deben poder ajustarse sin tocar código de infraestructura.
+- **[ES1 — Consistencia](../arc42_gimnasio_utb.md#es1--consistencia-del-conteo-de-aforo-consistencia-de-datos)**: el conteo de aforo debe poder probarse de forma aislada y confiable.
+- **[ES7 — Seguridad](../arc42_gimnasio_utb.md)**: la validación de accesos (QR reutilizado, panel sin autenticación) debe poder probarse sin depender de Express.
+- **[ES8 — Mantenibilidad](../arc42_gimnasio_utb.md)**: las reglas de horario/operación cambian con frecuencia y deben poder ajustarse sin tocar código de infraestructura.
 
 Restricciones organizacionales relevantes: equipo de 4 personas (**OC5**), cortes de evaluación cada pocas semanas (**OC1**), lo que limita cuánto tiempo se puede invertir en andamiaje antes de mostrar funcionalidad.
 
@@ -67,5 +67,6 @@ Separar el código por carpetas de dominio (`aforo/`, `notificaciones/`, etc.) s
 
 ## Referencias
 
-- arc42 — sección 4 "Estrategia de Solución" (matriz comparativa completa).
-- arc42 — Árbol de utilidad y escenarios ES1, ES7, ES8.
+- Documento de arquitectura: [arc42 — Sección 4: Estrategia de Solución](../arc42_gimnasio_utb.md#4-estrategia-de-solución).
+- Aspectos de arquitectura: [docs/aspectos.md — Aspecto S1](../aspectos.md#desarrollo-del-aspecto-s1).
+- Escenarios vinculados en arc42: [ES1](../arc42_gimnasio_utb.md#es1--consistencia-del-conteo-de-aforo-consistencia-de-datos), ES7 y ES8.
