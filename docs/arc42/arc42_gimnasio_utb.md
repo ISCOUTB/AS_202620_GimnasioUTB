@@ -53,7 +53,6 @@ Siguiendo las dos perspectivas con las que se interpreta la calidad en este proy
 | Rol | Perspectiva | Preocupaciones clave | Expectativas |
 |---|---|---|---|
 | Estudiante (usuario primario) | Usuario y negocio | Respuesta rápida, continuidad del servicio | Saber si hay cupo antes de ir; recibir notificaciones relevantes a su horario. |
-| Bienestar Universitario (beneficiario indirecto) | Usuario y negocio | Costo de operación, continuidad del servicio | Visibilidad indirecta del uso del gimnasio; garantía de que el servicio funciona bien. |
 | Encargado del gimnasio (usuario operativo) | Operaciones y seguridad | Recuperación ante fallos, control del acceso | Registrar accesos rápido (QR o manual); marcar apertura/cierre sin fricción. |
 | Equipo de desarrollo | Operaciones y seguridad | Trazabilidad de decisiones, control de cambios | Cumplir cortes de evaluación (semanas 5, 10, 16) con evidencia técnica defendible. |
 | Docente / evaluador del curso | Operaciones y seguridad | Trazabilidad de decisiones | Decisiones de arquitectura justificadas, no solo estilo; documentación arc42 completa. |
@@ -95,11 +94,10 @@ Siguiendo las dos perspectivas con las que se interpreta la calidad en este proy
 
 ## 3.1 Contexto de negocio
 
-El sistema tiene tres actores externos que interactúan con él directa o indirectamente:
+El sistema tiene dos actores externos que interactúan con él directamente:
 
 - **Estudiante**: consulta el aforo disponible, escanea su QR para registrar entrada/salida, recibe notificaciones según su horario preferido.
 - **Encargado del gimnasio**: gestiona el registro manual cuando el QR no es viable, marca la apertura/cierre real del gimnasio.
-- **Bienestar Universitario**: beneficiario indirecto — consume reportes de uso, no interactúa con el flujo operativo día a día.
 
 *(Ver "Diagrama C4 de contexto" más abajo, con versión en código e imagen.)*
 
@@ -161,11 +159,14 @@ Ver el detalle completo de alternativas y consecuencias en el ADR 0001.
 graph TD
     Estudiante[Estudiante - Usuario Principal]
     Encargado[Encargado del Gimnasio - Operaciones]
-    Bienestar[Bienestar Universitario - Beneficiario Indirecto]
     
     Sistema[Sistema Gimnasio UTB]
     FCM[Firebase Cloud Messaging - FCM]
 
+    Estudiante -->|Escanea QR, consulta aforo y recibe notificaciones| Sistema
+    Encargado -->|Registra accesos manuales y gestiona apertura/cierre| Sistema
+    Sistema -->|Envía alertas push| FCM
+    FCM -->|Entrega notificaciones| Estudiante
     Estudiante -->|Escanea QR, consulta aforo y recibe notificaciones| Sistema
     Encargado -->|Registra accesos manuales y gestiona apertura/cierre| Sistema
     Bienestar -->|Consulta reportes de uso y aforo| Sistema
