@@ -155,27 +155,35 @@ Ver el detalle completo de alternativas y consecuencias en el ADR 0001.
 
 # Diagrama C4 de contexto (Nivel 1)
 
-```mermaid
 graph TD
-    Estudiante[Estudiante - Usuario Principal]
-    Encargado[Encargado del Gimnasio - Operaciones]
-    
-    Sistema[Sistema Gimnasio UTB]
-    FCM[Firebase Cloud Messaging - FCM]
+Estudiante[Estudiante - Usuario Principal]
+Encargado[Encargado del Gimnasio - Operaciones]
 
-    Estudiante -->|Escanea QR, consulta aforo y recibe notificaciones| Sistema
-    Encargado -->|Registra accesos manuales y gestiona apertura/cierre| Sistema
-    Sistema -->|Envía alertas push| FCM
-    FCM -->|Entrega notificaciones| Estudiante
-    Estudiante -->|Escanea QR, consulta aforo y recibe notificaciones| Sistema
-    Encargado -->|Registra accesos manuales y gestiona apertura/cierre| Sistema
-    Sistema -->|Envía alertas push| FCM
-    FCM -->|Entrega notificaciones| Estudiante
+Sistema[Sistema Gimnasio UTB]
+FCM[Firebase Cloud Messaging - FCM]
+
+Estudiante -->|Escanea QR, consulta aforo y recibe notificaciones| Sistema
+Encargado -->|Registra accesos manuales y gestiona apertura/cierre| Sistema
+Sistema -->|Envía alertas push| FCM
+FCM -->|Entrega notificaciones| Estudiante
+
+<p align="center">
+  <img src="C4 Level 1.svg" alt="Diagrama C4 Nivel 1 - Gimnasio UTB" width="85%">
+</p>
+
+El **Sistema Gimnasio UTB** es el sistema de software que gestiona el registro de entradas y salidas, el cálculo del aforo disponible, el estado operativo del gimnasio y el envío de notificaciones.
+
+Los **estudiantes** interactúan con el sistema para consultar el aforo, registrar sus entradas y salidas y recibir información sobre la disponibilidad del gimnasio.
+
+El **encargado del gimnasio** utiliza el sistema para gestionar los accesos y actualizar el estado real del gimnasio, incluyendo su apertura y cierre.
+
+El sistema utiliza **Firebase Cloud Messaging (FCM)** como servicio externo para entregar las notificaciones push a los dispositivos de los estudiantes.
+
+> **Nota:** Este es un diagrama C4 de **Contexto (Nivel 1)**. Por eso no se muestran componentes internos como Flutter, Node.js, Express, PostgreSQL o WebSocket. Esos elementos pertenecen al nivel de contenedores o niveles inferiores.
+
+---
 
 # Árbol de utilidad
-
-
-```
 
 Calidad del sistema — Gimnasio UTB
 │
@@ -194,9 +202,6 @@ Calidad del sistema — Gimnasio UTB
 └── Rendimiento [canónico]
 └── Refinamiento: latencia de actualización de aforo bajo carga normal
 └── ES4 · Prioridad: Alta · Dificultad: Media
-
-```
-
 ---
 
 # Escenarios de calidad (con medida)
@@ -248,5 +253,3 @@ Calidad del sistema — Gimnasio UTB
 ---
 
 *Documento generado como parte de la entrega del corte 1 del proyecto Gimnasio UTB. Uso de IA generativa registrado en `docs/ia.md` según lo requerido por el curso.*
-
-```
