@@ -39,3 +39,11 @@ El sistema debe mantener un registro coherente de los estudiantes que se encuent
 Si las entradas y salidas no se registran correctamente, el número de cupos disponibles puede ser incorrecto.
 
 Esto podría ocasionar que el sistema informe que existen cupos cuando el gimnasio está lleno o que indique ocupación máxima cuando realmente existen espacios disponibles.
+
+### Trazabilidad de Aspectos hasta Pruebas
+
+A continuación se detalla cómo el escenario de calidad más crítico aterriza en el código y cómo se comprobará.
+
+| Aspecto / Requerimiento | Escenario de Calidad Asociado | Decisión Arquitectónica (ADR) | Implementación (Componentes / Código) | Pruebas (Validación planificada) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Consistencia transaccional en el conteo de aforo.** El sistema no debe perder ni duplicar registros cuando múltiples usuarios acceden al mismo tiempo. | **S1 (Consistencia de datos):** Dos estudiantes escanean su QR de entrada simultáneamente y el sistema procesa ambos sin perder el conteo. | **ADR-0001 (Arquitectura Hexagonal)** para garantizar transacciones ACID fuera de la lógica de dominio. | Implementación del `AforoRepositoryPort` en la capa de `infrastructure`. Uso del driver `pg` para ejecutar inserciones SQL con bloqueos por transacción (Row-level locking). | **Pruebas de Integración y Carga:** Ejecución de un script automatizado que lanza 20 peticiones concurrentes a `POST /api/v1/aforo/acceso`. Se verificará que el conteo final en la base de datos coincida exactamente con las peticiones exitosas (código 201), sin errores de condición de carrera. |
