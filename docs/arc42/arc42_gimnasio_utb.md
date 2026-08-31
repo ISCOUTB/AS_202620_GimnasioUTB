@@ -169,6 +169,5 @@ graph TD
     FCM -->|Entrega notificaciones| Estudiante
     Estudiante -->|Escanea QR, consulta aforo y recibe notificaciones| Sistema
     Encargado -->|Registra accesos manuales y gestiona apertura/cierre| Sistema
-    Bienestar -->|Consulta reportes de uso y aforo| Sistema
     Sistema -->|Envía alertas push| FCM
     FCM -->|Entrega notificaciones| Estudiante
