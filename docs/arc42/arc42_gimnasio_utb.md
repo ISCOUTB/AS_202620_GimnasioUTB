@@ -185,23 +185,40 @@ El sistema utiliza **Firebase Cloud Messaging (FCM)** como servicio externo para
 
 # Árbol de utilidad
 
+```
 Calidad del sistema — Gimnasio UTB
+│
+├── Rendimiento [canónico]
+│   └── Refinamiento: latencia de actualización de aforo bajo carga normal
+│         └── ES4 · Prioridad: Alta · Dificultad: Media
+│
+├── Disponibilidad [canónico]
+│   ├── Refinamiento: el estado abierto/cerrado refleja la presencia real del encargado
+│   │     └── ES2 · Prioridad: Alta · Dificultad: Alta
+│   └── Refinamiento: continuidad del servicio ante fallos de infraestructura
+│         └── ES5 · Prioridad: Media · Dificultad: Alta
+│
+├── Escalabilidad [canónico]
+│   └── Refinamiento: crecimiento de usuarios concurrentes conectados al aforo en tiempo real
+│         └── ES6 · Prioridad: Media · Dificultad: Media
+│
+├── Seguridad [canónico]
+│   └── Refinamiento: protección contra QR falsificados/reutilizados y accesos no autorizados
+│         └── ES7 · Prioridad: Alta · Dificultad: Media
+│
+├── Mantenibilidad [canónico]
+│   └── Refinamiento: esfuerzo para ajustar reglas de horario/operación
+│         └── ES8 · Prioridad: Media · Dificultad: Baja
 │
 ├── Consistencia de datos [adicional al dominio]
 │   └── Refinamiento: integridad transaccional del conteo de aforo
 │         └── ES1 · Prioridad: Alta · Dificultad: Media
 │
-├── Disponibilidad [canónico]
-│   └── Refinamiento: el estado abierto/cerrado refleja la presencia real del encargado
-│         └── ES2 · Prioridad: Alta · Dificultad: Alta
-│
-├── Usabilidad operativa [adicional al dominio]
-│   └── Refinamiento: eficiencia de la interacción del encargado en registro manual
-│         └── ES3 · Prioridad: Media · Dificultad: Baja
-│
-└── Rendimiento [canónico]
-└── Refinamiento: latencia de actualización de aforo bajo carga normal
-└── ES4 · Prioridad: Alta · Dificultad: Media
+└── Usabilidad operativa [adicional al dominio]
+    └── Refinamiento: eficiencia de la interacción del encargado en registro manual
+          └── ES3 · Prioridad: Media · Dificultad: Baja
+```
+
 ---
 
 # Escenarios de calidad (con medida)
