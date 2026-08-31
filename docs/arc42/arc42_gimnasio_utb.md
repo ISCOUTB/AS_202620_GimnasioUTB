@@ -292,3 +292,124 @@ Calidad del sistema — Gimnasio UTB
 ---
 
 *Documento generado como parte de la entrega del corte 1 del proyecto Gimnasio UTB. Uso de IA generativa registrado en `docs/ia.md` según lo requerido por el curso.*
+
+## 5. Building Block View (Vista de Bloques de Construcción)
+
+### 5.1 Level 1: System Overview
+La estructura del sistema **Gimnasio UTB** está dividida en tres bloques principales: la aplicación móvil, la API del backend y la base de datos.
+
+```mermaid
+flowchart TD
+    App[Aplicación Móvil \n Flutter] -->|HTTPS / JSON| API[API Backend \n Node.js / Express]
+    API -->|SQL / TCP| DB[(Base de Datos \n PostgreSQL)]
+    
+    style App fill:#1263BA,stroke:#0A3B74,stroke-width:2px,color:#fff
+    style API fill:#1263BA,stroke:#0A3B74,stroke-width:2px,color:#fff
+    style DB fill:#1263BA,stroke:#0A3B74,stroke-width:2px,color:#fff
+```
+
+### 5.2 Level 2: Backend Internal Structure (Hexagonal Architecture)
+El backend aplica el patrón de Arquitectura Hexagonal para aislar el dominio de negocio de las tecnologías externas.
+
+```text
+src/
+├── server.js               # Root de composición (arranque de Express)
+├── modules/
+│   └── aforo/              # Módulo de Dominio del Aforo
+│       ├── domain/         # Reglas puras de negocio (Entidades, Value Objects)
+│       ├── application/    # Casos de uso e Interfaces de Puertos (Ports)
+│       └── infrastructure/ # Adaptadores de Entrada/Salida (HTTP Express, DB PostgreSQL)
+└── shared/                 # Configuración global, utilidades y errores compartidos
+```
+
+**Responsabilidades de cada capa del módulo de aforo:**
+* **Domain Layer:** Define entidades puras (`Aforo`, `RegistroAcceso`, `EstadoGimnasio`) y reglas del sistema (por ejemplo, validar si el aforo excede el límite máximo). No importa dependencias externas.
+* **Application Layer:** Contiene casos de uso (`RegistrarAccesoQRUseCase`, `ConsultarAforoUseCase`) y define las interfaces/puertos de entrada y salida (`AforoRepositoryPort`, `NotificationPort`).
+* **Infrastructure Layer:** Implementa los adaptadores concretos.
+  * **HTTP (Inbound):** Controladores de Express y validación de rutas (`/health`, `/aforo`, `/accesos`).
+  * **Persistence (Outbound):** Implementación de repositorios utilizando consultas SQL sobre PostgreSQL.
+  * **Messaging (Outbound):** Adaptador para interactuar con Firebase Cloud Messaging (FCM).
+
+---
+
+## 6. Runtime View (Vista de Ejecución)
+
+### 6.1 Escenario 1: Registro de Entrada mediante Código QR (Estudiante)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor E as Estudiante
+    participant App as App Móvil (Flutter)
+    participant HTTP as HTTP Adapter (Express)
+    participant UC as RegistrarAccesoUseCase
+    participant DB as PostgreSQL Adapter
+    
+    E->>App: Escanea código QR
+    App->>HTTP: POST /api/v1/aforo/acceso (JSON)
+    HTTP->>UC: ejecutar(datosAcceso)
+    UC->>DB: obtenerAforoActual()
+    DB-->>UC: aforoActual
+    UC->>UC: validarCupoDisponible()
+    UC->>DB: guardarRegistroAcceso()
+    DB-->>UC: Confirmación OK
+    HTTP-->>App: 201 Created { aforoActual, estado }
+```
+
+### 6.2 Escenario 2: Notificación Push de Cambio de Estado del Gimnasio
+1. El **Encargado** marca el cierre del gimnasio desde la **Aplicación Móvil**.
+2. La petición llega al controlador HTTP y ejecuta el caso de uso `CambiarEstadoGimnasioUseCase`.
+3. El caso de uso actualiza el estado operativo en **PostgreSQL**.
+4. El caso de uso llama al puerto `NotificationPort`.
+5. El adaptador **FCM (Infrastructure)** construye el payload y despacha la notificación push a los dispositivos móviles.
+
+---
+
+## 9. Architectural Decisions (Decisiones Arquitectónicas - ADRs)
+
+### ADR-0001: Adopción de Arquitectura Hexagonal en el Backend
+* **Estado:** Aceptado.
+* **Contexto:** Se requiere un backend en Node.js/Express para la gestión de aforo que garantice mantenibilidad, facilidad para realizar pruebas automatizadas y desacoplamiento de la base de datos o frameworks web.
+* **Decisión:** Organizar el módulo `src/modules/aforo` en tres capas aisladas (`domain`, `application`, `infrastructure`).
+* **Consecuencias:**
+  * **Positivas:** Permite escribir pruebas unitarias de la lógica del aforo sin requerir una conexión activa a PostgreSQL ni levantar Express. Facilita cambiar de proveedor de base de datos o servicio de notificaciones en el futuro.
+  * **Negativas:** Incrementa levemente la complejidad estructural inicial para endpoints simples.
+
+### ADR-0002: Despliegue en Render para Entornos de Desarrollo y Staging
+* **Estado:** Aceptado.
+* **Contexto:** El proyecto requiere un entorno cloud de fácil integración continua (CI/CD) desde GitHub Actions.
+* **Decisión:** Desplegar el servicio de Node.js en Render mediante un plan Web Service enlazado al repositorio.
+* **Consecuencias:** Permite la validación rápida de endpoints y pruebas de integración automáticas tras cada `push`.
+
+---
+
+## 10. Quality Requirements (Requerimientos de Calidad)
+
+### 10.1 Árbol de Utilidad (Utility Tree)
+
+```text
+Gimnasio UTB
+├── Rendimiento (Performance)
+│   ├── Tiempo de respuesta del endpoint de salud (/health)
+│   └── Tiempo de respuesta en la consulta de aforo en tiempo real
+├── Disponibilidad (Availability)
+│   └── Verificación del backend mediante CI/CD automatizado
+└── Mantenibilidad (Maintainability)
+    └── Pruebas unitarias de las reglas del dominio del aforo
+```
+
+### 10.2 Escenarios de Calidad
+
+* **Escenario de Rendimiento (Consulta de Aforo):**
+  * **Fuente:** Estudiante mediante la App Móvil.
+  * **Estímulo:** Realiza una petición `GET /aforo` durante las horas de alta concurrencia.
+  * **Entorno:** Operación normal en el servidor Render.
+  * **Respuesta:** El sistema calcula y devuelve el cupo disponible.
+  * **Medida de Calidad:** El tiempo de respuesta del backend es menor a **200 ms** para el 95% de las peticiones.
+
+* **Escenario de Disponibilidad y Verificación (CI/CD):**
+  * **Fuente:** Desarrollador del equipo.
+  * **Estímulo:** Realiza un `push` o `pull request` en la rama principal de GitHub.
+  * **Entorno:** Pipeline de GitHub Actions (Ubuntu / Node.js 20).
+  * **Respuesta:** Se instalan dependencias y se ejecuta la suite de pruebas (`npm test`) sobre el endpoint `/health`.
+  * **Medida de Calidad:** La prueba de salud responde con código `200 OK` y status `"ok"` en un tiempo total de ejecución del pipeline inferior a **2 minutos**.
