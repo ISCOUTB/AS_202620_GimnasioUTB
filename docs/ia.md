@@ -58,6 +58,19 @@ Este documento registra, de forma trazable, el uso de IA generativa (Claude, Ant
 | **Rechazado o ajustado** | Se rechazaron o modificaron las propuestas que no coincidían completamente con las decisiones arquitectónicas y necesidades específicas del proyecto. |
 | **Motivo** | El equipo decidió mantener únicamente las propuestas compatibles con el problema del Gimnasio UTB, la arquitectura hexagonal seleccionada y el alcance definido para el MVP. La decisión final sobre la arquitectura fue tomada por el equipo después de comparar las alternativas y no directamente por la IA. |
 
+## Semana 4 — Glosario inicial, corte vertical ejecutable, actualización del README y trazabilidad de aspectos
+
+| Campo | Detalle |
+|---|---|
+| **Fecha** | [Insertar fecha actual, ej: 30 de agosto] |
+| **Herramienta** | Claude |
+| **Prompt utilizado** | Se solicitó la creación del glosario inicial (Sección 12 de arc42), el diseño de un corte vertical ejecutable para el README que conectara el backend con PostgreSQL, y la actualización de la tabla de aspectos de calidad añadiendo trazabilidad completa hasta las pruebas. |
+| **Salida generada** | (1) Definiciones glosario inicial del arc42 (aforo, arquitectura hexagonal, cold start, estado operativo, FCM, registro de excepción y transacciones ACID); (2) bloque para el `README.md` unificado con la guía del corte vertical ejecutable y comandos de instalación; (3) código base en Node.js y PostgreSQL para conectar el primer caso de uso extremo a extremo; (4) fila completa para la tabla de aspectos evaluando la consistencia transaccional y su estrategia de pruebas de carga/integración. |
+| **Verificación del equipo** | El equipo revisó las definiciones del glosario para que se ajustaran al dominio del gimnasio, validó que los comandos de instalación del README fueran reproducibles en el entorno local y examinó la fila de la tabla de aspectos para asegurar coherencia con el escenario S1. |
+| **Aceptado** | Se aceptó el contenido del glosario, la unificación del README, la estructura del corte vertical en PostgreSQL y la trazabilidad de aspectos para integrarse directamente al repositorio del proyecto. |
+| **Rechazado o ajustado** | N/A |
+| **Motivo** | Los componentes generados respondían directamente a los requerimientos pendientes del esqueleto y la documentación de arquitectura sin requerir modificaciones estructurales mayores. |
+
 ---
 
 *Este registro se actualiza en cada corte con los usos de IA generativa relevantes al entregable correspondiente.*
