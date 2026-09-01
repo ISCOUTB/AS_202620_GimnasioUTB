@@ -101,10 +101,6 @@ Deberías ver en consola: `Gimnasio UTB backend escuchando en el puerto 3000`.
 Invoke-RestMethod -Uri "http://localhost:3000/api/v1/aforo/acceso" -Method Post -ContentType "application/json" -Body '{"tipoAcceso": "ENTRADA"}'
 ```
 
-Respuesta real: 
-status  data
-------  ----
-success @{aforoActual=1}
 
 **2. Consultar el aforo actual:**
 
@@ -112,10 +108,6 @@ success @{aforoActual=1}
 Invoke-RestMethod -Uri "http://localhost:3000/api/v1/aforo"
 ```
 
-Respuesta real:
-status  data
-------  ----
-success @{aforoActual=1}
 
 **3. Ejemplo de la regla de dominio aplicándose de punta a punta** (una salida sin aforo previo debe rechazarse):
 
