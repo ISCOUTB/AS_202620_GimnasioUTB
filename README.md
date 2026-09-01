@@ -98,27 +98,29 @@ Deberías ver en consola: `Gimnasio UTB backend escuchando en el puerto 3000`.
 **1. Registrar un acceso de entrada:**
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/aforo/acceso \
-     -H "Content-Type: application/json" \
-     -d '{"estudianteId": "T00012345", "tipoAcceso": "ENTRADA"}'
+Invoke-RestMethod -Uri "http://localhost:3000/api/v1/aforo/acceso" -Method Post -ContentType "application/json" -Body '{"tipoAcceso": "ENTRADA"}'
 ```
 
-Respuesta real: `201 Created` con `{"status":"success","data":{"aforoActual":1}}`.
+Respuesta real: 
+status  data
+------  ----
+success @{aforoActual=1}
 
 **2. Consultar el aforo actual:**
 
 ```bash
-curl http://localhost:3000/api/v1/aforo
+Invoke-RestMethod -Uri "http://localhost:3000/api/v1/aforo"
 ```
 
-Respuesta real: `200 OK` con `{"status":"success","data":{"aforoActual":1}}`.
+Respuesta real:
+status  data
+------  ----
+success @{aforoActual=1}
 
 **3. Ejemplo de la regla de dominio aplicándose de punta a punta** (una salida sin aforo previo debe rechazarse):
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/aforo/acceso \
-     -H "Content-Type: application/json" \
-     -d '{"estudianteId": "T00012345", "tipoAcceso": "SALIDA"}'
+Invoke-RestMethod -Uri "http://localhost:3000/api/v1/aforo/acceso" -Method Post -ContentType "application/json" -Body '{"tipoAcceso": "SALIDA"}'
 ```
 
 Si el aforo está en 0, responde `400 Bad Request` — la regla vive en `domain/aforo.js` y se prueba también de forma aislada en `tests/domain/aforo.test.js`, sin necesidad de levantar el servidor.
