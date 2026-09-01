@@ -3,18 +3,7 @@ const { crearAforoRouter } = require('./modules/aforo/infrastructure/http/aforo.
 const { AforoMemoriaAdapter } = require('./modules/aforo/infrastructure/persistence/aforo-memoria.adapter');
 const { crearRegistrarAccesoUseCase } = require('./modules/aforo/application/registrar-acceso.usecase');
 
-/**
- * Composition root del backend de Gimnasio UTB.
- *
- * Este es el ÚNICO lugar del proyecto donde se decide qué adaptador
- * concreto usar. El dominio y el caso de uso no saben que existe
- * Express ni que el adaptador de persistencia hoy es en memoria — ver
- * docs/adr/0001-arquitectura-hexagonal.md.
- *
- * Estado de esta entrega: corte vertical ejecutable con persistencia EN
- * MEMORIA. El adaptador de PostgreSQL queda como trabajo pendiente
- * (ver docs/aspectos.md, fila S1).
- */
+
 function createApp() {
   const app = express();
   app.use(express.json());
