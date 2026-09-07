@@ -72,5 +72,17 @@ Este documento registra, de forma trazable, el uso de IA generativa (Claude, Ant
 | **Motivo** | Los componentes generados respondían directamente a los requerimientos pendientes del esqueleto y la documentación de arquitectura sin requerir modificaciones estructurales mayores. |
 
 ---
+## Semana 5 — Glosario inicial, corte vertical ejecutable, trazabilidad de aspectos y documento de correcciones
+
+| Campo | Detalle |
+|---|---|
+| **Fecha** | 6 de septiembre de 2026 |
+| **Herramienta** | Gemini |
+| **Prompt utilizado** | Se solicitó estructurar el glosario inicial (arc42 sección 12), clarificar el concepto de corte vertical ejecutable para el `README.md` con persistencia en PostgreSQL, completar la tabla de aspectos de calidad con trazabilidad hasta pruebas, y crear un documento `correcciones.md` organizado por entregas semanales. |
+| **Salida generada** | (1) Definiciones del glosario inicial (arc42 Sección 12); (2) versión unificada del `README.md` eliminando duplicidades e incluyendo la guía y código base para el corte vertical ejecutable; (3) fila completa de trazabilidad para la matriz de aspectos (`aspectos.md`) enlazando el escenario S1 con la implementación y pruebas de carga; (4) archivo `docs/correcciones.md` dividiendo los ajustes del proyecto por hito semanal; (5) resumen ejecutivo de avances de la semana. |
+| **Verificación del equipo** | El equipo revisó las definiciones del glosario, validó la eliminación de texto duplicado en el README y en el documento de aspectos, inspeccionó el flujo extremo a extremo del corte vertical en la arquitectura hexagonal y ajustó la estructura del historial de correcciones. |
+| **Aceptado** | Se aceptó la unificación del README, el código inicial del corte vertical, la matriz de trazabilidad de aspectos, el glosario de arc42 y la incorporación del archivo `correcciones.md`. |
+| **Rechazado o ajustado** | Se solicitó un reajuste en la estructura propuesta para `correcciones.md` para evitar un listado general y clasificar las correcciones por entrega semanal. |
+| **Motivo** | Dividir el historial de correcciones por entrega permite una mejor trazabilidad frente a las retroalimentaciones recibidas en cada hito evaluativo del curso. |
 
 *Este registro se actualiza en cada corte con los usos de IA generativa relevantes al entregable correspondiente.*
