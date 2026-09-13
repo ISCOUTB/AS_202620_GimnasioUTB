@@ -85,4 +85,16 @@ Este documento registra, de forma trazable, el uso de IA generativa (Claude, Ant
 | **Rechazado o ajustado** | Se solicitó un reajuste en la estructura propuesta para `correcciones.md` para evitar un listado general y clasificar las correcciones por entrega semanal. |
 | **Motivo** | Dividir el historial de correcciones por entrega permite una mejor trazabilidad frente a las retroalimentaciones recibidas en cada hito evaluativo del curso. |
 
+## Semana 6 — Contextos delimitados y propiedad de datos
+
+| Campo | Detalle |
+|---|---|
+| **Fecha** | 13 de septiembre de 2026 |
+| **Herramienta** | Claude |
+| **Prompt utilizado (resumido)** | Se pidió primero una explicación de qué son y para qué sirven los entregables de la evidencia S6 (mapa de contextos, tabla módulo→datos con dueño único, lista de violaciones con plan de corrección). Luego se solicitó la construcción de la tabla de propiedad de datos por módulo y la lista de violaciones detectadas en el código actual con la información dada. Finalmente se pidió actualizar el `README.md` para enlazarlo desde la sección "Documentación". |
+| **Salida generada** | (1) Explicación conceptual de los tres entregables de S6 en términos de DDD aplicados al dominio del gimnasio; (2) tabla módulo→dato→dueño único cubriendo el contexto Aforo (implementado) y los contextos Identidad/Estudiante, Gestión Operativa y Notificaciones (aún no implementados, derivados del lenguaje de `docs/problema.md`); (3) tabla de 3 violaciones/riesgos detectados en el código real (`aforo-memoria.adapter.js`, `server.js`) con su plan de corrección; (4) archivo `docs/contextos-delimitados.md` con ambas tablas; (5) línea nueva en el `README.md` enlazando el documento. |
+| **Verificación del equipo** | Se revisó que la tabla de propiedad de datos reflejara fielmente los contextos descritos en `problema.md` y no contextos inventados; se contrastaron las violaciones señaladas directamente contra el código fuente actual (`aforo-memoria.adapter.js`, `server.js`, el puerto y el caso de uso) para confirmar que corresponden a código real y no a supuestos genéricos de DDD.|
+| **Aceptado** | Se aceptaron ambas tablas, el archivo `docs/contextos-delimitados.md` y la actualización del `README.md` para integrarse al repositorio. |
+| **Motivo** | El mapa de contextos delimitados aún está pendiente de elaborar por el equipo (no fue generado por la IA); las tablas y violaciones sí se generaron con IA pero se validaron contra el código fuente real antes de aceptarlas, siguiendo el mismo criterio de las entregas anteriores de no incorporar nada sin revisión. |
+
 *Este registro se actualiza en cada corte con los usos de IA generativa relevantes al entregable correspondiente.*
