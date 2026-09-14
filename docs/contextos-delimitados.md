@@ -6,7 +6,50 @@ Este documento identifica los contextos delimitados del dominio a partir del len
 
 ## Mapa de contextos
 
-> Pendiente: diagrama de contextos delimitados y sus relaciones (contexto map). Este documento cubre por ahora la tabla de propiedad de datos y las violaciones detectadas, que dependen del mapa pero pueden documentarse mientras el diagrama se agrega.
+```mermaid
+flowchart TD
+    subgraph CLIENTE["Cliente"]
+        APP["App Móvil (Flutter)<br/>• Escaneo QR<br/>• Consulta de Aforo"]
+    end
+
+    subgraph SUPPORTING["Contexto: Usuarios e Identidad (Supporting Domain)"]
+        USUARIOS["Módulo de Usuarios (Upstream - U)<br/>• Identidad y Código QR<br/>• Roles del Personal"]
+    end
+
+    subgraph CORE["Contexto: Control de Aforo (Core Domain - Downstream)"]
+        direction TB
+        IN_PORT["Inbound Port<br/>(HTTP REST API)"]
+        DOMAIN["Domain Core<br/>• Conteo Tiempo Real<br/>• Consistencia Aforo (S1)<br/>• Reglas de Cupo"]
+        OUT_DB["Outbound Port<br/>(AforoRepositoryPort)"]
+        OUT_NOTIF["Outbound Port<br/>(NotificationPort)"]
+
+        IN_PORT --> DOMAIN
+        DOMAIN --> OUT_DB
+        DOMAIN --> OUT_NOTIF
+    end
+
+    subgraph GENERIC["Contexto: Notificaciones (Generic Subdomain)"]
+        FCM["Firebase Cloud Messaging (OHS/PL)<br/>• Alertas Push Masivas"]
+    end
+
+    subgraph PERSISTENCIA["Persistencia"]
+        POSTGRES[("PostgreSQL DB<br/>• Transacciones ACID (ES1)")]
+    end
+
+    %% Relaciones
+    APP -->|HTTPS / REST| IN_PORT
+    USUARIOS -->|Customer-Supplier: Upstream a Downstream| IN_PORT
+    OUT_DB -->|SQL / Driver pg| POSTGRES
+    OUT_NOTIF -->|OHS / PL: HTTP REST / JSON| FCM
+    FCM -.-|Alertas Push| APP
+
+    %% Estilos de subgrupos
+    style CORE fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style SUPPORTING fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style GENERIC fill:#fff8e1,stroke:#f57f17,stroke-width:2px
+    style CLIENTE fill:#eceff1,stroke:#455a64,stroke-width:1.5px
+    style PERSISTENCIA fill:#eceff1,stroke:#37474f,stroke-width:1.5px
+```
 
 ## Tabla módulo → dato → dueño único
 
