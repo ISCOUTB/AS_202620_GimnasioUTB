@@ -1,0 +1,107 @@
+openapi: 3.1.0
+info:
+  title: API Backend - Gimnasio UTB
+  version: 1.0.0
+  description: |
+    Contrato de la API REST del backend (módulo Aforo). Es la fuente única de
+    verdad de la interfaz síncrona entre la App Móvil y el API Backend.
+    Lo verifica automáticamente `tests/contrato.test.js` en cada push (CI).
+
+    Versionado (semver sobre este archivo):
+    - MAJOR: cambio incompatible (renombrar/eliminar un campo, cambiar un código HTTP,
+      volver obligatorio algo opcional). Implica un nuevo prefijo de URL (/api/v2).
+    - MINOR: se agrega algo compatible (endpoint nuevo, campo opcional nuevo).
+    - PATCH: solo cambia la documentación.
+servers:
+  - url: http://localhost:3000
+    description: Desarrollo local
+paths:
+  /health:
+    get:
+      operationId: verificarSalud
+      summary: Verifica que el servicio está en pie
+      responses:
+        '200':
+          description: Servicio operativo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaHealth'
+  /api/v1/aforo:
+    get:
+      operationId: consultarAforo
+      summary: Consulta el aforo actual del gimnasio
+      responses:
+        '200':
+          description: Aforo actual
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaAforo'
+  /api/v1/aforo/acceso:
+    post:
+      operationId: registrarAcceso
+      summary: Registra una entrada o salida y devuelve el aforo resultante
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SolicitudAcceso'
+      responses:
+        '201':
+          description: Acceso registrado; devuelve el nuevo aforo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaAforo'
+        '400':
+          description: >-
+            Solicitud rechazada: tipoAcceso inválido o ausente, o una SALIDA
+            con el aforo en 0 (regla de dominio).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+components:
+  schemas:
+    SolicitudAcceso:
+      type: object
+      required: [tipoAcceso]
+      properties:
+        tipoAcceso:
+          type: string
+          enum: [ENTRADA, SALIDA]
+    RespuestaAforo:
+      type: object
+      required: [status, data]
+      additionalProperties: false
+      properties:
+        status:
+          const: success
+        data:
+          type: object
+          required: [aforoActual]
+          additionalProperties: false
+          properties:
+            aforoActual:
+              type: integer
+              minimum: 0
+    RespuestaError:
+      type: object
+      required: [status, message]
+      additionalProperties: false
+      properties:
+        status:
+          const: error
+        message:
+          type: string
+    RespuestaHealth:
+      type: object
+      required: [status, service]
+      additionalProperties: false
+      properties:
+        status:
+          const: ok
+        service:
+          type: string
