@@ -25,3 +25,13 @@ Este documento consolida los ajustes, refinamientos y correcciones aplicadas a l
 | `README.md` | Se eliminaron secciones completamente duplicadas (instrucciones de ejecución, estructura del proyecto e integración continua). Se integró la sección del "Corte Vertical Ejecutable (MVP)" con los pasos definitivos de conexión a PostgreSQL. |
 | `docs/aspectos.md` | Se borró la primera mitad del documento que contenía el título y la descripción de contexto duplicados. Se añadió al final una nueva tabla de trazabilidad para incluir las columnas de "Implementación" y "Pruebas" del escenario de consistencia (S1). |
 | `docs/ia.md` | Se actualizó el registro de uso de IA correspondiente a la entrega, documentando la generación del glosario (Sección 12) y la estructuración del corte vertical, dejando constancia de la validación del equipo. |
+
+## Semana 7 — Vistas de ejecución, contratos de comunicación y conceptos transversales
+
+| Archivo / Documento | Corrección Realizada |
+| :--- | :--- |
+| `docs/arc42/arc42_gimnasio_utb.md` (Secciones 6 y 8) | Se ampliaron los flujos de interacción de la Vista de Ejecución mediante diagramas de secuencia para el registro de acceso y el cambio de estado del gimnasio. Se documentó la clasificación síncrona de comandos y persistencia, y asíncrona de notificaciones push. Se incorporó la sección 8 con lenguaje ubicuo, mapa resumido de contextos delimitados, límites y propiedad de datos. |
+| `docs/c4/c4_level2.md` | Se etiquetaron todas las relaciones del C4 nivel 2 con el protocolo y formato de comunicación correspondiente: interacción de usuario, HTTPS REST/JSON, SQL sobre TCP 5432 y FCM Push/JSON. |
+| `docs/adr/0003-comunicacion-sincrona-asincrona.md` | Se registró la decisión arquitectónica de usar comunicación síncrona para comandos, consultas y persistencia, y comunicación asíncrona para notificaciones mediante FCM, incluyendo consecuencias y alcance. |
+| `README.md` | Se añadió el enlace al ADR-0003 en la sección de documentación del proyecto. |
+| `docs/c4/` (Nivel 3) | No se realizaron cambios en el C4 nivel 3; su elaboración queda fuera de este alcance y será realizada por otro integrante. |

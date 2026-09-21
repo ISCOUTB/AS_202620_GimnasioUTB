@@ -134,6 +134,7 @@ La documentación del proyecto se encuentra en la carpeta `docs`:
 - `arc42/arc42_gimnasio_utb.md`: documentación de arquitectura completa (arc42).
 - `c4/`: diagramas C4 de contexto (nivel 1) y contenedores (nivel 2).
 - `adr/0001-arquitectura-hexagonal.md`: decisión de arquitectura sobre el estilo del backend, con alternativas y consecuencias.
+- `adr/0003-comunicacion-sincrona-asincrona.md`: decisión sobre comunicaciones síncronas para comandos y asíncronas para notificaciones.
 - `contextos-delimitados.md`: contextos delimitados del dominio, propiedad de datos por módulo (dueño único) y violaciones detectadas en el código actual con su plan de corrección.
 
 ## Integración continua

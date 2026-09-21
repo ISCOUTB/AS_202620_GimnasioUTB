@@ -13,11 +13,11 @@ C4Container
 
     System_Ext(fcm, "Firebase Cloud Messaging", "Servicio externo para notificaciones push.")
 
-    Rel(estudiante, app, "Usa la app en", "HTTPS / Flutter")
-    Rel(encargado, app, "Registra excepciones y estado en", "HTTPS / Flutter")
+    Rel(estudiante, app, "Usa la aplicación", "Interacción UI / eventos de usuario")
+    Rel(encargado, app, "Registra excepciones y estado", "Interacción UI / comandos operativos")
     
-    Rel(app, api, "Realiza peticiones a", "JSON / HTTPS")
-    Rel(api, db, "Lee y escribe en", "SQL / Port 5432")
-    Rel(api, fcm, "Envía solicitudes de notificación a", "HTTPS / REST API")
-    Rel(fcm, app, "Entrega notificaciones a", "Push Protocol")
+    Rel(app, api, "Realiza peticiones a", "HTTPS REST / JSON")
+    Rel(api, db, "Lee y escribe en", "TCP 5432 / SQL")
+    Rel(api, fcm, "Envía solicitudes de notificación a", "HTTPS REST / JSON")
+    Rel(fcm, app, "Entrega notificaciones a", "FCM Push / JSON")
 ```

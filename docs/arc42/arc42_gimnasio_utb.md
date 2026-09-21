@@ -217,13 +217,69 @@ sequenceDiagram
 ```
 
 ### 6.2 Escenario 2: Notificación Push de Cambio de Estado del Gimnasio
-1. El **Encargado** marca el cierre del gimnasio desde la **Aplicación Móvil**.
-2. La petición llega al controlador HTTP y ejecuta el caso de uso `CambiarEstadoGimnasioUseCase`.
-3. El caso de uso actualiza el estado operativo en **PostgreSQL**.
-4. El caso de uso llama al puerto `NotificationPort`.
-5. El adaptador **FCM (Infrastructure)** construye el payload y despacha la notificación push a los dispositivos móviles.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor E as Encargado
+  participant App as App Móvil (Flutter)
+  participant API as API Backend (Express)
+  participant DB as PostgreSQL
+  participant FCM as Firebase Cloud Messaging
+
+  E->>App: Marca cierre del gimnasio
+  App->>API: PUT /api/v1/estado (HTTPS / JSON)
+  API->>DB: Actualiza estado (SQL / transacción)
+  DB-->>API: Confirmación (respuesta síncrona)
+  API-->>App: 200 OK (HTTPS / JSON)
+  API-)FCM: Solicita notificación (HTTPS / JSON)
+  FCM-)App: Entrega push (FCM Push / JSON)
+```
+
+La actualización del estado y la respuesta HTTP son **síncronas**: el encargado recibe confirmación cuando la persistencia termina. El envío y la entrega de la notificación son **asíncronos**: se despachan después de confirmar el cambio y no bloquean la respuesta al encargado.
+
+### 6.3 Clasificación de interacciones
+
+| Flujo | Tipo | Protocolo | Formato | Justificación |
+|---|---|---|---|---|
+| Registro de acceso y consulta de aforo | Síncrono | HTTPS REST | JSON | El cliente necesita el resultado de la operación para actualizar la interfaz. |
+| Persistencia del acceso o estado | Síncrono | SQL sobre TCP 5432 | Filas relacionales | La operación solo se confirma después de completar la transacción. |
+| Notificación de cambio de estado | Asíncrono | FCM Push sobre HTTPS | JSON | La entrega puede ocurrir después de responder al encargado y depende del proveedor externo. |
 
 ---
+
+## 8. Cross-cutting Concepts (Conceptos Transversales)
+
+### 8.1 Lenguaje ubicuo
+
+El equipo y los interesados usarán los siguientes términos con el mismo significado en conversaciones, documentación, API y código:
+
+| Término | Significado acordado |
+|---|---|
+| **Aforo** | Número de estudiantes presentes en el gimnasio en un momento dado. |
+| **Acceso** | Evento de entrada o salida de un estudiante que modifica el aforo. |
+| **Registro de excepción** | Acceso creado manualmente por el encargado cuando el flujo QR no está disponible. |
+| **Estado operativo** | Estado real del gimnasio: abierto o cerrado, según la presencia confirmada del encargado. |
+| **Cupo disponible** | Capacidad máxima menos el aforo actual. |
+| **Encargado** | Persona responsable de operar el gimnasio, gestionar excepciones y marcar su estado. |
+| **Notificación push** | Mensaje entregado al dispositivo mediante Firebase Cloud Messaging (FCM). |
+| **Dueño del dato** | Único contexto autorizado para modificar un dato; los demás contextos solo lo consultan mediante contratos definidos. |
+
+### 8.2 Mapa de contextos delimitados
+
+El mapa completo, incluyendo las relaciones upstream/downstream, propiedad de datos y riesgos identificados, está en [Contextos Delimitados y Propiedad de Datos](../contextos-delimitados.md). La partición vigente es:
+
+```mermaid
+flowchart LR
+  IDENTIDAD[Usuarios e Identidad<br/>Supporting] -->|Código QR y roles| AFORO[Control de Aforo<br/>Core Domain]
+  AFORO -->|Eventos de estado| NOTIF[Notificaciones<br/>Generic Subdomain]
+  AFORO -->|Persistencia| DB[(PostgreSQL)]
+  NOTIF -->|FCM Push| APP[App Móvil]
+```
+
+**Límites y propiedad:** Control de Aforo es el contexto núcleo y es dueño del contador de ocupación y sus eventos. Usuarios e Identidad es dueño de perfiles, códigos QR y roles. Gestión Operativa, aunque todavía no está implementada como módulo, será dueña del estado de apertura/cierre. Notificaciones será dueña de sus suscripciones y del registro de entregas; no modificará el aforo.
+
+Esta definición mantiene el corte vertical actual dentro del contexto de Aforo. Los contextos aún no implementados quedan como límites conceptuales para evitar que futuras funcionalidades escriban directamente en datos ajenos.
 
 ## 9. Architectural Decisions (Decisiones Arquitectónicas - ADRs)
 
@@ -240,6 +296,14 @@ sequenceDiagram
 * **Contexto:** El proyecto requiere un entorno cloud de fácil integración continua (CI/CD) desde GitHub Actions.
 * **Decisión:** Desplegar el servicio de Node.js en Render mediante un plan Web Service enlazado al repositorio.
 * **Consecuencias:** Permite la validación rápida de endpoints y pruebas de integración automáticas tras cada `push`.
+
+### ADR-0003: Comunicación síncrona para comandos y asíncrona para notificaciones
+
+Ver [ADR-0003](../adr/0003-comunicacion-sincrona-asincrona.md) para el detalle de la decisión.
+* **Estado:** Aceptado.
+* **Contexto:** El registro de accesos, la consulta de aforo y el cambio de estado necesitan confirmar al usuario el resultado de una operación persistida. Las notificaciones push, en cambio, dependen de un proveedor externo y no deben bloquear esa confirmación.
+* **Decisión:** Usar comunicación síncrona mediante HTTPS REST con JSON para comandos y consultas, y para la persistencia asociada usar transacciones SQL. Usar FCM como canal asíncrono para notificaciones después de confirmar el cambio principal.
+* **Consecuencias:** El cliente obtiene respuestas deterministas para actualizar su interfaz; las notificaciones toleran latencia o indisponibilidad temporal de FCM sin revertir la operación confirmada. El sistema deberá registrar o reintentar notificaciones fallidas cuando se implemente el adaptador de mensajería.
 
 ---
 
