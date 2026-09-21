@@ -5,17 +5,20 @@
   "main": "src/server.js",
   "private": true,
   "scripts": {
-  "start": "node src/server.js",
-  "dev": "node --watch src/server.js",
-  "test": "npm run test:base && npm run test:contrato",
-  "test:base": "node --test tests/health.test.js tests/domain/aforo.test.js tests/aforo.integration.test.js",
-  "test:contrato": "node --test tests/contrato.test.js"
-},
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "npm run test:base && npm run test:contrato",
+    "test:base": "node --test tests/health.test.js tests/domain/aforo.test.js tests/aforo.integration.test.js",
+    "test:contrato": "node --test tests/contrato.test.js"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
     "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0",
+    "js-yaml": "^4.3.2"
   }
 }
