@@ -13,5 +13,7 @@ jobs:
         with:
           node-version: '20'
       - run: npm install
-      - run: npm test
-      
+      - name: Pruebas unitarias y de integración
+        run: npm run test:base
+      - name: Prueba de contrato (docs/openapi.yaml)
+        run: npm run test:contrato
