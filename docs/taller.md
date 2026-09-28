@@ -255,4 +255,3 @@ export const logger = {
   * **Positivas:** Operación a coste 0 USD, despliegues automáticos e inmutables mediante `git push` y reversiones en < 2 segundos.
   * **Negativas:** La arquitectura de la API debe mantenerse estrictamente sin estado (*stateless*), delegando la persistencia y bloqueos ACID a PostgreSQL.
 };
-```
