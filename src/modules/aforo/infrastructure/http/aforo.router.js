@@ -1,4 +1,7 @@
 const express = require('express');
+const { AforoDomainError } = require('../../domain/aforo');
+const { AforoRepositoryError } = require('../../application/ports/aforo-repository.port');
+const { logger } = require('../../../../shared/logger');
 
 /**
  * Adaptador HTTP del módulo aforo. Traduce peticiones Express hacia el
@@ -17,7 +20,30 @@ function crearAforoRouter(registrarAcceso, obtenerAforoActual) {
       const aforoActual = await registrarAcceso(tipoAcceso);
       res.status(201).json({ status: 'success', data: { aforoActual } });
     } catch (error) {
-      res.status(400).json({ status: 'error', message: error.message });
+      if (error instanceof AforoDomainError) {
+        try {
+          logger.warn('aforo.access_rejected', 'Access operation rejected');
+        } catch {}
+        return res.status(400).json({ status: 'error', message: error.message });
+      }
+
+      if (error instanceof AforoRepositoryError) {
+        try {
+          logger.error('aforo.repository_write_failed', 'Failed to update aforo repository');
+        } catch {}
+        return res.status(503).json({
+          status: 'error',
+          message: 'No fue posible registrar el acceso.',
+        });
+      }
+
+      try {
+        logger.error('aforo.access_unexpected_error', 'Unexpected error while registering access');
+      } catch {}
+      return res.status(500).json({
+        status: 'error',
+        message: 'Error interno al registrar el acceso.',
+      });
     }
   });
 

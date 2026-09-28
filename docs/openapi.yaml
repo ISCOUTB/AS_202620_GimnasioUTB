@@ -56,9 +56,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/RespuestaAforo'
         '400':
-          description: >-
-            Solicitud rechazada: tipoAcceso inválido o ausente, o una SALIDA
-            con el aforo en 0 (regla de dominio).
+          description: Solicitud inválida, transición de dominio rechazada o JSON malformado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '500':
+          description: Error inesperado al procesar el acceso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '503':
+          description: El repositorio de aforo no está disponible
           content:
             application/json:
               schema:
