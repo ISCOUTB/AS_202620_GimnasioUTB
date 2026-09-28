@@ -7,15 +7,18 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "npm run test:base && npm run test:contrato",
+    "db:init": "node scripts/init-db.js",
+    "test": "npm run test:base && npm run test:contrato && npm run test:postgres",
     "test:base": "node --test tests/health.test.js tests/domain/aforo.test.js tests/aforo.integration.test.js",
-    "test:contrato": "node --test tests/contrato.test.js"
+    "test:contrato": "node --test tests/contrato.test.js",
+    "test:postgres": "node --test tests/postgres/aforo-postgres.integration.test.js"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
     "ajv": "^8.20.0",

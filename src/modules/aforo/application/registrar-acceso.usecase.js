@@ -10,10 +10,9 @@ const { aplicarAcceso } = require('../domain/aforo');
  */
 function crearRegistrarAccesoUseCase(aforoRepository) {
   return async function registrarAcceso(tipoAcceso) {
-    const aforoActual = await aforoRepository.obtenerAforoActual();
-    const nuevoAforo = aplicarAcceso(aforoActual, tipoAcceso);
-    await aforoRepository.guardarAforo(nuevoAforo);
-    return nuevoAforo;
+    return aforoRepository.actualizarAforo((aforoActual) =>
+      aplicarAcceso(aforoActual, tipoAcceso)
+    );
   };
 }
 

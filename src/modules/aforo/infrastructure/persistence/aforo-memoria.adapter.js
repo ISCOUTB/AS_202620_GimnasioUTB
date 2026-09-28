@@ -7,13 +7,8 @@ const { AforoRepositoryPort } = require('../../application/ports/aforo-repositor
  * en una variable en RAM mientras el proceso está corriendo (se reinicia en
  * cada arranque del servidor, y no sirve para múltiples instancias).
  *
- * El adaptador de PostgreSQL (driver `pg`, con bloqueo por fila para
- * concurrencia — ver docs/aspectos.md, fila S1) es TRABAJO PENDIENTE, no
- * implementado todavía. Este adaptador existe para que el corte vertical
- * sea ejecutable de punta a punta sin depender de tener PostgreSQL
- * levantado, respetando el puerto (AforoRepositoryPort) que también usará
- * el adaptador de PostgreSQL más adelante — cambiar de uno a otro no debería
- * requerir tocar el dominio ni el caso de uso.
+ * Este adaptador conserva el mismo contrato atómico que el adapter PostgreSQL
+ * para que los tests locales no necesiten una base de datos.
  */
 class AforoMemoriaAdapter extends AforoRepositoryPort {
   constructor() {
@@ -25,8 +20,10 @@ class AforoMemoriaAdapter extends AforoRepositoryPort {
     return this.aforoActual;
   }
 
-  async guardarAforo(nuevoAforo) {
+  async actualizarAforo(transicionar) {
+    const nuevoAforo = transicionar(this.aforoActual);
     this.aforoActual = nuevoAforo;
+    return nuevoAforo;
   }
 }
 

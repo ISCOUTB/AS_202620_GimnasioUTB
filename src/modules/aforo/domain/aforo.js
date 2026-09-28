@@ -9,6 +9,13 @@
 
 const TIPOS_ACCESO_VALIDOS = ['ENTRADA', 'SALIDA'];
 
+class AforoDomainError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'AforoDomainError';
+  }
+}
+
 /**
  * Calcula el nuevo aforo tras aplicar un evento de entrada o salida.
  *
@@ -19,7 +26,7 @@ const TIPOS_ACCESO_VALIDOS = ['ENTRADA', 'SALIDA'];
  */
 function aplicarAcceso(aforoActual, tipoAcceso) {
   if (!TIPOS_ACCESO_VALIDOS.includes(tipoAcceso)) {
-    throw new Error(`tipoAcceso inválido: "${tipoAcceso}". Debe ser ENTRADA o SALIDA.`);
+    throw new AforoDomainError(`tipoAcceso inválido: "${tipoAcceso}". Debe ser ENTRADA o SALIDA.`);
   }
 
   if (tipoAcceso === 'ENTRADA') {
@@ -28,9 +35,9 @@ function aplicarAcceso(aforoActual, tipoAcceso) {
 
   // SALIDA
   if (aforoActual <= 0) {
-    throw new Error('No se puede registrar una salida: el aforo ya está en 0.');
+    throw new AforoDomainError('No se puede registrar una salida: el aforo ya está en 0.');
   }
   return aforoActual - 1;
 }
 
-module.exports = { aplicarAcceso, TIPOS_ACCESO_VALIDOS };
+module.exports = { aplicarAcceso, TIPOS_ACCESO_VALIDOS, AforoDomainError };
