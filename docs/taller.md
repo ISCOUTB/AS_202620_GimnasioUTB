@@ -45,7 +45,7 @@ Se comparan dos alternativas que **no requieren tarjeta de crédito** frente al 
 
 ## 4. Análisis de Arranque en Frío (Cold Start) vs. Escenario p95
 
-De acuerdo con las pautas de la Semana 8, el arranque en frío de una función debe medirse y contrastarse explícitamente con el p95 del escenario de calidad[cite: 1]:
+De acuerdo con las pautas de la Semana 8, el arranque en frío de una función debe medirse y contrastarse explícitamente con el p95 del escenario de calidad:
 
 Objetivo de Calidad (SLA): p95 < 200 ms
 
@@ -65,7 +65,7 @@ Objetivo de Calidad (SLA): p95 < 200 ms
 
 ### Evaluaciones Técnicas
 
-* **Render (PaaS):** Presenta un descalificador operativo crítico[cite: 1]. El arranque en frío tras suspensión toma **42.8 segundos** ($42,800\text{ ms} \gg 200\text{ ms}$), violando drásticamente el SLA para los estudiantes que llegan al primer cambio de clase.
+* **Render (PaaS):** Presenta un descalificador operativo crítico. El arranque en frío tras suspensión toma **42.8 segundos** ($42,800\text{ ms} \gg 200\text{ ms}$), violando drásticamente el SLA para los estudiantes que llegan al primer cambio de clase.
 * **Vercel (FaaS):** Presenta un arranque en frío de **380 ms**. En estado "caliente" (*warm*), alcanza un $p95 = 68\text{ ms}$. La pequeña penalización inicial de 380 ms ocurre únicamente en la primera llamada de la ráfaga, manteniendo el 95% de las peticiones restantes dentro del margen de 68 ms.
 
 ---
