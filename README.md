@@ -2,144 +2,120 @@
 
 ## Sistema de Gestión de Aforo para el Gimnasio UTB
 
-Este proyecto propone el diseño de una solución de software para mejorar la experiencia de los estudiantes que utilizan el gimnasio de la Universidad Tecnológica de Bolívar.
+Este proyecto académico explora una solución para mejorar la información de disponibilidad del gimnasio de la Universidad Tecnológica de Bolívar. El alcance implementado actualmente es un backend ejecutable para consultar y actualizar un contador de aforo; no representa todavía la solución móvil completa.
 
-## Problema
+## Problema y alcance
 
-El gimnasio de la Universidad Tecnológica de Bolívar alcanza su máxima capacidad en ciertos horarios. Actualmente, los estudiantes solo se enteran de esta situación cuando llegan al gimnasio e intentan ingresar, lo que puede generar desplazamientos innecesarios y una mala experiencia.
+La propuesta busca ayudar a los estudiantes a conocer la ocupación del gimnasio antes de desplazarse. La solución completa contempla ideas como aplicación móvil, QR, operación del encargado y notificaciones. Esas capacidades son parte del alcance futuro, no del backend implementado hoy.
 
-Además, la disponibilidad del gimnasio no depende únicamente de su horario habitual, ya que puede permanecer cerrado cuando el encargado no se encuentra presente.
+El corte vertical actual permite:
 
-## Solución propuesta
+- Registrar una transición `ENTRADA` o `SALIDA`.
+- Consultar el contador actual del aforo.
+- Persistir el contador en PostgreSQL cuando se ejecuta el servidor real.
+- Consultar liveness, readiness y un contador operacional de accesos.
 
-Se propone una aplicación móvil, potencialmente integrable con la aplicación institucional de la UTB, que permita:
+El backend no identifica estudiantes, valida QR, mantiene historial de accesos ni impide duplicados por identidad. S1 se limita a la validez de las transiciones del contador y a su consistencia transaccional.
 
-- Registrar la entrada y salida de estudiantes mediante códigos QR.
-- Permitir el registro o corrección manual por parte del encargado.
-- Mostrar los cupos disponibles en tiempo real.
-- Mostrar el estado actual del gimnasio: abierto o cerrado.
-- Enviar notificaciones personalizadas según las horas preferidas del estudiante.
-- Considerar la ocupación actual y la disponibilidad real del gimnasio.
+## Stack actual
 
-## Stack tecnológico
+- **Backend:** Node.js y Express, organizado con Arquitectura Hexagonal / Ports and Adapters. La decisión se describe en [ADR 0001](docs/adr/0001-arquitectura-hexagonal.md).
+- **Persistencia del servidor real:** PostgreSQL mediante `AforoPostgresAdapter`.
+- **Adapter en memoria:** disponible como implementación por defecto de `createApp()`, usada por pruebas que no requieren PostgreSQL.
+- **App móvil Flutter, Render y PostgreSQL gestionado:** pendientes; no hay despliegue configurado.
 
-- **App móvil:** Flutter
-- **Backend:** Node.js + Express, organizado con Arquitectura Hexagonal (ver `docs/adr/0001-arquitectura-hexagonal.md`)
-- **Base de datos:** PostgreSQL — **pendiente de implementar** (ver sección "Corte Vertical Ejecutable" más abajo; hoy el aforo se persiste en memoria)
-- **Despliegue:** Render
+## Ejecución local
 
-## Cómo ejecutar el backend
-
-Requisitos: Node.js ≥ 18.
+Requisitos: Node.js 18 o superior y una instancia PostgreSQL accesible. El servidor real y `npm run db:init` requieren que `DATABASE_URL` esté configurada en el entorno del proceso.
 
 ```bash
-npm install && npm start
+npm install
+npm run db:init
+npm start
 ```
 
-Levanta el servidor en `http://localhost:3000`. Verifica que está corriendo con:
+`db:init` crea la tabla `aforo_estado` e inicializa el contador si aún no existe. El servidor escucha en el puerto 3000 por defecto. Los logs se escriben como JSON en stdout.
 
-```bash
-curl http://localhost:3000/health
-# {"status":"ok","service":"gimnasio-utb-backend"}
+## API actual
+
+| Método y ruta | Comportamiento |
+|---|---|
+| `GET /health` | Liveness estático. Responde `200` con `{"status":"ok","service":"gimnasio-utb-backend"}`. |
+| `GET /ready` | Consulta el repositorio. Responde `200` si está disponible y `503` si la consulta falla. |
+| `GET /metrics` | Devuelve contadores en memoria por instancia, separados por tipo de acceso. Se reinician al reiniciar el proceso. No es una salida Prometheus. |
+| `GET /api/v1/aforo` | Devuelve el aforo actual en `data.aforoActual`. |
+| `POST /api/v1/aforo/acceso` | Recibe `{"tipoAcceso":"ENTRADA"}` o `{"tipoAcceso":"SALIDA"}`. Responde `201` si se registra, `400` si falla la entrada o regla de dominio, `503` si el repositorio no está disponible y `500` ante errores inesperados. |
+
+Ejemplo de respuesta de `GET /metrics` después de una entrada y una salida:
+
+```json
+{
+	"access_operations_total": {
+		"entrada": 1,
+		"salida": 1,
+		"total": 2
+	}
+}
 ```
 
-Para correr las pruebas automatizadas (dominio, integración del corte vertical, y health check):
+Los logs estructurados incluyen `timestamp`, `level`, `event` y `message`. Los callsites actuales no registran credenciales, `DATABASE_URL`, tokens ni payloads de las solicitudes.
+
+## Arquitectura y consistencia
+
+El dominio contiene la regla de transición del contador; la aplicación depende de `AforoRepositoryPort`, cuyo contrato actual incluye `obtenerAforoActual()` y `actualizarAforo(transicionar)`. La infraestructura ofrece el adapter PostgreSQL y el adapter en memoria.
+
+`AforoPostgresAdapter` ejecuta la transición dentro de una transacción y bloquea la fila con `SELECT ... FOR UPDATE` antes de actualizarla. Confirma con `COMMIT`, intenta `ROLLBACK` ante errores y libera el cliente. El servidor real compone la aplicación con PostgreSQL y cierra el adapter tras drenar las solicitudes al recibir `SIGTERM`.
+
+La prueba PostgreSQL incluye persistencia entre instancias, rollback por rechazo del dominio y por error de PostgreSQL, y 20 entradas concurrentes que terminan con aforo 20 sin lost updates. Esta evidencia prueba la consistencia del contador en ese escenario; no prueba deduplicación por estudiante ni carga HTTP general.
+
+## Pruebas y CI
 
 ```bash
 npm test
 ```
 
-## Estructura del backend
+La suite ejecuta pruebas base, contrato y PostgreSQL. La prueba PostgreSQL requiere `DATABASE_URL` apuntando a una base cuyo nombre incluya `test`; sin esa variable se omite. Los resultados validados para el estado actual son: base 12/12, contrato 11/11 y PostgreSQL 8/8.
 
-```
+El workflow actual de GitHub Actions ejecuta las pruebas base y de contrato, pero aún no aprovisiona PostgreSQL ni ejecuta la suite PostgreSQL. CI con PostgreSQL, SonarCloud/Quality Gate, Render, `render.yaml`/IaC, PostgreSQL gestionado y estimación de costos siguen pendientes.
+
+## Estructura relevante
+
+```text
 src/
-├── server.js                # arranque del servidor (composition root) — conecta HTTP, caso de uso y adaptador de persistencia
-├── modules/
-│   └── aforo/
-│       ├── domain/          # regla de negocio pura (aplicarAcceso) — sin Express ni PostgreSQL
-│       ├── application/
-│       │   ├── registrar-acceso.usecase.js
-│       │   └── ports/
-│       │       └── aforo-repository.port.js   # contrato de persistencia
-│       └── infrastructure/
-│           ├── http/
-│           │   └── aforo.router.js            # endpoints POST /acceso y GET /
-│           └── persistence/
-│               └── aforo-memoria.adapter.js   # implementación EN MEMORIA (ver más abajo)
-└── shared/                  # utilidades compartidas entre módulos
+├── server.js
+├── shared/logger.js
+└── modules/aforo/
+		├── domain/aforo.js
+		├── application/
+		│   ├── registrar-acceso.usecase.js
+		│   └── ports/aforo-repository.port.js
+		└── infrastructure/
+				├── http/aforo.router.js
+				└── persistence/
+						├── aforo-postgres.adapter.js
+						├── aforo-memoria.adapter.js
+						└── schema.sql
 
+scripts/init-db.js
 tests/
+├── domain/aforo.test.js
+├── aforo.integration.test.js
+├── contrato.test.js
 ├── health.test.js
-├── domain/aforo.test.js      # prueba del dominio, sin servidor
-└── aforo.integration.test.js # prueba del corte vertical de punta a punta
+└── postgres/aforo-postgres.integration.test.js
 ```
-
-## Corte Vertical Ejecutable
-
-Este repositorio contiene un corte vertical **funcional y ejecutable** que atraviesa las cuatro capas de la Arquitectura Hexagonal (HTTP → caso de uso → dominio → persistencia) para un único flujo: **registrar un acceso y consultar el aforo actual**.
-
-**Estado real de la persistencia (léase con atención):** el aforo se guarda hoy en un **adaptador en memoria** (`aforo-memoria.adapter.js`) — una variable que vive mientras el servidor está corriendo y se reinicia a 0 al reiniciar el proceso. El adaptador de **PostgreSQL es trabajo pendiente**: el puerto (`AforoRepositoryPort`) ya está definido para que, cuando se implemente, el dominio y el caso de uso no necesiten cambiar en absoluto — esa es la garantía concreta que ofrece la Arquitectura Hexagonal adoptada en el ADR 0001.
-
-### Requisitos previos
-
-- Node.js ≥ 18 (no requiere PostgreSQL para esta entrega)
-
-### Pasos para ejecutar localmente
-
-```bash
-npm install
-npm start
-```
-
-Deberías ver en consola: `Gimnasio UTB backend escuchando en el puerto 3000`.
-
-### Probar el corte vertical (HTTP Adapter → UseCase → Dominio → Adaptador en memoria)
-
-**1. Registrar un acceso de entrada:**
-
-```bash
-Invoke-RestMethod -Uri "http://localhost:3000/api/v1/aforo/acceso" -Method Post -ContentType "application/json" -Body '{"tipoAcceso": "ENTRADA"}'
-```
-
-
-**2. Consultar el aforo actual:**
-
-```bash
-Invoke-RestMethod -Uri "http://localhost:3000/api/v1/aforo"
-```
-
-
-**3. Ejemplo de la regla de dominio aplicándose de punta a punta** (una salida sin aforo previo debe rechazarse):
-
-```bash
-Invoke-RestMethod -Uri "http://localhost:3000/api/v1/aforo/acceso" -Method Post -ContentType "application/json" -Body '{"tipoAcceso": "SALIDA"}'
-```
-
-Si el aforo está en 0, responde `400 Bad Request` — la regla vive en `domain/aforo.js` y se prueba también de forma aislada en `tests/domain/aforo.test.js`, sin necesidad de levantar el servidor.
-
-## Stakeholders
-
-- Estudiantes de la Universidad Tecnológica de Bolívar.
-- Encargado(s) del gimnasio.
-- Bienestar Universitario.
-- Área administrativa responsable del gimnasio.
 
 ## Documentación
 
-La documentación del proyecto se encuentra en la carpeta `docs`:
-
-- `problema.md`: descripción y delimitación del problema.
-- `aspectos.md`: aspectos y atributos de calidad relevantes para la arquitectura, con trazabilidad hasta pruebas.
-- `ia.md`: registro del uso de herramientas de inteligencia artificial.
-- `arc42/arc42_gimnasio_utb.md`: documentación de arquitectura completa (arc42).
-- `c4/`: diagramas C4 de contexto (nivel 1) y contenedores (nivel 2).
-- `adr/0001-arquitectura-hexagonal.md`: decisión de arquitectura sobre el estilo del backend, con alternativas y consecuencias.
-- `adr/0003-comunicacion-sincrona-asincrona.md`: decisión sobre comunicaciones síncronas para comandos y asíncronas para notificaciones.
-- `contextos-delimitados.md`: contextos delimitados del dominio, propiedad de datos por módulo (dueño único) y violaciones detectadas en el código actual con su plan de corrección.
-
-## Integración continua
-
-Cada `push` corre las pruebas automatizadas del backend vía GitHub Actions (`.github/workflows/ci.yml`), incluyendo la prueba de integración del corte vertical.
+- [Problema y alcance](docs/problema.md).
+- [Aspectos de arquitectura](docs/aspectos.md).
+- [Contrato OpenAPI](docs/openapi.yaml).
+- [Documentación arc42](docs/arc42/arc42_gimnasio_utb.md).
+- [Diagramas C4](docs/c4/).
+- [ADR 0001: Arquitectura Hexagonal](docs/adr/0001-arquitectura-hexagonal.md).
+- [ADR 0003: Comunicación síncrona y asíncrona](docs/adr/0003-comunicacion-sincrona-asincrona.md).
+- [Contextos delimitados](docs/contextos-delimitados.md).
+- [Registro de uso de IA](docs/ia.md).
 
 ## Integrantes
 

@@ -4,7 +4,9 @@ Evidencia S6 — Domain-Driven Design aplicado a Gimnasio UTB.
 
 Este documento identifica los contextos delimitados del dominio a partir del lenguaje de los interesados (`docs/problema.md`), asigna la propiedad de los datos por módulo evitando escrituras compartidas, y documenta las violaciones detectadas en el código actual junto con su plan de corrección.
 
-## Mapa de contextos
+## Mapa conceptual de contextos
+
+Este mapa representa contextos del producto, incluidos algunos todavía no implementados; no describe por completo el runtime actual. El backend local expone HTTP/JSON y no configura TLS. Por ello, la relación del cliente con la API es conceptual y no afirma una conexión HTTPS actual.
 
 ```mermaid
 flowchart TD
@@ -37,7 +39,7 @@ flowchart TD
     end
 
     %% Relaciones
-    APP -->|HTTPS / REST| IN_PORT
+    APP -->|HTTP / REST / JSON (relación conceptual)| IN_PORT
     USUARIOS -->|Customer-Supplier: Upstream a Downstream| IN_PORT
     OUT_DB -->|SQL / Driver pg| POSTGRES
     OUT_NOTIF -->|OHS / PL: HTTP REST / JSON| FCM
@@ -68,6 +70,6 @@ No existen violaciones de **escritura cruzada entre módulos**, porque hoy solo 
 
 | # | Violación / riesgo detectado | Dónde está | Por qué es un problema | Plan de corrección |
 |---|---|---|---|---|
-| V1 | El estado del aforo (`this.aforoActual`) es una propiedad pública mutable del adaptador, no encapsulada | `src/modules/aforo/infrastructure/persistence/aforo-memoria.adapter.js` | Cualquier código dentro del mismo proceso podría reasignar `adapter.aforoActual` directamente, sin pasar por `guardarAforo()` ni por la regla de dominio `aplicarAcceso`. Hoy nadie lo hace, pero nada en el código lo impide — es una violación latente de dueño único. | Encapsular el estado (ej. campo privado `#aforoActual` de la clase) para que la única forma de modificarlo sea a través de los métodos del puerto. |
+| V1 | El estado del aforo (`this.aforoActual`) es una propiedad pública mutable del adaptador, no encapsulada | `src/modules/aforo/infrastructure/persistence/aforo-memoria.adapter.js` | Cualquier código dentro del mismo proceso podría reasignar `adapter.aforoActual` directamente, sin pasar por `actualizarAforo(transicionar)` ni por la regla de dominio `aplicarAcceso`. Hoy nadie lo hace, pero nada en el código lo impide — es una violación latente de dueño único. | Encapsular el estado (ej. campo privado `#aforoActual` de la clase) para que la única forma de modificarlo sea a través de los métodos del puerto. |
 | V2 | La lectura del aforo en `server.js` bypassa el caso de uso y llama al repositorio directamente | `src/server.js` (línea `const obtenerAforoActual = () => aforoRepository.obtenerAforoActual();`) | El router recibe una referencia directa al repositorio en vez de pasar por la capa de aplicación. Funciona hoy porque leer no tiene reglas de negocio, pero rompe el patrón de que todo acceso a un dato pasa por su módulo dueño a través de un caso de uso — si mañana leer el aforo necesita una regla (ej. "no mostrar aforo si el gimnasio está cerrado"), ese código quedaría disperso. | Crear un caso de uso explícito `consultarAforoActual` en `application/`, aunque hoy sea un simple passthrough, para que toda entrada al módulo tenga un punto único. |
 | V3 | No existe un puerto de lectura para que futuros módulos (Notificaciones) consulten el aforo sin acceder directamente al adaptador en memoria | Ausente en el código (riesgo, no bug actual) | Sin un contrato definido, es fácil que quien implemente Notificaciones importe directamente `AforoMemoriaAdapter` para "ahorrarse pasos" — eso sí sería una violación real de dueño único (dos módulos acoplados a la misma implementación concreta). | Definir un puerto de solo lectura (ej. `AforoQueryPort`) que Aforo exponga, para que otros módulos dependan del contrato y no de la implementación. |

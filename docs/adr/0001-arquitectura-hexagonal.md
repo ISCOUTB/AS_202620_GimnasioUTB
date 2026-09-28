@@ -1,71 +1,77 @@
-# 0001 — Adoptar Arquitectura Hexagonal (Puertos y Adaptadores) para el backend
+# ADR-0001: Adoptar Arquitectura Hexagonal (Ports and Adapters) para el backend
 
 ## Estado
 
-Aceptada — semana 4, corte 1 continuación.
+Aceptada. Este archivo es la versión canónica de ADR-0001.
 
 ## Contexto
 
-El backend de Gimnasio UTB (Node.js + Express + PostgreSQL, restricción **TC3** del arc42) necesita una forma de organizar el código antes de empezar a escribir lógica de negocio. Los atributos de calidad priorizados en el árbol de utilidad del documento [arc42](../arc42_gimnasio_utb.md) que más dependen de esta decisión son:
+El backend actual del Gimnasio UTB implementa un módulo de aforo en Node.js y Express. La regla de negocio debe poder probarse sin depender del framework HTTP ni del driver de PostgreSQL, y la persistencia debe poder sustituirse mediante un contrato.
 
-- **[ES1 — Consistencia de datos](../arc42/arc42_gimnasio_utb.md#es1--consistencia-del-conteo-de-aforo-consistencia-de-datos)**: el conteo de aforo debe poder probarse de forma aislada y confiable mediante transacciones atómicas.
-- **[ES2 — Disponibilidad](../arc42/arc42_gimnasio_utb.md#es2--estado-real-del-gimnasio-abiertocerrado-disponibilidad)**: la lógica para determinar el estado real del gimnasio (abierto/cerrado) debe estar desacoplada de los controladores de Express.
-- **[ES3 — Usabilidad operativa](../arc42/arc42_gimnasio_utb.md#es3--registro-manual-del-encargado-usabilidad-operativa)**: los casos de uso de registro manual deben ejecutarse de forma ágil y limpia sin depender de interfaces concretas.
-- **[ES4 — Rendimiento](../arc42/arc42_gimnasio_utb.md#es4--actualización-de-aforo-en-tiempo-real-rendimiento)**: la emisión de eventos de aforo por WebSockets requiere separar los adaptadores de infraestructura de la lógica del dominio.
-
-Restricciones organizacionales relevantes: equipo de 4 personas (**OC5**), cortes de evaluación cada pocas semanas (**OC1**), lo que limita cuánto tiempo se puede invertir en andamiaje antes de mostrar funcionalidad.
+La arquitectura debía dar soporte a pruebas del dominio aisladas y a una integración real con PostgreSQL, sin convertir el backend en una colección de microservicios.
 
 ## Decisión
 
-Se adopta **Arquitectura Hexagonal (Puertos y Adaptadores)**, desplegada como un **monolito único** (no microservicios), organizada internamente por módulo de dominio. El primer módulo es `aforo` (registro de entrada/salida y conteo de ocupación).
+Se adopta **Arquitectura Hexagonal (Ports and Adapters)** para un **monolito modular**. `src/server.js` es el composition root: crea la aplicación, selecciona e inyecta el repositorio, registra rutas y compone endpoints operativos.
 
-Estructura resultante por módulo:
+El flujo de escritura implementado es:
+
+```text
+HTTP Router -> Use Case -> AforoRepositoryPort -> Adapter -> PostgreSQL
 ```
-src/modules//
-├── domain/           # entidades y reglas de negocio puras, sin dependencias externas
-├── application/       # casos de uso y puertos (interfaces) que el dominio necesita
-│   └── ports/
-└── infrastructure/    # adaptadores concretos: HTTP (Express), persistencia (PostgreSQL), tiempo real (WebSocket)
-├── http/
-└── persistence/
-```
+
+El caso de uso proporciona una función de transición que utiliza `aplicarAcceso` del dominio. El adapter PostgreSQL ejecuta la actualización transaccional. El dominio no depende de PostgreSQL, y el caso de uso depende del contrato del repositorio, no directamente de un adapter.
+
+Componentes implementados:
+
+- `src/server.js`: composition root.
+- `src/modules/aforo/infrastructure/http/aforo.router.js`: `crearAforoRouter`.
+- `src/modules/aforo/application/registrar-acceso.usecase.js`: `crearRegistrarAccesoUseCase`.
+- `src/modules/aforo/domain/aforo.js`: `aplicarAcceso`.
+- `src/modules/aforo/application/ports/aforo-repository.port.js`: `AforoRepositoryPort`.
+- `src/modules/aforo/infrastructure/persistence/aforo-postgres.adapter.js`: `AforoPostgresAdapter`, persistencia real del servidor.
+- `src/modules/aforo/infrastructure/persistence/aforo-memoria.adapter.js`: `AforoMemoriaAdapter`, alternativa en memoria utilizada principalmente para pruebas e inyección.
+- `src/shared/logger.js`: logs estructurados JSON.
+
+`GET /api/v1/aforo` utiliza el getter del repositorio que `server.js` entrega al router; no existe un caso de uso separado de consulta. `/health`, `/ready` y `/metrics` también se componen desde `server.js`.
+
+## Alcance y evidencia
+
+La arquitectura descrita corresponde al módulo de aforo actual. PostgreSQL es el adapter de persistencia utilizado por el servidor real; `createApp()` permite usar memoria por defecto para pruebas. La transacción y el bloqueo de concurrencia en PostgreSQL se detallan en [ADR-0004](0004-concurrencia-postgresql.md).
 
 ## Alternativas consideradas
 
-### A. Arquitectura en Capas (Layered)
+### A. Arquitectura en capas
 
-Organización tradicional por capas técnicas (controllers → services → repositories).
+Organiza el sistema por capas técnicas, por ejemplo controladores, servicios y repositorios. Puede ser sencilla al inicio, pero no impone por sí misma la regla de que el dominio permanezca aislado de Express y PostgreSQL.
 
-- **A favor**: la más rápida de escribir, el equipo ya la conoce de cursos anteriores, cero curva de aprendizaje.
-- **En contra**: el dominio típicamente queda acoplado a Express y al ORM; probar una regla de negocio (ej. ES1) obliga a mockear el framework o levantar infraestructura, lo que ralentiza las pruebas automatizadas exigidas en el esqueleto de esta entrega.
+### B. Monolito modular sin separación hexagonal
 
-### B. Monolito Modular (sin capas ni hexagonal internas)
-
-Separar el código por carpetas de dominio (`aforo/`, `notificaciones/`, etc.) sin imponer una regla de aislamiento interna — cada módulo resuelve su propia organización.
-
-- **A favor**: tan rápido de iniciar como capas, y ya prepara al proyecto para separar módulos en el futuro si el alcance crece.
-- **En contra**: no garantiza que el dominio quede aislado de la infraestructura; el aislamiento depende de la disciplina de cada desarrollador módulo a módulo, lo cual es un riesgo real con un equipo de 4 personas trabajando en paralelo y sin convención explícita.
+Organiza el código por módulos de dominio, pero deja a cada módulo definir sus propias dependencias. Ofrece menos estructura explícita para sustituir adapters y probar reglas de negocio aisladas.
 
 ### C. Arquitectura Hexagonal (elegida)
 
-- **A favor**: el dominio no depende de Express ni de PostgreSQL — se puede probar con funciones puras, lo que hace trivial mantener una prueba automatizada en verde sin infraestructura corriendo (requisito de esta entrega). Aísla exactamente los escenarios de calidad más críticos (ES1, ES2, ES3, ES4). Facilita extraer un módulo a futuro si el alcance escala.
-- **En contra**: requiere que el equipo aprenda el patrón puertos/adaptadores (curva de aprendizaje media-alta, ver matriz comparativa en arc42 sección 4.2); el andamiaje inicial (definir puertos antes de tener funcionalidad) toma más tiempo que empezar directo con capas.
+Mantiene la regla de negocio aislada y permite conectar adapters mediante puertos. Su estructura añade más archivos y requiere respetar las dependencias entre capas.
 
 ## Consecuencias
 
 **Positivas**
 
-- El esqueleto del repositorio puede tener una prueba automatizada en verde sin base de datos ni servidor HTTP reales corriendo, porque el dominio no depende de ellos.
-- Cambiar una regla de negocio (ej. el umbral de ausencia del encargado en ES2) no debería requerir tocar los adaptadores de Express o PostgreSQL.
-- Permite conectar el canal de WebSockets (ES4) mediante un adaptador desacoplado de la persistencia de datos.
+- El dominio puede probarse como lógica pura, sin Express ni conexión a PostgreSQL.
+- El caso de uso utiliza un puerto y puede componerse con PostgreSQL o memoria.
+- La infraestructura concreta queda fuera de las reglas de transición del aforo.
 
 **Negativas**
 
-- El equipo debe invertir tiempo en entender el patrón antes de escribir la primera funcionalidad real (semana 5 en adelante); se mitiga con este esqueleto ya montado.
-- Hay más archivos y carpetas que en una estructura de capas simple, lo que puede sentirse como sobre-ingeniería si no se respeta la separación con disciplina — se mitiga documentando la regla explícitamente en este ADR y revisándola en cada PR.
+- La separación requiere disciplina para evitar accesos directos a adapters desde capas que deberían depender de puertos.
+- La estructura agrega complejidad frente a una implementación pequeña sin capas diferenciadas.
+
+## Evolución futura
+
+**FUTURO / OBJETIVO, no implementado:** Flutter, QR, identidad de estudiantes, autenticación, roles, historial, deduplicación por estudiante, operación de apertura/cierre, WebSocket, FCM, Render, PostgreSQL gestionado e IaC. La arquitectura actual no contiene esos módulos o servicios.
 
 ## Referencias
 
-- Documento de arquitectura: [arc42 — Sección 4](../arc42/arc42_gimnasio_utb.md#4-estrategia-de-solución).
-- Aspectos de arquitectura: [docs/aspectos.md — Aspecto S1](../aspectos.md#desarrollo-del-aspecto-s1).
-- Escenarios vinculados en arc42: [ES1](../arc42/arc42_gimnasio_utb.md#es1--consistencia-del-conteo-de-aforo-consistencia-de-datos), [ES2](../arc42/arc42_gimnasio_utb.md#es2--estado-real-del-gimnasio-abiertocerrado-disponibilidad), [ES3](../arc42/arc42_gimnasio_utb.md#es3--registro-manual-del-encargado-usabilidad-operativa) y [ES4](../arc42/arc42_gimnasio_utb.md#es4--actualización-de-aforo-en-tiempo-real-rendimiento).
+- [arc42, estrategia de solución](../arc42/arc42_gimnasio_utb.md#4-estrategia-de-solución).
+- [Aspecto S1](../aspectos.md#desarrollo-del-aspecto-s1).
+- [ADR-0004: concurrencia PostgreSQL](0004-concurrencia-postgresql.md).

@@ -1,63 +1,45 @@
 ```mermaid
-flowchart TB
-    %% Contenedores Externos (Alineados con el Nivel 2)
-    subgraph EXTERNAL["Sistemas y Contenedores Externos"]
-        APP["Aplicación Móvil (Flutter)"]
-        DB[("Base de Datos (PostgreSQL)")]
-        FCM["Firebase Cloud Messaging"]
-    end
+C4Component
+    title C4 Level 3 - Componentes implementados del backend de aforo
 
-    %% Backend Hexagonal
-    subgraph BACKEND["Contenedor: API Backend (Node.js / Express)"]
-        direction TB
-        
-        subgraph ADAPTERS_IN["1. Adaptadores de Entrada"]
-            CTRL["AforoController"]
-        end
-        
-        subgraph APP_LAYER["2. Capa de Aplicación"]
-            UC_REGISTRAR["RegistrarAccesoUseCase"]
-            UC_CONSULTAR["ConsultarAforoUseCase"]
-        end
-        
-        subgraph DOMAIN_LAYER["3. Núcleo de Dominio"]
-            ENT_AFORO["Entidad Aforo"]
-            VAL_RULES["Servicio Reglas (S1)"]
-        end
-        
-        subgraph PORTS_OUT["4. Puertos de Salida"]
-            PORT_REPO["IAforoRepository"]
-            PORT_NOTIF["INotificationSender"]
-        end
-        
-        subgraph ADAPTERS_OUT["5. Adaptadores de Salida"]
-            ADAPT_REPO["PostgresRepository"]
-            ADAPT_NOTIF["FirebaseAdapter"]
-        end
-    end
+    System_Ext(cliente, "Cliente HTTP", "Consume las rutas HTTP actuales.")
 
-    %% Relaciones Externas (Con protocolos exactos del Nivel 2)
-    APP -->|JSON / HTTPS| CTRL
-    ADAPT_REPO -->|SQL / Port 5432| DB
-    ADAPT_NOTIF -->|HTTPS / REST API| FCM
+    Container_Boundary(api, "Backend / API (Node.js / Express)") {
+        Component(server, "Composition root", "src/server.js", "Compone dependencias y rutas; configura /health, /ready, /metrics y el cierre SIGTERM.")
+        Component(router, "Router HTTP de aforo", "crearAforoRouter", "Atiende POST /api/v1/aforo/acceso y GET /api/v1/aforo.")
+        Component(usecase, "Caso de uso", "crearRegistrarAccesoUseCase", "Ejecuta el registro y delega la transición atómica al puerto.")
+        Component(domain, "Regla de dominio", "aplicarAcceso en aforo.js", "Valida ENTRADA/SALIDA y calcula el contador resultante.")
+        Component(port, "Puerto de persistencia", "AforoRepositoryPort", "Define obtenerAforoActual() y actualizarAforo(transicionar).")
+        Component(pg, "Adapter PostgreSQL", "AforoPostgresAdapter", "Implementa el puerto y persiste el contador en una transacción.")
+        Component(memory, "Adapter en memoria", "AforoMemoriaAdapter", "Implementación alternativa del puerto usada por createApp() y pruebas sin DB.")
+        Component(logger, "Logger compartido", "shared/logger.js", "Emite eventos operativos como logs JSON estructurados.")
+    }
 
-    %% Flujo Interno (Inversión de Dependencias)
-    CTRL -->|Invoca| UC_REGISTRAR & UC_CONSULTAR
-    
-    UC_REGISTRAR --> ENT_AFORO & VAL_RULES
-    UC_CONSULTAR --> ENT_AFORO
-    
-    UC_REGISTRAR -.->|Depende de| PORT_REPO & PORT_NOTIF
-    
-    PORT_REPO ===|Implementa| ADAPT_REPO
-    PORT_NOTIF ===|Implementa| ADAPT_NOTIF
+    ContainerDb(db, "PostgreSQL", "PostgreSQL", "Esquema aforo_estado: una fila persistente del contador agregado.")
 
-    %% Estilos sobrios
-    style EXTERNAL fill:#f8f9fa,stroke:#9e9e9e,stroke-width:1px,stroke-dasharray: 5 5
-    style BACKEND fill:#f1f8e9,stroke:#2e7d32,stroke-width:2px
-    style ADAPTERS_IN fill:#ffffff,stroke:#333
-    style APP_LAYER fill:#ffffff,stroke:#333
-    style DOMAIN_LAYER fill:#c8e6c9,stroke:#1b5e20,stroke-width:1.5px
-    style PORTS_OUT fill:#ffffff,stroke:#333
-    style ADAPTERS_OUT fill:#ffffff,stroke:#333
+    Rel(cliente, router, "Invoca rutas de aforo", "HTTP / JSON")
+    Rel(cliente, server, "Consulta /health, /ready y /metrics", "HTTP / JSON")
+    Rel(server, router, "Monta el router e inyecta el caso de uso y el getter del repositorio")
+    Rel(server, pg, "Crea y usa en el arranque real")
+    Rel(server, logger, "Emite eventos de arranque y apagado")
+    Rel(router, usecase, "Invoca para POST de acceso")
+    Rel(router, port, "GET de aforo usa el getter del repositorio inyectado por server.js")
+    Rel(usecase, port, "Llama actualizarAforo(transicionar)")
+    Rel(usecase, domain, "La función de transición ejecuta aplicarAcceso")
+    Rel(pg, port, "Implementa")
+    Rel(memory, port, "Implementa; alternativa en pruebas/inyección")
+    Rel(pg, db, "Lee y actualiza mediante pg; DATABASE_URL")
 ```
+
+## Responsabilidades implementadas
+
+- `server.js` es el composition root. En el arranque real crea `AforoPostgresAdapter`; `createApp()` admite inyección y usa memoria por defecto. También compone `/health`, `/ready`, `/metrics` y el cierre ordenado ante `SIGTERM`.
+- `crearAforoRouter` recibe las solicitudes HTTP de aforo y devuelve las respuestas definidas por la implementación. `POST /acceso` pasa por el caso de uso. `GET /` usa la función getter suministrada desde `server.js`; no existe `ConsultarAforoUseCase`.
+- `crearRegistrarAccesoUseCase` llama `actualizarAforo(transicionar)`. La transición invoca `aplicarAcceso` en `aforo.js` con el valor actual.
+- `AforoPostgresAdapter` ejecuta `BEGIN`, `SELECT ... FOR UPDATE`, actualización y `COMMIT`; ante errores intenta `ROLLBACK`. Esa secuencia es comportamiento del componente, no un componente separado.
+- `AforoMemoriaAdapter` implementa el puerto para composición alternativa y pruebas; no es el adapter elegido por el servidor real.
+- `shared/logger.js` proporciona logs estructurados JSON para eventos operativos. El composition root también protege el resultado del caso de uso ante fallos al registrar eventos de acceso.
+
+## Arquitectura objetivo / futura
+
+**No implementado actualmente:** Flutter, QR, identidad de estudiantes, autenticación, roles, historial, deduplicación, estado de apertura/cierre, WebSocket, FCM, API Gateway, Redis, servicios separados y componentes de usuarios o notificaciones. No forman parte de este diagrama de componentes.

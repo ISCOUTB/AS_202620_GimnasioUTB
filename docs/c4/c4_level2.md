@@ -1,23 +1,25 @@
 ```mermaid
 C4Container
-    title Diagrama de Contenedores (Nivel 2) - Gimnasio UTB
+    title C4 Level 2 - Contenedores actuales
 
-    Person(estudiante, "Estudiante", "Consulta aforo, escanea QR y recibe notificaciones.")
-    Person(encargado, "Encargado del Gimnasio", "Registra accesos manuales y gestiona estado abierto/cerrado.")
+    System_Ext(cliente, "Cliente HTTP", "Cliente genérico de la API; no se asume que sea una app o un usuario autenticado.")
 
-    Container_Boundary(c1, "Gimnasio UTB System") {
-        Container(app, "Aplicación Móvil", "Flutter", "Interfaz para consulta de aforo, generación/escaneo de QR y recepción de alertas.")
-        Container(api, "API Backend", "Node.js / Express (Arquitectura Hexagonal)", "Gestiona la lógica del aforo, autenticación, control de accesos y despacho de notificaciones.")
-        ContainerDb(db, "Base de Datos", "PostgreSQL", "Guarda histórico de accesos, estados del gimnasio, usuarios y registros de aforo.")
+    Container_Boundary(sistema, "Gimnasio UTB") {
+        Container(api, "Backend / API", "Node.js / Express", "Expone la API HTTP, procesa operaciones de aforo y endpoints operativos.")
+        ContainerDb(db, "Base de datos", "PostgreSQL", "Persiste el contador en la fila aforo_estado.")
     }
 
-    System_Ext(fcm, "Firebase Cloud Messaging", "Servicio externo para notificaciones push.")
-
-    Rel(estudiante, app, "Usa la aplicación", "Interacción UI / eventos de usuario")
-    Rel(encargado, app, "Registra excepciones y estado", "Interacción UI / comandos operativos")
-    
-    Rel(app, api, "Realiza peticiones a", "HTTPS REST / JSON")
-    Rel(api, db, "Lee y escribe en", "TCP 5432 / SQL")
-    Rel(api, fcm, "Envía solicitudes de notificación a", "HTTPS REST / JSON")
-    Rel(fcm, app, "Entrega notificaciones a", "FCM Push / JSON")
+    Rel(cliente, api, "Consulta aforo, registra entradas/salidas y consulta endpoints operativos", "HTTP / JSON")
+    Rel(api, db, "Lee y actualiza aforo", "SQL mediante driver pg; conexión por DATABASE_URL")
 ```
+
+## Contenedores y evidencia
+
+- **Backend / API:** el proceso real se inicia desde `src/server.js`; usa Express y compone `AforoPostgresAdapter`. La aplicación expone las rutas del módulo de aforo y `/health`, `/ready` y `/metrics`.
+- **PostgreSQL:** `src/modules/aforo/infrastructure/persistence/schema.sql` crea `aforo_estado`, con una única fila permitida para el contador y restricción de valor no negativo.
+- **Adapters internos:** `AforoPostgresAdapter` es la implementación usada por el servidor real. `AforoMemoriaAdapter` es una alternativa inyectable y se usa por defecto en `createApp()` para pruebas sin PostgreSQL. Ninguno es un contenedor separado.
+- El adapter PostgreSQL realiza transacciones con bloqueo de fila; el detalle pertenece a la vista de componentes/ejecución, no representa un servicio adicional.
+
+## Arquitectura objetivo / futura
+
+**No implementado actualmente:** aplicación Flutter, identidad/autenticación/roles, QR, historial, deduplicación, WebSocket, FCM, Render, PostgreSQL gestionado e infraestructura como código. No son contenedores ni conexiones del sistema actual.

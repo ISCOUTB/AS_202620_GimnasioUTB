@@ -1,494 +1,294 @@
 ---
 titulo: "arc42 — Gimnasio UTB"
-date: Agosto 2026
+date: Septiembre 2026
 ---
-
-# Gimnasio UTB — Documentación de arquitectura (arc42)
 
 **Equipo:** Sebastián Felipe Caicedo Acosta, Pedro Luis Pallares De La Hoz, Rodrigo Andrés Facio Lince Beltrán
 **Curso:** Arquitectura de Software — Universidad Tecnológica de Bolívar
-**Corte:** 1 (semana 4)
 
-> Basado en arc42 Template v9.0-EN. © Dr. Peter Hruschka, Dr. Gernot Starke y colaboradores — https://arc42.org
+> Basado en arc42 Template v9.0-EN. Este documento separa el backend comprobable del producto objetivo. “IMPLEMENTADO” se reserva para capacidades presentes en el código y respaldadas por pruebas; “OBJETIVO / FUTURO” identifica capacidades planificadas que aún no existen.
 
----
+# 1. Introducción y objetivos
 
-# 1. Introducción y Objetivos
+## 1.1 Visión general
 
-## 1.1 Visión general de requisitos
+El gimnasio de la Universidad Tecnológica de Bolívar alcanza su máxima capacidad en ciertos horarios. Los estudiantes pueden desplazarse sin saber si hay cupo; además, la disponibilidad real puede diferir del horario previsto.
 
-Los estudiantes de la UTB que quieren usar el gimnasio universitario no tienen forma de saber, antes de desplazarse, si hay cupo disponible. Esto genera desplazamientos en vano cuando el gimnasio está lleno, y en ocasiones el gimnasio permanece cerrado por ausencia del encargado sin que los estudiantes lo sepan de antemano.
+El propósito del producto es ofrecer información confiable sobre la disponibilidad del gimnasio. La solución completa contempla una aplicación móvil y funciones para estudiantes y encargados. El alcance implementado en este repositorio es un backend que mantiene un contador agregado de aforo y ofrece una API HTTP para consultarlo y aplicar transiciones de entrada o salida.
 
-**Gimnasio UTB** es una aplicación móvil que resuelve este problema mediante:
+## 1.2 Alcance implementado y objetivo
 
-- **Registro de entrada/salida por escaneo de código QR**: El estudiante registra su entrada y salida mediante lectura de QR con la cámara de su dispositivo móvil.
-- **Registro manual de excepción**: El encargado gestiona accesos de forma manual en el sistema únicamente en casos de excepción (carné olvidado o falla del lector).
-- **Visualización de cupos disponibles en tiempo real**: Calculada a partir de los registros de entrada/salida.
-- **Notificaciones personalizadas**: Basadas en la disponibilidad de cupos, el horario preferido del estudiante, la ocupación actual y el estado abierto/cerrado del gimnasio (que depende de un horario fijo pero también de la presencia real del encargado).
+**IMPLEMENTADO:** backend Node.js/Express con Arquitectura Hexagonal / Ports and Adapters; módulo de aforo; caso de uso de registro; `AforoRepositoryPort`; adapters PostgreSQL y memoria; API HTTP; transacciones con bloqueo de fila; readiness, liveness, métricas locales, logs estructurados y cierre ordenado ante `SIGTERM`.
 
-## 1.2 Objetivos de calidad
+**OBJETIVO / FUTURO:** aplicación Flutter; QR e identidad de estudiantes; autenticación y roles; historial de accesos y deduplicación por estudiante; registro manual; estado operativo de apertura/cierre; WebSocket; FCM; Render; PostgreSQL gestionado; IaC; SonarCloud/Quality Gate y definición final de costos.
 
-El curso define cinco atributos base para guiar el análisis (rendimiento, escalabilidad, disponibilidad, mantenibilidad, seguridad). A partir de ellos, y de las preocupaciones concretas de los interesados, el equipo priorizó lo siguiente:
+El backend actual no identifica personas. Su contador no constituye un registro de quién está dentro del gimnasio.
 
-| # | Atributo de calidad | Tipo | Motivación |
-|---|---|---|---|
-| 1 | **Consistencia de datos** | Adicional al dominio | El conteo de aforo es el dato central del sistema; un conteo incorrecto (duplicado o perdido) invalida el propósito completo de la app. |
-| 2 | **Disponibilidad** | Canónico | El estado abierto/cerrado y el aforo deben reflejar la realidad operativa (presencia del encargado), y el sistema debe seguir siendo usable ante fallos de infraestructura. |
-| 3 | **Rendimiento** | Canónico | Los cambios de aforo deben verse casi de inmediato en los dispositivos de los estudiantes conectados. |
-| 4 | **Usabilidad operativa** | Adicional al dominio | El encargado debe poder registrar accesos manuales rápido, sin fricción, para no convertirse en cuello de botella. |
-| 5 | **Escalabilidad** | Canónico | El número de usuarios concurrentes crecerá con la adopción de la app entre semestres. |
-| 6 | **Seguridad** | Canónico | El aforo y los accesos deben protegerse contra QR falsificados/reutilizados y accesos no autorizados al panel del encargado. |
-| 7 | **Mantenibilidad** | Canónico | Las reglas de horario y operación cambian con frecuencia (bloques, umbrales de ausencia) y deben poder ajustarse con bajo esfuerzo. |
+## 1.3 Objetivos de calidad
 
-## 1.3 Trade-off principal
+- **Consistencia del contador:** serializar transiciones PostgreSQL concurrentes y no perder actualizaciones en el escenario probado.
+- **Mantenibilidad:** aislar el dominio de Express y del driver PostgreSQL mediante el puerto de persistencia.
+- **Operación verificable:** separar liveness (`/health`) de readiness (`/ready`) y consultar contadores operacionales (`/metrics`).
 
-**¿Qué atributo sacrificarían y a cambio de qué?**
-
-El equipo sacrifica parte de la **velocidad de desarrollo y la disponibilidad nativa en tiempo real** que ofrecería una plataforma serverless tipo Firebase, a cambio de **consistencia transaccional garantizada** (PostgreSQL con transacciones ACID) en el conteo de aforo. La razón: un conteo de aforo incorrecto rompe la confianza del estudiante en la app y anula su propósito; en cambio, una demora de 1–2 segundos en la sincronización del dato es tolerable. Esta decisión está formalizada como restricción técnica **TC3** (sección 2.2).
+Rendimiento bajo carga, alta disponibilidad cloud, seguridad de identidad y experiencia de uso móvil son objetivos futuros; no cuentan con evidencia de implementación en este backend.
 
 ## 1.4 Stakeholders
 
-Siguiendo las dos perspectivas con las que se interpreta la calidad en este proyecto:
+| Stakeholder | Interés y estado |
+|---|---|
+| Estudiantes | Quieren conocer la disponibilidad. La aplicación y la identidad de estudiante están pendientes. |
+| Encargado del gimnasio | Requeriría operar registros manuales y apertura/cierre. Estas capacidades están pendientes. |
+| Bienestar Universitario y área administrativa | Interesados en la gestión del aforo y el uso del gimnasio. |
+| Equipo de desarrollo y evaluadores | Necesitan decisiones trazables y evidencia verificable por corte académico. |
 
-| Rol | Perspectiva | Preocupaciones clave | Expectativas |
-|---|---|---|---|
-| Estudiante (usuario primario) | Usuario y negocio | Respuesta rápida, continuidad del servicio | Saber si hay cupo antes de ir; recibir notificaciones relevantes a su horario. |
-| Encargado del gimnasio (usuario operativo) | Operaciones y seguridad | Recuperación ante fallos, control del acceso | Registrar accesos rápido (QR o manual); marcar apertura/cierre sin fricción. |
-| Equipo de desarrollo | Operaciones y seguridad | Trazabilidad de decisiones, control de cambios | Cumplir cortes de evaluación (semanas 5, 10, 16) con evidencia técnica defendible. |
-| Docente / evaluador del curso | Operaciones y seguridad | Trazabilidad de decisiones | Decisiones de arquitectura justificadas, no solo estilo; documentación arc42 completa. |
+# 2. Restricciones de arquitectura
 
----
+## 2.1 Organizacionales y académicas
 
-# 2. Restricciones de Arquitectura
+La solución se desarrolla como proyecto académico incremental y su arquitectura debe poder explicarse y verificarse. El uso de IA debe registrarse conforme a las políticas del curso.
 
-## 2.1 Restricciones organizacionales
+**OBJETIVO / FUTURO:** URL pública, Render, integración de SonarCloud y Quality Gate. Son metas o requisitos del proyecto, no capacidades desplegadas o configuradas actualmente.
 
-| ID | Restricción | Origen | Justificación / impacto en la arquitectura |
-|---|---|---|---|
-| OC1 | Cortes de evaluación en semanas 5, 10 y 16 | Sílabo del curso | Obliga a una arquitectura desplegable de forma incremental desde el inicio, no un "big bang" al final. |
-| OC2 | Documentación obligatoria en plantilla **arc42** | Criterio de evaluación del docente | Fuerza a comunicar y defender cada decisión de arquitectura de forma estructurada y trazable. |
-| OC3 | Repositorio en **GitHub** con integración de **SonarCloud** | Plataforma oficial del curso | Condiciona el stack a lenguajes/frameworks con buen soporte de análisis estático (JS/TS encaja bien). |
-| OC4 | Uso de IA generativa debe registrarse en `docs/ia.md` | Políticas académicas UTB | Cada decisión asistida por IA debe verificarse y quedar trazada formalmente. |
-| OC5 | Equipo de 4 personas, un semestre | Limitación del proyecto académico | Limita el alcance del MVP; favorece frameworks con alta productividad (un solo lenguaje en todo el stack). |
-| OC6 | Metodología ágil con evidencia semanal | Plan de trabajo de la asignatura | Requiere incrementos demostrables; refuerza la necesidad de un entorno desplegado desde etapas tempranas. |
+## 2.2 Técnicas implementadas
 
-## 2.2 Restricciones técnicas
+- Node.js 18 o superior, Express y `pg`.
+- El servidor real crea `AforoPostgresAdapter` y requiere `DATABASE_URL`.
+- `npm run db:init` ejecuta `src/modules/aforo/infrastructure/persistence/schema.sql`.
+- El esquema contiene una fila de estado con `id = 1` y un contador entero no negativo.
+- El adapter PostgreSQL aplica cada transición en una transacción y bloquea la fila antes de modificarla.
+- `createApp()` acepta un repositorio inyectado y usa el adapter en memoria por defecto, lo que permite pruebas sin base de datos.
 
-| ID | Restricción | Origen | Justificación / impacto en la arquitectura |
-|---|---|---|---|
-| TC1 | **URL pública requerida desde el corte 2** (semana 10) | Requisito de evaluación del curso | Obliga a elegir una plataforma de despliegue continuo desde el corte 1 en vez de trabajar solo en local. |
-| TC2 | App móvil en **Flutter** | Decisión técnica del equipo | Codebase único para Android/iOS, coherente con un equipo pequeño y tiempo limitado; evita duplicar lógica de UI. |
-| TC3 | Backend en **Node.js + Express**, base de datos **PostgreSQL** | Decisión de arquitectura del equipo | Postgres da garantías **ACID**, necesarias para que el conteo de aforo sea consistente (trade-off sección 1.3). Node/Express tiene además soporte directo en SonarCloud (OC3). |
-| TC4 | Despliegue en **Render** (free tier) | Presupuesto del equipo (0 USD) | Sin costo, pero implica *cold starts* tras inactividad — restricción que debe manejarse explícitamente en la app. |
-| TC5 | Dependencia de hardware de cámara y API del SO | Plataformas Android / iOS | La captura de imágenes depende de la disponibilidad física de la cámara y permisos de privacidad concedidos por el usuario en el dispositivo móvil. |
+## 2.3 Restricciones y requisitos futuros
 
-## 2.3 Restricciones legales
+Flutter, cámara, QR, datos personales, autenticación, autorización, notificaciones, WebSocket, alojamiento cloud y base gestionada todavía no forman parte del código implementado. Los requisitos legales relacionados con identificación y datos personales deberán analizarse cuando esas funciones se incorporen; este documento no afirma que ya estén implementadas ni que exista una evaluación de cumplimiento.
 
-| ID | Restricción | Origen | Justificación / impacto en la arquitectura |
-|---|---|---|---|
-| LC1 | Cumplimiento de la **Ley 1581 de 2012** (Protección de Datos Personales en Colombia) | Marco legal colombiano y normatividad UTB | El sistema maneja datos de identificación de estudiantes (código/carné y registros de asistencia); la arquitectura debe garantizar la encriptación de datos en tránsito y reposo, minimización de datos almacenados y consentimiento expreso para el tratamiento de su información. |
-
----
-
-# 3. Contexto y Alcance
+# 3. Contexto y alcance del sistema
 
 ## 3.1 Contexto de negocio
 
-El sistema tiene dos actores externos que interactúan con él directamente:
+El problema de negocio es informar y gestionar la ocupación del gimnasio. El backend implementado expone un contador agregado; no recibe ni valida identidad, QR o roles. Estudiantes y encargados son stakeholders del producto objetivo, pero el backend actual no los representa como actores autenticados.
 
-- **Estudiante**: consulta el aforo disponible, escanea su QR para registrar entrada/salida, recibe notificaciones según su horario preferido.
-- **Encargado del gimnasio**: gestiona el registro manual cuando el QR no es viable, marca la apertura/cierre real del gimnasio.
-
-*(Ver "Diagrama C4 de contexto" más abajo, con versión en código e imagen.)*
-
-## 3.2 Contexto técnico
-
-| Canal | Origen → Destino | Protocolo | Formato |
-|---|---|---|---|
-| App móvil ↔ API backend | Flutter app ↔ Node/Express | HTTPS (REST) | JSON |
-| Actualización de aforo en tiempo real | Node/Express ↔ Flutter app | WebSocket (Socket.io) | JSON |
-| Registro de acceso | Flutter app (lector QR) → API backend | HTTPS (REST) | JSON |
-| Persistencia | API backend ↔ PostgreSQL | SQL (driver `pg`) | Filas relacionales |
-| Notificaciones push | API backend → Servicio de notificaciones (FCM) → dispositivo del estudiante | HTTPS / FCM | JSON |
-
-**Mapeo entrada/salida a canales:**
-
-- *Entrada*: escaneo QR o registro manual → API REST → escritura transaccional en PostgreSQL.
-- *Salida*: aforo actualizado → difusión por WebSocket a clientes conectados; alertas → notificación push vía FCM.
-
----
-
-# 4. Estrategia de Solución
-
-## 4.1 Decisiones tecnológicas clave
-
-El stack ya quedó fijado y justificado como restricción técnica en la sección 2.2: **Flutter** (app móvil), **Node.js + Express** (backend) y **PostgreSQL** (persistencia), con despliegue en **Render**. La estrategia de solución de esta entrega se enfoca en **cómo se organiza el código dentro de ese backend**, para que desde la semana 4 el equipo pueda avanzar sobre una base ya montada en vez de decidir estructura sobre la marcha.
-
-## 4.2 Matriz comparativa de estilos arquitectónicos
-
-Se evaluaron tres estilos para organizar el backend, frente a los atributos de calidad priorizados en la sección 1.2 y las restricciones organizacionales (equipo pequeño, entregas incrementales):
-
-| Criterio | Arquitectura en Capas | Arquitectura Hexagonal (Puertos y Adaptadores) | Monolito Modular (sin capas ni hexagonal) |
-|---|---|---|---|
-| Acoplamiento del dominio con el framework/DB | Alto — la lógica de negocio suele mezclarse con Express y el ORM | Bajo — el dominio no conoce Express ni PostgreSQL, solo interfaces (puertos) | Medio-alto — cada módulo resuelve su propio acoplamiento, sin regla explícita |
-| Testabilidad del dominio (ES1) | Media — requiere mocks del framework para probar reglas de negocio | Alta — el dominio se prueba con funciones puras, sin levantar servidor ni DB | Variable — depende de la disciplina de cada módulo, no está garantizado por la estructura |
-| Curva de aprendizaje para el equipo (OC5) | Baja — es el estilo más conocido y usado en cursos previos | Media-alta — requiere entender puertos/adaptadores, nuevo para el equipo | Baja-media — es organizar por carpetas de dominio, sin conceptos nuevos |
-| Facilidad de cambio ante nuevas reglas (Mantenibilidad) | Media — un cambio de regla puede tocar varias capas transversales | Alta — cambiar una regla de negocio no toca los adaptadores de infraestructura | Media — depende de qué tan bien delimitado esté cada módulo |
-| Aislamiento para validar seguridad | Media — la validación suele vivir en el controlador, junto al framework | Alta — las políticas de acceso pueden probarse como parte del dominio, desacopladas de Express | Media — igual que capas, depende del módulo |
-| Velocidad para el MVP con los cortes actuales (OC1) | Alta — se escribe rápido, hay muchos ejemplos y plantillas | Media — el andamiaje inicial (puertos, adaptadores) toma más tiempo antes de la primera funcionalidad | Alta — igual de rápido que capas al inicio |
-| Preparación para crecer (Escalabilidad) | Baja-media — separar módulos después implica refactor grande | Alta — cada módulo hexagonal ya está desacoplado, es más fácil extraerlo si hace falta | Media-alta — ya está modularizado, pero sin el aislamiento de dominio que facilita extraer un módulo limpiamente |
-| Riesgo de sobre-ingeniería para un MVP académico | Bajo | Medio — si no se disciplina, los puertos pueden volverse ceremonia sin beneficio real | Bajo |
-
-**Lectura de la matriz:** Capas gana en velocidad inicial y curva de aprendizaje; Monolito Modular es un punto intermedio razonable; Hexagonal es el único que responde directamente a los escenarios de calidad con mayor prioridad del árbol de utilidad (ES1, ES4), a costa de una curva de aprendizaje algo mayor. La decisión final y sus consecuencias completas están documentadas en [ADR-0001](../adr/0001-arquitectura-hexagonal.md).
-
-## 4.3 Decisión adoptada
-
-El equipo adopta **Arquitectura Hexagonal (Puertos y Adaptadores)**, desplegada como **un único monolito** (no microservicios), organizada internamente por módulo de dominio (empezando por el módulo `aforo`). Esto significa:
-
-- El **dominio** (reglas de negocio puras, ej. cómo se calcula el aforo) no importa ni Express ni el driver de PostgreSQL.
-- La **aplicación** define casos de uso y puertos (interfaces) que el dominio necesita (ej. "guardar un registro de acceso").
-- La **infraestructura** implementa esos puertos con tecnología concreta: adaptadores HTTP (Express), de persistencia (PostgreSQL) y de tiempo real (WebSocket).
-
-Ver el detalle completo de alternativas y consecuencias documentadas en [ADR-0001](../adr/0001-arquitectura-hexagonal.md).
-
----
-
-## 5. Building Block View (Vista de Bloques de Construcción)
-
-### 5.1 Level 1: System Overview
-La estructura del sistema **Gimnasio UTB** está dividida en tres bloques principales: la aplicación móvil, la API del backend y la base de datos.
-
-```mermaid
-flowchart TD
-    App[Aplicación Móvil \n Flutter] -->|HTTPS / JSON| API[API Backend \n Node.js / Express]
-    API -->|SQL / TCP| DB[(Base de Datos \n PostgreSQL)]
-    
-    style App fill:#1263BA,stroke:#0A3B74,stroke-width:2px,color:#fff
-    style API fill:#1263BA,stroke:#0A3B74,stroke-width:2px,color:#fff
-    style DB fill:#1263BA,stroke:#0A3B74,stroke-width:2px,color:#fff
-```
-
-### 5.2 Level 2: Backend Internal Structure (Hexagonal Architecture)
-El backend aplica el patrón de Arquitectura Hexagonal para aislar el dominio de negocio de las tecnologías externas.
-
-```text
-src/
-├── server.js               # Root de composición (arranque de Express)
-├── modules/
-│   └── aforo/              # Módulo de Dominio del Aforo
-│       ├── domain/         # Reglas puras de negocio (Entidades, Value Objects)
-│       ├── application/    # Casos de uso e Interfaces de Puertos (Ports)
-│       └── infrastructure/ # Adaptadores de Entrada/Salida (HTTP Express, DB PostgreSQL)
-└── shared/                 # Configuración global, utilidades y errores compartidos
-```
-
-**Responsabilidades de cada capa del módulo de aforo:**
-* **Domain Layer:** Define entidades puras (`Aforo`, `RegistroAcceso`, `EstadoGimnasio`) y reglas del sistema (por ejemplo, validar si el aforo excede el límite máximo). No importa dependencias externas.
-* **Application Layer:** Contiene casos de uso (`RegistrarAccesoQRUseCase`, `ConsultarAforoUseCase`) y define las interfaces/puertos de entrada y salida (`AforoRepositoryPort`, `NotificationPort`).
-* **Infrastructure Layer:** Implementa los adaptadores concretos.
-  * **HTTP (Inbound):** Controladores de Express y validación de rutas (`/health`, `/aforo`, `/accesos`).
-  * **Persistence (Outbound):** Implementación de repositorios utilizando consultas SQL sobre PostgreSQL.
-  * **Messaging (Outbound):** Adaptador para interactuar con Firebase Cloud Messaging (FCM).
-
----
-
-## 6. Runtime View (Vista de Ejecución)
-
-### 6.1 Escenario 1: Registro de Entrada mediante Código QR (Estudiante)
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor E as Estudiante
-    participant App as App Móvil (Flutter)
-    participant HTTP as HTTP Adapter (Express)
-    participant UC as RegistrarAccesoUseCase
-    participant DB as PostgreSQL Adapter
-    
-    E->>App: Escanea código QR
-    App->>HTTP: POST /api/v1/aforo/acceso (JSON)
-    HTTP->>UC: ejecutar(datosAcceso)
-    UC->>DB: obtenerAforoActual()
-    DB-->>UC: aforoActual
-    UC->>UC: validarCupoDisponible()
-    UC->>DB: guardarRegistroAcceso()
-    DB-->>UC: Confirmación OK
-    HTTP-->>App: 201 Created { aforoActual, estado }
-```
-
-### 6.2 Escenario 2: Notificación Push de Cambio de Estado del Gimnasio
-
-```mermaid
-sequenceDiagram
-  autonumber
-  actor E as Encargado
-  participant App as App Móvil (Flutter)
-  participant API as API Backend (Express)
-  participant DB as PostgreSQL
-  participant FCM as Firebase Cloud Messaging
-
-  E->>App: Marca cierre del gimnasio
-  App->>API: PUT /api/v1/estado (HTTPS / JSON)
-  API->>DB: Actualiza estado (SQL / transacción)
-  DB-->>API: Confirmación (respuesta síncrona)
-  API-->>App: 200 OK (HTTPS / JSON)
-  API-)FCM: Solicita notificación (HTTPS / JSON)
-  FCM-)App: Entrega push (FCM Push / JSON)
-```
-
-La actualización del estado y la respuesta HTTP son **síncronas**: el encargado recibe confirmación cuando la persistencia termina. El envío y la entrega de la notificación son **asíncronos**: se despachan después de confirmar el cambio y no bloquean la respuesta al encargado.
-
-### 6.3 Clasificación de interacciones
-
-| Flujo | Tipo | Protocolo | Formato | Justificación |
-|---|---|---|---|---|
-| Registro de acceso y consulta de aforo | Síncrono | HTTPS REST | JSON | El cliente necesita el resultado de la operación para actualizar la interfaz. |
-| Persistencia del acceso o estado | Síncrono | SQL sobre TCP 5432 | Filas relacionales | La operación solo se confirma después de completar la transacción. |
-| Notificación de cambio de estado | Asíncrono | FCM Push sobre HTTPS | JSON | La entrega puede ocurrir después de responder al encargado y depende del proveedor externo. |
-
----
-
-## 8. Cross-cutting Concepts (Conceptos Transversales)
-
-### 8.1 Lenguaje ubicuo
-
-El equipo y los interesados usarán los siguientes términos con el mismo significado en conversaciones, documentación, API y código:
-
-| Término | Significado acordado |
-|---|---|
-| **Aforo** | Número de estudiantes presentes en el gimnasio en un momento dado. |
-| **Acceso** | Evento de entrada o salida de un estudiante que modifica el aforo. |
-| **Registro de excepción** | Acceso creado manualmente por el encargado cuando el flujo QR no está disponible. |
-| **Estado operativo** | Estado real del gimnasio: abierto o cerrado, según la presencia confirmada del encargado. |
-| **Cupo disponible** | Capacidad máxima menos el aforo actual. |
-| **Encargado** | Persona responsable de operar el gimnasio, gestionar excepciones y marcar su estado. |
-| **Notificación push** | Mensaje entregado al dispositivo mediante Firebase Cloud Messaging (FCM). |
-| **Dueño del dato** | Único contexto autorizado para modificar un dato; los demás contextos solo lo consultan mediante contratos definidos. |
-
-### 8.2 Mapa de contextos delimitados
-
-El mapa completo, incluyendo las relaciones upstream/downstream, propiedad de datos y riesgos identificados, está en [Contextos Delimitados y Propiedad de Datos](../contextos-delimitados.md). La partición vigente es:
+## 3.2 Contexto técnico implementado
 
 ```mermaid
 flowchart LR
-  IDENTIDAD[Usuarios e Identidad<br/>Supporting] -->|Código QR y roles| AFORO[Control de Aforo<br/>Core Domain]
-  AFORO -->|Eventos de estado| NOTIF[Notificaciones<br/>Generic Subdomain]
-  AFORO -->|Persistencia| DB[(PostgreSQL)]
-  NOTIF -->|FCM Push| APP[App Móvil]
+    Cliente[Cliente HTTP] -->|HTTP / JSON| API[Backend Node.js / Express]
+    API -->|SQL mediante pg| DB[(PostgreSQL)]
 ```
 
-**Límites y propiedad:** Control de Aforo es el contexto núcleo y es dueño del contador de ocupación y sus eventos. Usuarios e Identidad es dueño de perfiles, códigos QR y roles. Gestión Operativa, aunque todavía no está implementada como módulo, será dueña del estado de apertura/cierre. Notificaciones será dueña de sus suscripciones y del registro de entregas; no modificará el aforo.
+El cliente HTTP invoca la API. El servidor real persiste el contador en PostgreSQL mediante `AforoPostgresAdapter`. En pruebas, `createApp()` puede componer `AforoMemoriaAdapter`.
 
-Esta definición mantiene el corte vertical actual dentro del contexto de Aforo. Los contextos aún no implementados quedan como límites conceptuales para evitar que futuras funcionalidades escriban directamente en datos ajenos.
+**OBJETIVO / FUTURO:** conectar una aplicación Flutter y añadir identidad/QR, notificaciones, estado operativo, WebSocket y FCM. Estos elementos no se muestran como dependencias activas del backend.
 
-## 9. Architectural Decisions (Decisiones Arquitectónicas - ADRs)
+## 3.3 Interfaces HTTP implementadas
 
-### ADR-0001: Adopción de Arquitectura Hexagonal en el Backend
-* **Estado:** Aceptado.
-* **Contexto:** Se requiere un backend en Node.js/Express para la gestión de aforo que garantice mantenibilidad, facilidad para realizar pruebas automatizadas y desacoplamiento de la base de datos o frameworks web.
-* **Decisión:** Organizar el módulo `src/modules/aforo` en tres capas aisladas (`domain`, `application`, `infrastructure`).
-* **Consecuencias:**
-  * **Positivas:** Permite escribir pruebas unitarias de la lógica del aforo sin requerir una conexión activa a PostgreSQL ni levantar Express. Facilita cambiar de proveedor de base de datos o servicio de notificaciones en el futuro.
-  * **Negativas:** Incrementa levemente la complejidad estructural inicial para endpoints simples.
+- `GET /health`: liveness estático.
+- `GET /ready`: consulta el repositorio; responde `503` si la lectura falla.
+- `GET /metrics`: devuelve `access_operations_total` en memoria, separado en `entrada`, `salida` y `total`.
+- `GET /api/v1/aforo`: consulta el contador actual.
+- `POST /api/v1/aforo/acceso`: acepta `tipoAcceso` con valor `ENTRADA` o `SALIDA`.
 
-### ADR-0002: Despliegue en Render para Entornos de Desarrollo y Staging
-* **Estado:** Aceptado.
-* **Contexto:** El proyecto requiere un entorno cloud de fácil integración continua (CI/CD) desde GitHub Actions.
-* **Decisión:** Desplegar el servicio de Node.js en Render mediante un plan Web Service enlazado al repositorio.
-* **Consecuencias:** Permite la validación rápida de endpoints y pruebas de integración automáticas tras cada `push`.
+Los contratos y cuerpos de respuesta están descritos en `docs/openapi.yaml`; las rutas de aforo se implementan en `src/modules/aforo/infrastructure/http/aforo.router.js`.
 
-### ADR-0003: Comunicación síncrona para comandos y asíncrona para notificaciones
+# 4. Estrategia de solución
 
-Ver [ADR-0003](../adr/0003-comunicacion-sincrona-asincrona.md) para el detalle de la decisión.
-* **Estado:** Aceptado.
-* **Contexto:** El registro de accesos, la consulta de aforo y el cambio de estado necesitan confirmar al usuario el resultado de una operación persistida. Las notificaciones push, en cambio, dependen de un proveedor externo y no deben bloquear esa confirmación.
-* **Decisión:** Usar comunicación síncrona mediante HTTPS REST con JSON para comandos y consultas, y para la persistencia asociada usar transacciones SQL. Usar FCM como canal asíncrono para notificaciones después de confirmar el cambio principal.
-* **Consecuencias:** El cliente obtiene respuestas deterministas para actualizar su interfaz; las notificaciones toleran latencia o indisponibilidad temporal de FCM sin revertir la operación confirmada. El sistema deberá registrar o reintentar notificaciones fallidas cuando se implemente el adaptador de mensajería.
+## 4.1 Arquitectura implementada
 
----
+El backend es un monolito organizado con Arquitectura Hexagonal / Ports and Adapters:
 
-## 10. Quality Requirements (Requerimientos de Calidad)
+- **Dominio:** `src/modules/aforo/domain/aforo.js` valida y calcula la transición del contador, sin depender de Express ni PostgreSQL.
+- **Aplicación:** `registrar-acceso.usecase.js` recibe el repositorio y delega una transición.
+- **Puerto:** `AforoRepositoryPort` define `obtenerAforoActual()` y `actualizarAforo(transicionar)`.
+- **Infraestructura:** Express implementa el adapter HTTP; `AforoPostgresAdapter` y `AforoMemoriaAdapter` implementan el contrato de persistencia.
+- **Composición:** `src/server.js` usa PostgreSQL al ejecutar el servidor real y permite inyectar otro repositorio en `createApp()`.
 
-### 10.1 Árbol de Utilidad (Utility Tree)
+## 4.2 Persistencia y observabilidad
 
-```text
-Gimnasio UTB
-├── Rendimiento (Performance)
-│   ├── Tiempo de respuesta del endpoint de salud (/health)
-│   └── Tiempo de respuesta en la consulta de aforo en tiempo real
-├── Disponibilidad (Availability)
-│   └── Verificación del backend mediante CI/CD automatizado
-└── Mantenibilidad (Maintainability)
-    └── Pruebas unitarias de las reglas del dominio del aforo
-```
+PostgreSQL conserva el contador actual. El adapter ejecuta la transición en una transacción y usa `SELECT ... FOR UPDATE` para serializar modificaciones sobre la fila. Ante errores intenta `ROLLBACK`; si la operación termina correctamente confirma con `COMMIT`.
 
-### 10.2 Escenarios de Calidad
+La observabilidad implementada es básica: logs JSON en stdout, `/health`, `/ready` y `/metrics`. La métrica es local al proceso; no se integra con Prometheus ni con un agregador externo.
 
-* **Escenario de Rendimiento (Consulta de Aforo):**
-  * **Fuente:** Estudiante mediante la App Móvil.
-  * **Estímulo:** Realiza una petición `GET /aforo` durante las horas de alta concurrencia.
-  * **Entorno:** Operación normal en el servidor Render.
-  * **Respuesta:** El sistema calcula y devuelve el cupo disponible.
-  * **Medida de Calidad:** El tiempo de respuesta del backend es menor a **200 ms** para el 95% de las peticiones.
+## 4.3 Arquitectura objetivo
 
-* **Escenario de Disponibilidad y Verificación (CI/CD):**
-  * **Fuente:** Desarrollador del equipo.
+**OBJETIVO / FUTURO:** añadir los componentes móviles y operativos descritos en la visión, junto con despliegue, identidad, historial y canales de notificación. No forman parte de la estrategia runtime implementada actualmente.
 
-# Diagrama C4 de contexto (Nivel 1)
+# 5. Vista de bloques
 
-graph TD
-Estudiante[Estudiante - Usuario Principal]
-Encargado[Encargado del Gimnasio - Operaciones]
-
-Sistema[Sistema Gimnasio UTB]
-FCM[Firebase Cloud Messaging - FCM]
-
-Estudiante -->|Escanea QR, consulta aforo y recibe notificaciones| Sistema
-Encargado -->|Registra accesos manuales y gestiona apertura/cierre| Sistema
-Sistema -->|Envía alertas push| FCM
-FCM -->|Entrega notificaciones| Estudiante
-
-<div align="center">
+## 5.1 Composición y flujo de dependencias
 
 ```mermaid
-C4Context
-    title Diagrama de Contexto (Nivel 1) - Gimnasio UTB
-
-    Person(estudiante, "Estudiante", "Consulta disponibilidad de cupos, escanea su QR para registrar entrada/salida y recibe notificaciones.")
-    Person(encargado, "Encargado del Gimnasio", "Registra accesos manuales (excepciones) y marca la apertura/cierre real del gimnasio.")
-
-    System(gimnasio, "Gimnasio UTB", "Aplicación central que gestiona el control de acceso, calcula el aforo en tiempo real, monitorea la presencia del encargado y envía alertas/notificaciones.")
-
-    System_Ext(fcm, "Firebase Cloud Messaging (FCM)", "Proveedor en la nube para el envío y entrega de notificaciones push a los dispositivos móviles.")
-
-    Rel(estudiante, gimnasio, "Consulta disponibilidad, escanea QR y recibe notificaciones")
-    Rel(encargado, gimnasio, "Registra accesos manuales y marca apertura/cierre")
-
-    Rel(gimnasio, fcm, "Solicita el envío de notificaciones push")
-    Rel(fcm, gimnasio, "Entrega notificaciones al dispositivo móvil")
+flowchart LR
+    SERVER[server.js<br/>composition root] --> ROUTER[Router HTTP de aforo]
+    ROUTER --> UC[crearRegistrarAccesoUseCase]
+    UC --> PORT[AforoRepositoryPort<br/>actualizarAforo transicionar]
+    PORT --> PG[AforoPostgresAdapter]
+    PG --> DB[(PostgreSQL<br/>aforo_estado)]
+    UC -. callback de transición .-> DOMAIN[domain/aforo.js<br/>aplicarAcceso]
+    PORT -. implementación alternativa en pruebas .-> MEM[AforoMemoriaAdapter]
 ```
 
-</div>
+El composition root inyecta el repositorio. El adapter de memoria es una implementación alternativa del puerto y se usa por defecto en las pruebas de `createApp()` que no requieren PostgreSQL.
 
-El **Sistema Gimnasio UTB** es el sistema de software que gestiona el registro de entradas y salidas, el cálculo del aforo disponible, el estado operativo del gimnasio y el envío de notificaciones.
+## 5.2 Bloques existentes y responsabilidades
 
-Los **estudiantes** interactúan con el sistema para consultar el aforo, registrar sus entradas y salidas y recibir información sobre la disponibilidad del gimnasio.
+| Bloque | Responsabilidad | Evidencia |
+|---|---|---|
+| Composition root | Construye Express, selecciona/injecta repositorio, registra health, readiness y métricas. | `src/server.js` |
+| Adapter HTTP | `POST /acceso` invoca el caso de uso; `GET /` usa el getter de aforo que el composition root entrega al router. | `src/modules/aforo/infrastructure/http/aforo.router.js`, `src/server.js` |
+| Caso de uso | Pide al repositorio una actualización atómica usando una función de transición. | `src/modules/aforo/application/registrar-acceso.usecase.js` |
+| Dominio | Acepta `ENTRADA`/`SALIDA` y rechaza tipos inválidos o salida desde cero. | `src/modules/aforo/domain/aforo.js` |
+| Puerto | Contrato de lectura y transición atómica. | `src/modules/aforo/application/ports/aforo-repository.port.js` |
+| Adapter PostgreSQL | Ejecuta transacción, bloqueo de fila, actualización y rollback. | `src/modules/aforo/infrastructure/persistence/aforo-postgres.adapter.js` |
+| Adapter en memoria | Implementación en RAM del mismo puerto. | `src/modules/aforo/infrastructure/persistence/aforo-memoria.adapter.js` |
+| Esquema | Una fila para `aforo_actual`, restringida a `id = 1` y valor no negativo. No guarda estudiantes ni eventos. | `src/modules/aforo/infrastructure/persistence/schema.sql` |
 
-El **encargado del gimnasio** utiliza el sistema para gestionar los accesos y actualizar el estado real del gimnasio, incluyendo su apertura y cierre.
+No existen en los bloques implementados entidades `RegistroAcceso` o `EstadoGimnasio`, usuarios, estudiantes, historial, notificaciones, WebSocket o Firebase.
 
-El sistema utiliza **Firebase Cloud Messaging (FCM)** como servicio externo para entregar las notificaciones push a los dispositivos de los estudiantes.
+# 6. Vista de ejecución
 
-> **Nota:** Este es un diagrama C4 de **Contexto (Nivel 1)**. Por eso no se muestran componentes internos como Flutter, Node.js, Express, PostgreSQL o WebSocket. Esos elementos pertenecen al nivel de contenedores o niveles inferiores.
+## 6.1 Registrar una entrada o salida
 
----
+**Flujo exitoso implementado:**
 
-# Árbol de utilidad
-
-```
-Calidad del sistema — Gimnasio UTB
-│
-├── Rendimiento [canónico]
-│   └── Refinamiento: latencia de actualización de aforo bajo carga normal
-│         └── ES4 · Prioridad: Alta · Dificultad: Media
-│
-├── Disponibilidad [canónico]
-│   ├── Refinamiento: el estado abierto/cerrado refleja la presencia real del encargado
-│   │     └── ES2 · Prioridad: Alta · Dificultad: Alta
-│   └── Refinamiento: continuidad del servicio ante fallos de infraestructura
-│         └── ES5 · Prioridad: Media · Dificultad: Alta
-│
-├── Escalabilidad [canónico]
-│   └── Refinamiento: crecimiento de usuarios concurrentes conectados al aforo en tiempo real
-│         └── ES6 · Prioridad: Media · Dificultad: Media
-│
-├── Seguridad [canónico]
-│   └── Refinamiento: protección contra QR falsificados/reutilizados y accesos no autorizados
-│         └── ES7 · Prioridad: Alta · Dificultad: Media
-│
-├── Mantenibilidad [canónico]
-│   └── Refinamiento: esfuerzo para ajustar reglas de horario/operación
-│         └── ES8 · Prioridad: Media · Dificultad: Baja
-│
-├── Consistencia de datos [adicional al dominio]
-│   └── Refinamiento: integridad transaccional del conteo de aforo
-│         └── ES1 · Prioridad: Alta · Dificultad: Media
-│
-└── Usabilidad operativa [adicional al dominio]
-    └── Refinamiento: eficiencia de la interacción del encargado en registro manual
-          └── ES3 · Prioridad: Media · Dificultad: Baja
+```text
+POST /api/v1/aforo/acceso
+  -> router HTTP
+  -> crearRegistrarAccesoUseCase
+  -> AforoRepositoryPort.actualizarAforo(transicionar)
+  -> AforoPostgresAdapter
+  -> BEGIN
+  -> SELECT aforo_actual ... FOR UPDATE
+  -> ejecutar transición de dominio aplicarAcceso(...)
+  -> UPDATE aforo_estado
+  -> COMMIT
+  -> HTTP 201 { status: "success", data: { aforoActual } }
 ```
 
----
+Si la transición o una sentencia PostgreSQL falla después de iniciar la transacción, el adapter intenta `ROLLBACK` y vuelve a propagar el error. Para `POST /acceso`, los errores de dominio responden `400`; los fallos clasificados del repositorio responden `503` con un mensaje genérico; y los errores inesperados responden `500` con un mensaje genérico. El JSON malformado se normaliza a `400` JSON en la composición Express. Los logs de entrada/dominio usan `warn`; los de infraestructura o errores inesperados usan `error` sin exponer el mensaje interno en la respuesta.
 
-# Escenarios de calidad (con medida)
+La prueba de integración PostgreSQL comprueba rechazo de salida desde cero y rollback cuando PostgreSQL rechaza una actualización mediante un trigger.
 
-## ES1 — Consistencia del conteo de aforo *(Consistencia de datos)*
+## 6.2 Consultar el contador
+
+`GET /api/v1/aforo` llama a `obtenerAforoActual()` y, si la consulta termina correctamente, responde `200` con `{ status: "success", data: { aforoActual } }`. La consulta de lectura no ejecuta una transición.
+
+## 6.3 Funcionalidad futura
+
+El escaneo QR, identificación del estudiante, corrección manual por un encargado, apertura/cierre, difusión WebSocket y notificaciones FCM no forman parte de estos flujos implementados.
+
+# 7. Vista de despliegue
+
+## 7.1 Topología actual/local
+
+```mermaid
+flowchart LR
+    Cliente[Cliente HTTP] --> API[Proceso Node.js / Express]
+    API -->|DATABASE_URL| DB[(Instancia PostgreSQL accesible)]
+```
+
+El proceso real inicia `AforoPostgresAdapter` y necesita `DATABASE_URL`. Antes de usarlo, `npm run db:init` crea e inicializa la tabla. `npm start` ejecuta el servidor. El puerto predeterminado está definido en `src/server.js`.
+
+`createApp({ aforoRepository })` permite inyectar un repositorio; sin argumento utiliza `AforoMemoriaAdapter`, como en las pruebas que no requieren base de datos. Esto no cambia el adapter elegido por el servidor real.
+
+`/health` es liveness estático. `/ready` prueba una lectura del repositorio y responde `503` si falla. `/metrics` expone contadores locales del proceso. En `SIGTERM`, el servidor deja de aceptar conexiones, espera el cierre HTTP y luego cierra el pool PostgreSQL.
+
+> El despliegue en Render, PostgreSQL gestionado, IaC/render.yaml y la definición final de costos todavía son objetivos de implementación.
+
+No existe una URL pública documentada ni una topología cloud desplegada en este repositorio.
+
+# 8. Conceptos transversales
+
+## 8.1 Separación hexagonal
+
+**IMPLEMENTADO:** dominio, aplicación, puerto e infraestructura están separados. El caso de uso depende del contrato del repositorio, no de `pg`; el adapter PostgreSQL es infraestructura. El adapter de memoria permite pruebas sin DB.
+
+## 8.2 Persistencia y consistencia
+
+**IMPLEMENTADO:** el contador persistido es una única fila de `aforo_estado`. Cada transición PostgreSQL comienza con `BEGIN`, obtiene el bloqueo de fila con `SELECT ... FOR UPDATE`, calcula el nuevo valor mediante la función de dominio, ejecuta `UPDATE` y confirma con `COMMIT`. En error intenta `ROLLBACK`. Esto respalda la consistencia del contador para las operaciones y escenarios probados; no identifica estudiantes ni evita duplicados por estudiante.
+
+## 8.3 Salud y ciclo de vida
+
+- **IMPLEMENTADO — `/health`:** liveness estático, no comprueba PostgreSQL.
+- **IMPLEMENTADO — `/ready`:** consulta el repositorio; falla con `503` si no puede leer.
+- **IMPLEMENTADO — `SIGTERM`:** drena el servidor HTTP y después cierra el pool PostgreSQL.
+
+## 8.4 Logs y métricas
+
+**IMPLEMENTADO:** `src/shared/logger.js` emite registros JSON con `timestamp`, `level`, `event` y `message`. Los callsites registran eventos de acceso, arranque y apagado con mensajes que no incluyen credenciales, `DATABASE_URL`, tokens ni payloads.
+
+`GET /metrics` devuelve `access_operations_total` con `entrada`, `salida` y `total`. Cuenta operaciones completadas correctamente; el estado está en memoria, es por instancia/proceso y se reinicia con el proceso. No es Prometheus ni demuestra por sí misma consistencia concurrente. La evidencia de concurrencia es la prueba PostgreSQL descrita en la sección 10.
+
+## 8.5 Conceptos futuros
+
+**OBJETIVO / FUTURO:** autenticación, autorización/roles, identidad, QR, historial, deduplicación por estudiante, WebSocket y FCM. No hay adapters ni lógica implementada para esas capacidades.
+
+# 9. Decisiones arquitectónicas
+
+| Decisión | Estado y evidencia | ADR / formalización |
+|---|---|---|
+| Arquitectura Hexagonal / Ports and Adapters en un backend monolítico. | **IMPLEMENTADO:** dominio puro, caso de uso, puerto y adapters. | [ADR-0001](../adr/0001-arquitectura-hexagonal.md). |
+| Comandos y consultas HTTP síncronos; persistencia completada antes de responder. | **IMPLEMENTADO** para las rutas actuales de aforo. | [ADR-0003](../adr/0003-comunicacion-sincrona-asincrona.md) respalda el enfoque síncrono. Su decisión FCM permanece futura. |
+| PostgreSQL como persistencia del contador con transacción y bloqueo de fila. | **IMPLEMENTADO:** `AforoPostgresAdapter`, `schema.sql` y pruebas de persistencia, rollback y concurrencia. | [ADR-0004](../adr/0004-concurrencia-postgresql.md) documenta el bloqueo pesimista con `SELECT ... FOR UPDATE`, la transacción y la evidencia del escenario probado. |
+| Render como plataforma de despliegue. | **OBJETIVO / FUTURO:** no hay servicio desplegado ni IaC en el repositorio. | La versión anterior del arc42 lo registraba como ADR-0002 dentro de este documento. Debe leerse como objetivo, no como despliegue realizado; no se modifica ni se atribuye un ADR independiente. |
+| Métricas en memoria, logs JSON y cierre ante SIGTERM. | **IMPLEMENTADO** en la composición del servidor y `src/shared/logger.js`. | No hay ADR independiente para estas decisiones operativas básicas. |
+
+# 10. Requisitos de calidad
+
+## 10.1 Atributos y alcance de evidencia
+
+| Atributo | Objetivo o evidencia actual |
+|---|---|
+| Consistencia del contador | Hay evidencia de transacciones y concurrencia en la prueba de PostgreSQL de la sección 10.2. No prueba identidad ni deduplicación. |
+| Mantenibilidad | La separación hexagonal está reflejada en el código y las pruebas unitarias del dominio. |
+| Operabilidad | `/health`, `/ready`, logs, `/metrics` y el cierre por `SIGTERM` existen. Las pruebas de health/readiness verifican respuestas, no un SLA de disponibilidad. |
+| Rendimiento, escalabilidad, seguridad de identidad y disponibilidad cloud | **OBJETIVO / FUTURO o no medido.** No hay benchmark HTTP, prueba WebSocket, despliegue cloud ni autenticación que respalden umbrales cuantitativos. |
+
+## 10.2 S1 — Concurrencia sobre el contador de aforo
 
 | Campo | Descripción |
 |---|---|
-| **Fuente** | Dos estudiantes escaneando su QR de entrada casi simultáneamente |
-| **Estímulo** | Dos solicitudes de registro de entrada llegan al backend en la misma ventana de tiempo |
-| **Artefacto** | Servicio de registro de aforo (API + tabla de ocupación en PostgreSQL) |
-| **Ambiente** | Operación normal, hora pico |
-| **Respuesta** | El sistema procesa ambos registros de forma atómica, sin perder ni duplicar el conteo |
-| **Medida** | 100% de las transacciones concurrentes reflejan el conteo correcto en una prueba de carga con ≥20 solicitudes simultáneas; 0 inconsistencias detectadas |
-| **ADR Motivado** | [ADR-0001: Selección de Arquitectura Hexagonal](../adr/0001-arquitectura-hexagonal.md) |
+| Escenario | Veinte operaciones concurrentes de entrada sobre el contador de aforo. |
+| Artefacto | `AforoPostgresAdapter.actualizarAforo()` y la fila `aforo_estado`. |
+| Evidencia | `tests/postgres/aforo-postgres.integration.test.js` ejecuta veinte llamadas concurrentes al adapter PostgreSQL. También comprueba persistencia entre instancias del adapter, rechazo de salida cuando el contador es cero y rollback ante un error producido por PostgreSQL. |
+| Resultado | Las veinte operaciones se completan y el aforo final es 20. En la prueba implementada de 20 operaciones concurrentes contra el adapter PostgreSQL no se observaron lost updates y el estado final coincidió con las operaciones exitosas. |
+| Límite | Es una prueba de integración del adapter, no una prueba de carga HTTP. No demuestra unicidad, identidad, QR ni deduplicación por estudiante, ni garantiza resultados ante cualquier carga. |
 
-## ES2 — Estado real del gimnasio (abierto/cerrado) *(Disponibilidad)*
+Los resultados reportados para la suite actual son: pruebas base 12/12, contrato 11/11 y PostgreSQL 8/8. La suite PostgreSQL requiere `DATABASE_URL` de prueba; su ausencia hace que Node test la omita.
 
-| Campo | Descripción |
-|---|---|
-| **Fuente** | Encargado del gimnasio |
-| **Estímulo** | El encargado no ha marcado su llegada 15 minutos después del horario programado de apertura |
-| **Artefacto** | Módulo de estado del gimnasio |
-| **Ambiente** | Horario habitual de apertura |
-| **Respuesta** | El sistema cambia automáticamente el estado visible a "cerrado" y notifica a los estudiantes con horario preferido coincidente |
-| **Medida** | Cambio de estado reflejado en la app en ≤2 minutos desde que se cumple el umbral de ausencia |
-| **ADR Motivado** | [ADR-0001: Selección de Arquitectura Hexagonal](../adr/0001-arquitectura-hexagonal.md) |
+## 10.3 Otros escenarios
 
-## ES3 — Registro manual del encargado *(Usabilidad operativa)*
+- `/health` responde liveness estático y `/ready` prueba la lectura del repositorio; hay pruebas de sus respuestas. Esto no mide disponibilidad cloud.
+- `/metrics` tiene prueba de conteo de entradas y salidas completadas. No es una prueba de consistencia ni un benchmark.
+- Umbrales de 200 ms, P95 de WebSocket, carga de 50 clientes, cambio automático de apertura/cierre y notificaciones en dos minutos no cuentan con implementación/evidencia actual. Si se conservan como metas académicas, deben etiquetarse como objetivos futuros no medidos.
 
-| Campo | Descripción |
-|---|---|
-| **Fuente** | Encargado del gimnasio |
-| **Estímulo** | Necesita registrar manualmente la entrada de un estudiante sin QR disponible (carné olvidado) |
-| **Artefacto** | Interfaz de gestión manual de accesos |
-| **Ambiente** | Operación normal |
-| **Respuesta** | El encargado completa el registro manual sin pasos adicionales innecesarios |
-| **Medida** | Registro completado en ≤10 segundos y máximo 2 toques, verificado en prueba de usabilidad con 5 usuarios |
-| **ADR Motivado** | [ADR-0001: Selección de Arquitectura Hexagonal](../adr/0001-arquitectura-hexagonal.md) |
+# 11. Riesgos y deuda técnica
 
-## ES4 — Actualización de aforo en tiempo real *(Rendimiento)*
+Los siguientes puntos son límites actuales, no mitigaciones implementadas:
 
-| Campo | Descripción |
-|---|---|
-| **Fuente** | Estudiante |
-| **Estímulo** | Escanea su QR de entrada |
-| **Artefacto** | API de registro + vista de aforo en tiempo real (WebSocket) |
-| **Ambiente** | Hora pico, hasta 50 usuarios concurrentes conectados a la vista de aforo |
-| **Respuesta** | El conteo de aforo visible para todos los usuarios conectados se actualiza |
-| **Medida** | Latencia ≤2 segundos en el percentil 95 (P95). **Población:** todos los clientes con la app abierta en la vista de aforo. **Ventana:** 30 minutos continuos en hora pico. **Carga:** hasta 50 usuarios concurrentes. **Método:** tiempo medido desde el evento de escaneo registrado en el backend hasta la recepción de la actualización por WebSocket en el cliente, instrumentado en ambos extremos. |
-| **ADR Motivado** | [ADR-0001: Selección de Arquitectura Hexagonal](../adr/0001-arquitectura-hexagonal.md) |
-
----
+- No existe identidad de estudiantes, autenticación ni autorización/roles.
+- No existe deduplicación por estudiante, validación QR ni historial de accesos; la persistencia guarda solo el contador agregado.
+- `/metrics` es local a cada instancia, se pierde al reiniciar y no agrega datos entre procesos.
+- No existe despliegue cloud, Render, PostgreSQL gestionado ni `render.yaml`/IaC.
+- CI todavía no aprovisiona PostgreSQL ni ejecuta `test:postgres`.
+- SonarCloud/Quality Gate y una estrategia final de costos cloud no están implementados.
+- Flutter, QR, WebSocket, FCM, registro manual y estado operativo permanecen pendientes.
 
 # 12. Glosario
 
-Este glosario define los términos técnicos y del dominio de negocio centrales para el sistema Gimnasio UTB, con el fin de evitar ambigüedades entre los stakeholders y el equipo de desarrollo.
-
-| Término | Definición |
+| Término | Definición y estado |
 |---|---|
-| **Aforo** | Número de estudiantes presentes físicamente en el gimnasio en un momento dado. Se calcula dinámicamente sumando las entradas y restando las salidas. Es el dato transaccional más crítico del sistema. |
-| **Arquitectura Hexagonal** | Patrón de diseño de software (también conocido como Puertos y Adaptadores) utilizado en el backend para aislar la lógica de negocio (dominio) de las tecnologías externas como bases de datos (PostgreSQL) o frameworks web (Express). |
-| **Cold Start (Arranque en frío)** | Demora inicial en el tiempo de respuesta del backend al procesar una solicitud HTTP después de un período de inactividad. Es una restricción técnica derivada del uso del plan gratuito de la plataforma Render. |
-| **Estado Operativo** | Condición real de disponibilidad del gimnasio (abierto o cerrado). No depende exclusivamente del horario oficial del bloque, sino de la presencia física confirmada del encargado en las instalaciones. |
-| **FCM (Firebase Cloud Messaging)** | Servicio en la nube proporcionado por Google que el sistema utiliza como infraestructura para enviar y entregar notificaciones push a los dispositivos móviles de los estudiantes. |
-| **Registro de Excepción (Manual)** | Proceso operativo secundario mediante el cual el encargado del gimnasio registra la entrada o salida de un estudiante desde su propio panel, utilizado únicamente cuando falla el método principal (ej. estudiante sin carné o fallo en la cámara). |
-| **Render** | Plataforma como servicio (PaaS) en la nube seleccionada para el despliegue continuo del backend (Node.js) y el alojamiento de la base de datos (PostgreSQL). |
-| **Transacción ACID** | Conjunto de propiedades (Atomicidad, Consistencia, Aislamiento, Durabilidad) garantizadas por PostgreSQL al procesar registros concurrentes, asegurando que el conteo del aforo nunca se duplique o pierda bajo carga. |
-|   **Estímulo:** |Realiza un `push` o `pull request` en la rama principal de GitHub.
-|   **Entorno:** | Pipeline de GitHub Actions (Ubuntu / Node.js 20).
-|   **Respuesta:** |Se instalan dependencias y se ejecuta la suite de pruebas (`npm test`) sobre el endpoint `/health`.
-|  **Medida de Calidad:** |La prueba de salud responde con código `200 OK` y status `"ok"` en un tiempo total de ejecución del pipeline inferior a **2 minutos**.
+| **Aforo** | Contador agregado de ocupación que mantiene el backend. No identifica físicamente a cada persona. |
+| **Transición de aforo** | Cambio del contador por `ENTRADA` o `SALIDA`, validado por `aplicarAcceso`. |
+| **AforoRepositoryPort** | Contrato de persistencia con lectura actual y actualización mediante `actualizarAforo(transicionar)`. |
+| **Bloqueo de fila** | Bloqueo PostgreSQL obtenido por `SELECT ... FOR UPDATE` dentro de la transacción del adapter. |
+| **Liveness** | Señal de proceso disponible; en este backend la entrega `GET /health` sin consultar la base de datos. |
+| **Readiness** | Comprobación de que el repositorio puede responder; la entrega `GET /ready`. |
+| **Métrica operacional** | Contador `access_operations_total` en memoria por instancia, servido en JSON por `GET /metrics`; no es Prometheus. |
+| **Adapter de memoria** | Implementación en RAM de `AforoRepositoryPort`, usada por defecto en `createApp()` y pruebas sin DB. |
+| **QR e identidad** | **OBJETIVO / FUTURO:** medios de identificar estudiantes que todavía no existen en el backend. |
+| **Historial de accesos** | **OBJETIVO / FUTURO:** registros individuales; el esquema actual solo almacena el contador agregado. |
+| **WebSocket y FCM** | **OBJETIVO / FUTURO:** canales de tiempo real y notificaciones no implementados. |
+| **Render y cold start** | **OBJETIVO / FUTURO:** plataforma y efecto operativo que solo aplicarán si se realiza el despliegue. |
+| **Flutter** | **OBJETIVO / FUTURO:** cliente móvil no incluido en el backend actual. |
 
-*Documento generado como parte de la entrega del corte 1 del proyecto Gimnasio UTB. Uso de IA generativa registrado en `docs/ia.md` según lo requerido por el curso.*
+*Documento de arquitectura académica del proyecto Gimnasio UTB. El uso de IA se registra en `docs/ia.md`.*

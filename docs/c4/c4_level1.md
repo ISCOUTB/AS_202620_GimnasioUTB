@@ -1,17 +1,15 @@
 ```mermaid
 C4Context
-    title Diagrama de Contexto (Nivel 1) - Gimnasio UTB
+    title C4 Level 1 - Contexto actual del backend de aforo
 
-    Person(estudiante, "Estudiante", "Consulta disponibilidad de cupos, escanea su QR para registrar entrada/salida y recibe notificaciones.")
-    Person(encargado, "Encargado del Gimnasio", "Registra accesos manuales (excepciones) y marca la apertura/cierre real del gimnasio.")
+    System_Ext(cliente, "Cliente HTTP", "Cliente genérico que consume la API; no se presupone identidad ni autenticación.")
+    System(backend, "Backend Gimnasio UTB", "API HTTP de aforo: consulta y transiciones de entrada/salida, liveness, readiness y métricas operacionales.")
+    System_Ext(postgres, "PostgreSQL", "Almacena el estado persistente del contador de aforo.")
 
-    System(gimnasio, "Gimnasio UTB", "Aplicación central que gestiona el control de acceso, calcula el aforo en tiempo real, monitorea la presencia del encargado y envía alertas/notificaciones.")
-
-    System_Ext(fcm, "Firebase Cloud Messaging (FCM)", "Proveedor en la nube para el envío y entrega de notificaciones push a los dispositivos móviles.")
-
-    Rel(estudiante, gimnasio, "Consulta disponibilidad, escanea QR y recibe notificaciones")
-    Rel(encargado, gimnasio, "Registra accesos manuales y marca apertura/cierre")
-
-    Rel(gimnasio, fcm, "Solicita el envío de notificaciones push")
-    Rel(fcm, gimnasio, "Entrega notificaciones al dispositivo móvil")
+    Rel(cliente, backend, "Consulta el aforo, registra entradas/salidas y consulta endpoints operativos", "HTTP / JSON")
+    Rel(backend, postgres, "Lee y actualiza el contador", "SQL mediante pg; DATABASE_URL")
 ```
+
+## Arquitectura objetivo / futura
+
+**No implementado actualmente.** La visión del producto puede incluir estudiantes y encargados, una aplicación Flutter, identidad, autenticación, QR, apertura/cierre del gimnasio, historial, WebSocket y FCM. Estos elementos no forman parte del contexto actual ni tienen conexiones mostradas en el diagrama principal.

@@ -3,9 +3,13 @@ info:
   title: API Backend - Gimnasio UTB
   version: 1.0.0
   description: |
-    Contrato de la API REST del backend (módulo Aforo). Es la fuente única de
-    verdad de la interfaz síncrona entre la App Móvil y el API Backend.
-    Lo verifica automáticamente `tests/contrato.test.js` en cada push (CI).
+    Contrato HTTP del backend actual. El cliente móvil y las capacidades de
+    despliegue descritas en la documentación son objetivos futuros, no parte
+    de la implementación actual.
+
+    `GET /metrics` devuelve contadores JSON en memoria por instancia; no es
+    una exportación Prometheus. `GET /ready` consulta el repositorio y permite
+    comprobar la disponibilidad de PostgreSQL en el servidor real.
 
     Versionado (semver sobre este archivo):
     - MAJOR: cambio incompatible (renombrar/eliminar un campo, cambiar un código HTTP,
@@ -27,6 +31,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RespuestaHealth'
+  /ready:
+    get:
+      operationId: verificarReadiness
+      summary: Verifica que el repositorio puede responder
+      responses:
+        '200':
+          description: El repositorio está disponible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaHealth'
+        '503':
+          description: El repositorio no pudo responder
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaReadinessError'
+  /metrics:
+    get:
+      operationId: consultarMetricas
+      summary: Consulta los contadores operacionales de accesos
+      responses:
+        '200':
+          description: Contadores en memoria de esta instancia
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaMetricas'
   /api/v1/aforo:
     get:
       operationId: consultarAforo
@@ -38,6 +70,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RespuestaAforo'
+        '503':
+          description: No fue posible consultar el aforo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
   /api/v1/aforo/acceso:
     post:
       operationId: registrarAcceso
@@ -115,3 +153,31 @@ components:
           const: ok
         service:
           type: string
+    RespuestaReadinessError:
+      type: object
+      required: [status, service]
+      additionalProperties: false
+      properties:
+        status:
+          const: error
+        service:
+          type: string
+    RespuestaMetricas:
+      type: object
+      required: [access_operations_total]
+      additionalProperties: false
+      properties:
+        access_operations_total:
+          type: object
+          required: [entrada, salida, total]
+          additionalProperties: false
+          properties:
+            entrada:
+              type: integer
+              minimum: 0
+            salida:
+              type: integer
+              minimum: 0
+            total:
+              type: integer
+              minimum: 0
