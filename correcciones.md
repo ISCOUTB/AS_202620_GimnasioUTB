@@ -34,4 +34,4 @@ Este documento consolida los ajustes, refinamientos y correcciones aplicadas a l
 | `docs/c4/c4_level2.md` | Se etiquetaron todas las relaciones del C4 nivel 2 con el protocolo y formato de comunicación correspondiente: interacción de usuario, HTTPS REST/JSON, SQL sobre TCP 5432 y FCM Push/JSON. |
 | `docs/adr/0003-comunicacion-sincrona-asincrona.md` | Se registró la decisión arquitectónica de usar comunicación síncrona para comandos, consultas y persistencia, y comunicación asíncrona para notificaciones mediante FCM, incluyendo consecuencias y alcance. |
 | `README.md` | Se añadió el enlace al ADR-0003 en la sección de documentación del proyecto. |
-| `docs/c4/` (Nivel 3) | No se realizaron cambios en el C4 nivel 3; su elaboración queda fuera de este alcance y será realizada por otro integrante. |
+
