@@ -12,7 +12,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm install
+      - run: npm ci
       - name: Pruebas unitarias y de integración
         run: npm run test:base
       - name: Prueba de contrato (docs/openapi.yaml)

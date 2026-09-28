@@ -48,8 +48,18 @@ function crearAforoRouter(registrarAcceso, obtenerAforoActual) {
   });
 
   router.get('/', async (req, res) => {
-    const aforoActual = await obtenerAforoActual();
-    res.status(200).json({ status: 'success', data: { aforoActual } });
+    try {
+      const aforoActual = await obtenerAforoActual();
+      return res.status(200).json({ status: 'success', data: { aforoActual } });
+    } catch {
+      try {
+        logger.error('aforo.read_failed', 'Failed to read current aforo');
+      } catch {}
+      return res.status(503).json({
+        status: 'error',
+        message: 'No fue posible consultar el aforo.',
+      });
+    }
   });
 
   return router;
