@@ -111,8 +111,5 @@ Este documento registra, de forma trazable, el uso de IA generativa (Claude, Ant
 | **Rechazado** | (a) Redactar una evaluación de costo y latencia de un componente generativo: el sistema no tiene ninguno, y se dejó como "No aplica" con la condición para reabrirlo. (b) Proponer la migración a Express 5 y a js-yaml 5: son cambios mayores sin un defecto que los justifique hoy. |
 | **Motivo** | La regla del curso es que la documentación coincida con el código y que todo se pueda defender en vivo: no se incluyó nada que no tuviera evidencia ejecutada. |
 
-### Registro pendiente (semanas 7 y 8)
-
-`docs/ia.md` no tiene entradas para las semanas 7 y 8, pero el historial muestra trabajo en ese periodo: prueba de contrato y `docs/openapi.yaml` (20 de septiembre), `docs/taller.md` (27 de septiembre), y el adapter PostgreSQL, el manejo de errores y la observabilidad (28 de septiembre). Quien haya usado IA en esos cambios debe completar su fila (herramienta, prompt, qué se aceptó, corrigió y rechazó). Si no se usó IA, conviene dejarlo escrito.
 
 *Este registro se actualiza en cada corte con los usos de IA generativa relevantes al entregable correspondiente.*
