@@ -116,6 +116,9 @@ tests/
 - [ADR 0003: Comunicación síncrona y asíncrona](docs/adr/0003-comunicacion-sincrona-asincrona.md).
 - [Contextos delimitados](docs/contextos-delimitados.md).
 - [Registro de uso de IA](docs/ia.md).
+- [S9: cadena verificada de una porción construida con IA](docs/s9-cadena-verificada.md).
+- [Auditoría de erosión arquitectónica](docs/auditoria-erosion.md).
+- [Auditoría de dependencias](docs/auditoria-dependencias.md).
 
 ## Integrantes
 

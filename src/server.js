@@ -3,6 +3,7 @@ const { crearAforoRouter } = require('./modules/aforo/infrastructure/http/aforo.
 const { AforoMemoriaAdapter } = require('./modules/aforo/infrastructure/persistence/aforo-memoria.adapter');
 const { AforoPostgresAdapter } = require('./modules/aforo/infrastructure/persistence/aforo-postgres.adapter');
 const { crearRegistrarAccesoUseCase } = require('./modules/aforo/application/registrar-acceso.usecase');
+const { crearConsultarAforoUseCase } = require('./modules/aforo/application/consultar-aforo.usecase');
 const { logger } = require('./shared/logger');
 
 
@@ -59,7 +60,7 @@ function createApp({ aforoRepository } = {}) {
     } catch {}
     return aforoActual;
   };
-  const obtenerAforoActual = () => repository.obtenerAforoActual();
+  const obtenerAforoActual = crearConsultarAforoUseCase(repository);
 
   app.use('/api/v1/aforo', crearAforoRouter(registrarAcceso, obtenerAforoActual));
 

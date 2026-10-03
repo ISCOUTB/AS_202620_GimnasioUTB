@@ -97,4 +97,22 @@ Este documento registra, de forma trazable, el uso de IA generativa (Claude, Ant
 | **Aceptado** | Se aceptaron ambas tablas, el archivo `docs/contextos-delimitados.md` y la actualización del `README.md` para integrarse al repositorio. |
 | **Motivo** | El mapa de contextos delimitados aún está pendiente de elaborar por el equipo (no fue generado por la IA); las tablas y violaciones sí se generaron con IA pero se validaron contra el código fuente real antes de aceptarlas, siguiendo el mismo criterio de las entregas anteriores de no incorporar nada sin revisión. |
 
+## Semana 9 — Generación verificada y trazable: cadena, erosión y dependencias
+
+| Campo | Detalle |
+|---|---|
+| **Fecha** | 3 de octubre de 2026 |
+| **Herramienta** | Claude (claude.ai), con acceso al repositorio clonado y a un entorno de ejecución |
+| **Prompt utilizado (resumido)** | Se pidió generar todo lo que exige la evidencia S9 a partir del repositorio real: cadena completa de una porción construida con IA, extracto de `docs/ia.md`, auditoría de erosión y auditoría de dependencias propuestas por el modelo, y evaluación del componente generativo si existe. Antes se había pedido un prompt de trabajo para la evidencia. |
+| **Salida generada** | (1) `docs/s9-cadena-verificada.md`; (2) `docs/auditoria-erosion.md` y la configuración `.dependency-cruiser.cjs` con 11 reglas, el script `arch:check` y su paso en el CI; (3) `docs/auditoria-dependencias.md` y el paso `npm audit` en el CI; (4) corrección de V1 (campo privado en el adapter de memoria) y V2 (caso de uso `consultar-aforo.usecase.js`); (5) `npm audit fix` sobre `express`, `body-parser` y `qs`; (6) esta entrada. |
+| **Verificación** | Se ejecutaron y pasaron: `test:base` 12/12, `test:contrato` 11/11 y `test:postgres` 8/8 con PostgreSQL 16 real; `arch:check` sin violaciones; `npm audit` de 3 moderadas a 0. Se hizo una prueba de mutación (sin `FOR UPDATE` la prueba de concurrencia falla con 5, 6 y 5 en vez de 20) y una inyección de violaciones (12 errores detectados). Los resultados completos están en los documentos del punto anterior. **Reproducción por el equipo:** ☐ fecha y responsable. |
+| **Aceptado** | La configuración de fitness functions, las correcciones V1 y V2, la actualización de dependencias sin cambios mayores y los tres documentos. |
+| **Corregido** | La primera versión de `.dependency-cruiser.cjs` tenía `includeOnly: '^src'`, que ocultaba los paquetes npm y dejaba sin efecto las reglas H1b y H2b. Se detectó al preparar la prueba de sensibilidad y se eliminó la opción. |
+| **Rechazado** | (a) Redactar una evaluación de costo y latencia de un componente generativo: el sistema no tiene ninguno, y se dejó como "No aplica" con la condición para reabrirlo. (b) Proponer la migración a Express 5 y a js-yaml 5: son cambios mayores sin un defecto que los justifique hoy. |
+| **Motivo** | La regla del curso es que la documentación coincida con el código y que todo se pueda defender en vivo: no se incluyó nada que no tuviera evidencia ejecutada. |
+
+### Registro pendiente (semanas 7 y 8)
+
+`docs/ia.md` no tiene entradas para las semanas 7 y 8, pero el historial muestra trabajo en ese periodo: prueba de contrato y `docs/openapi.yaml` (20 de septiembre), `docs/taller.md` (27 de septiembre), y el adapter PostgreSQL, el manejo de errores y la observabilidad (28 de septiembre). Quien haya usado IA en esos cambios debe completar su fila (herramienta, prompt, qué se aceptó, corrigió y rechazó). Si no se usó IA, conviene dejarlo escrito.
+
 *Este registro se actualiza en cada corte con los usos de IA generativa relevantes al entregable correspondiente.*

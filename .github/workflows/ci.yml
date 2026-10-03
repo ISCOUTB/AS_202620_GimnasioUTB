@@ -17,3 +17,7 @@ jobs:
         run: npm run test:base
       - name: Prueba de contrato (docs/openapi.yaml)
         run: npm run test:contrato
+      - name: Auditoría de erosión arquitectónica (fitness functions)
+        run: npm run arch:check
+      - name: Auditoría de dependencias (vulnerabilidades altas o críticas)
+        run: npm audit --audit-level=high

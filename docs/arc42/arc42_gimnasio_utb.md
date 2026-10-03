@@ -272,6 +272,8 @@ Los siguientes puntos son límites actuales, no mitigaciones implementadas:
 - CI todavía no aprovisiona PostgreSQL ni ejecuta `test:postgres`.
 - SonarCloud/Quality Gate y una estrategia final de costos cloud no están implementados.
 - Flutter, QR, WebSocket, FCM, registro manual y estado operativo permanecen pendientes.
+- Erosión vigilada (S9): `npm run arch:check` y el CI aplican 11 reglas de dependencias derivadas de ADR-0001; los hallazgos abiertos (lógica acumulada en `server.js`, `catch {}` vacíos, CI sin `test:postgres`) están en [la auditoría de erosión](../auditoria-erosion.md).
+- Dependencias (S9): `npm audit` sin vulnerabilidades tras la actualización; `express` 4.x y `js-yaml` 4.x están una versión mayor por detrás de `latest`. Ver [la auditoría de dependencias](../auditoria-dependencias.md).
 
 # 12. Glosario
 
