@@ -60,3 +60,4 @@ services:
 
 volumes:
   postgres_data:
+# Dokploy redeploy trigger
