@@ -20,7 +20,7 @@ El propósito del producto es ofrecer información confiable sobre la disponibil
 
 **IMPLEMENTADO:** backend Node.js/Express con Arquitectura Hexagonal / Ports and Adapters; módulo de aforo; caso de uso de registro; `AforoRepositoryPort`; adapters PostgreSQL y memoria; API HTTP; transacciones con bloqueo de fila; readiness, liveness, métricas locales, logs estructurados y cierre ordenado ante `SIGTERM`.
 
-**OBJETIVO / FUTURO:** aplicación Flutter; QR e identidad de estudiantes; autenticación y roles; historial de accesos y deduplicación por estudiante; registro manual; estado operativo de apertura/cierre; WebSocket; FCM; Render; PostgreSQL gestionado; IaC; SonarCloud/Quality Gate y definición final de costos.
+**ESTADO PARCIAL:** existe un proyecto Flutter con pantallas/UI, pero no se ha verificado integración funcional con el backend. **OBJETIVO / FUTURO:** QR e identidad de estudiantes; autenticación y roles; historial de accesos y deduplicación por estudiante; registro manual; estado operativo de apertura/cierre; WebSocket; FCM; PostgreSQL gestionado; IaC completa; SonarCloud/Quality Gate y definición final de costos. El backend sí está desplegado en Dokploy mediante Docker Compose; Render fue una alternativa, no la plataforma actual.
 
 El backend actual no identifica personas. Su contador no constituye un registro de quién está dentro del gimnasio.
 
@@ -36,7 +36,7 @@ Rendimiento bajo carga, alta disponibilidad cloud, seguridad de identidad y expe
 
 | Stakeholder | Interés y estado |
 |---|---|
-| Estudiantes | Quieren conocer la disponibilidad. La aplicación y la identidad de estudiante están pendientes. |
+| Estudiantes | Quieren conocer la disponibilidad. Existe UI Flutter, pero su integración con el backend y la identidad de estudiante no están implementadas/verificadas. |
 | Encargado del gimnasio | Requeriría operar registros manuales y apertura/cierre. Estas capacidades están pendientes. |
 | Bienestar Universitario y área administrativa | Interesados en la gestión del aforo y el uso del gimnasio. |
 | Equipo de desarrollo y evaluadores | Necesitan decisiones trazables y evidencia verificable por corte académico. |
@@ -47,7 +47,7 @@ Rendimiento bajo carga, alta disponibilidad cloud, seguridad de identidad y expe
 
 La solución se desarrolla como proyecto académico incremental y su arquitectura debe poder explicarse y verificarse. El uso de IA debe registrarse conforme a las políticas del curso.
 
-**OBJETIVO / FUTURO:** URL pública, Render, integración de SonarCloud y Quality Gate. Son metas o requisitos del proyecto, no capacidades desplegadas o configuradas actualmente.
+**IMPLEMENTADO Y VERIFICADO:** deployment mediante Dokploy y Docker Compose, accesible en `https://gimnasio-utb.iscoutb.dev`. Render fue considerado como alternativa y no es el deployment actual. **OBJETIVO / FUTURO:** integración de SonarCloud y Quality Gate.
 
 ## 2.2 Técnicas implementadas
 
@@ -60,7 +60,7 @@ La solución se desarrolla como proyecto académico incremental y su arquitectur
 
 ## 2.3 Restricciones y requisitos futuros
 
-Flutter, cámara, QR, datos personales, autenticación, autorización, notificaciones, WebSocket, alojamiento cloud y base gestionada todavía no forman parte del código implementado. Los requisitos legales relacionados con identificación y datos personales deberán analizarse cuando esas funciones se incorporen; este documento no afirma que ya estén implementadas ni que exista una evaluación de cumplimiento.
+El repositorio contiene el proyecto Flutter/UI y la configuración de deployment Docker Compose para Dokploy. La integración funcional Flutter-backend, QR, datos personales, autenticación, autorización, notificaciones, WebSocket y PostgreSQL gestionado no están implementados/verificados. La infraestructura de la plataforma Dokploy es externa al repositorio; Compose es la configuración de deployment versionada, no IaC completa. Los requisitos legales relacionados con identificación y datos personales deberán analizarse cuando esas funciones se incorporen; este documento no afirma que ya estén implementadas ni que exista una evaluación de cumplimiento.
 
 # 3. Contexto y alcance del sistema
 
@@ -78,7 +78,7 @@ flowchart LR
 
 El cliente HTTP invoca la API. El servidor real persiste el contador en PostgreSQL mediante `AforoPostgresAdapter`. En pruebas, `createApp()` puede componer `AforoMemoriaAdapter`.
 
-**OBJETIVO / FUTURO:** conectar una aplicación Flutter y añadir identidad/QR, notificaciones, estado operativo, WebSocket y FCM. Estos elementos no se muestran como dependencias activas del backend.
+El proyecto Flutter contiene UI, pero no se ha verificado que consuma estas rutas. **OBJETIVO / FUTURO:** integración funcional Flutter-backend, identidad/QR, notificaciones, estado operativo, WebSocket y FCM. Estos elementos no se muestran como dependencias activas del backend.
 
 ## 3.3 Interfaces HTTP implementadas
 
@@ -98,6 +98,7 @@ El backend es un monolito organizado con Arquitectura Hexagonal / Ports and Adap
 
 - **Dominio:** `src/modules/aforo/domain/aforo.js` valida y calcula la transición del contador, sin depender de Express ni PostgreSQL.
 - **Aplicación:** `registrar-acceso.usecase.js` recibe el repositorio y delega una transición.
+- **Consulta:** `consultar-aforo.usecase.js` encapsula la lectura actual del contador mediante el repositorio.
 - **Puerto:** `AforoRepositoryPort` define `obtenerAforoActual()` y `actualizarAforo(transicionar)`.
 - **Infraestructura:** Express implementa el adapter HTTP; `AforoPostgresAdapter` y `AforoMemoriaAdapter` implementan el contrato de persistencia.
 - **Composición:** `src/server.js` usa PostgreSQL al ejecutar el servidor real y permite inyectar otro repositorio en `createApp()`.
@@ -110,7 +111,7 @@ La observabilidad implementada es básica: logs JSON en stdout, `/health`, `/rea
 
 ## 4.3 Arquitectura objetivo
 
-**OBJETIVO / FUTURO:** añadir los componentes móviles y operativos descritos en la visión, junto con despliegue, identidad, historial y canales de notificación. No forman parte de la estrategia runtime implementada actualmente.
+**OBJETIVO / FUTURO:** añadir integración funcional del cliente móvil y los componentes operativos descritos en la visión, identidad, historial y canales de notificación. El deployment runtime actual se describe en la sección 7.
 
 # 5. Vista de bloques
 
@@ -119,11 +120,13 @@ La observabilidad implementada es básica: logs JSON en stdout, `/health`, `/rea
 ```mermaid
 flowchart LR
     SERVER[server.js<br/>composition root] --> ROUTER[Router HTTP de aforo]
-    ROUTER --> UC[crearRegistrarAccesoUseCase]
-    UC --> PORT[AforoRepositoryPort<br/>actualizarAforo transicionar]
+    ROUTER --> WRITE[crearRegistrarAccesoUseCase]
+    ROUTER --> READ[crearConsultarAforoUseCase]
+    WRITE --> PORT[AforoRepositoryPort<br/>actualizarAforo transicionar]
+    READ --> PORT
     PORT --> PG[AforoPostgresAdapter]
     PG --> DB[(PostgreSQL<br/>aforo_estado)]
-    UC -. callback de transición .-> DOMAIN[domain/aforo.js<br/>aplicarAcceso]
+    WRITE -. callback de transición .-> DOMAIN[domain/aforo.js<br/>aplicarAcceso]
     PORT -. implementación alternativa en pruebas .-> MEM[AforoMemoriaAdapter]
 ```
 
@@ -134,8 +137,9 @@ El composition root inyecta el repositorio. El adapter de memoria es una impleme
 | Bloque | Responsabilidad | Evidencia |
 |---|---|---|
 | Composition root | Construye Express, selecciona/injecta repositorio, registra health, readiness y métricas. | `src/server.js` |
-| Adapter HTTP | `POST /acceso` invoca el caso de uso; `GET /` usa el getter de aforo que el composition root entrega al router. | `src/modules/aforo/infrastructure/http/aforo.router.js`, `src/server.js` |
+| Adapter HTTP | `POST /acceso` invoca el caso de uso de registro; `GET /` invoca el caso de uso de consulta inyectado desde el composition root. | `src/modules/aforo/infrastructure/http/aforo.router.js`, `src/server.js` |
 | Caso de uso | Pide al repositorio una actualización atómica usando una función de transición. | `src/modules/aforo/application/registrar-acceso.usecase.js` |
+| Caso de uso de consulta | Obtiene el aforo actual mediante el puerto del repositorio. | `src/modules/aforo/application/consultar-aforo.usecase.js` |
 | Dominio | Acepta `ENTRADA`/`SALIDA` y rechaza tipos inválidos o salida desde cero. | `src/modules/aforo/domain/aforo.js` |
 | Puerto | Contrato de lectura y transición atómica. | `src/modules/aforo/application/ports/aforo-repository.port.js` |
 | Adapter PostgreSQL | Ejecuta transacción, bloqueo de fila, actualización y rollback. | `src/modules/aforo/infrastructure/persistence/aforo-postgres.adapter.js` |
@@ -170,7 +174,7 @@ La prueba de integración PostgreSQL comprueba rechazo de salida desde cero y ro
 
 ## 6.2 Consultar el contador
 
-`GET /api/v1/aforo` llama a `obtenerAforoActual()` y, si la consulta termina correctamente, responde `200` con `{ status: "success", data: { aforoActual } }`. La consulta de lectura no ejecuta una transición.
+`GET /api/v1/aforo` pasa por `crearConsultarAforoUseCase`, que consulta el repositorio; si la lectura termina correctamente, la ruta responde `200` con `{ status: "success", data: { aforoActual } }`. La lectura no ejecuta una transición.
 
 ## 6.3 Funcionalidad futura
 
@@ -178,7 +182,7 @@ El escaneo QR, identificación del estudiante, corrección manual por un encarga
 
 # 7. Vista de despliegue
 
-## 7.1 Topología actual/local
+## 7.1 Topología local
 
 ```mermaid
 flowchart LR
@@ -192,9 +196,27 @@ El proceso real inicia `AforoPostgresAdapter` y necesita `DATABASE_URL`. Antes d
 
 `/health` es liveness estático. `/ready` prueba una lectura del repositorio y responde `503` si falla. `/metrics` expone contadores locales del proceso. En `SIGTERM`, el servidor deja de aceptar conexiones, espera el cierre HTTP y luego cierra el pool PostgreSQL.
 
-> El despliegue en Render, PostgreSQL gestionado, IaC/render.yaml y la definición final de costos todavía son objetivos de implementación.
+Esta vista describe ejecución local; no representa el deployment público.
 
-No existe una URL pública documentada ni una topología cloud desplegada en este repositorio.
+## 7.2 Deployment actual en Dokploy
+
+El backend está desplegado mediante la aplicación Dokploy `gimnasioutb-sistema-kresdf` en `https://gimnasio-utb.iscoutb.dev`. El flujo operativo es GitHub → Dokploy → Docker Compose → servicios `api`, `postgres` y `db-init`.
+
+```mermaid
+flowchart LR
+    GitHub[Repositorio en GitHub] --> Dokploy[Dokploy]
+    Dokploy --> Compose[Docker Compose]
+    Proxy[Proxy/ingress HTTPS] -->|HTTP interno, puerto 3000| API[Servicio api]
+    Compose --> API
+    Compose --> Init[Servicio db-init]
+    Compose --> DB[(Servicio postgres)]
+    Init -->|npm run db:init| DB
+    API -->|DATABASE_URL, hostname postgres| DB
+```
+
+PostgreSQL es un contenedor del Compose, no una base gestionada. El servicio tiene un volumen Docker nombrado. `db-init` espera a que PostgreSQL esté saludable y aplica el esquema antes de que `api` arranque; la API espera a que `db-init` termine correctamente y su healthcheck consulta `/ready`. HTTPS termina en el proxy/ingress de Dokploy; Express escucha HTTP internamente en el puerto 3000. El volumen configura persistencia del servicio, pero no se ha documentado una prueba de retención de datos tras redeploy.
+
+El equipo reportó PostgreSQL `Healthy`, finalización de `db-init`, arranque de `api`, `Docker Compose Deployed: ✅` y verificaciones públicas de `/health`, `/ready`, `/metrics`, consulta y registro de acceso. Esto acredita una ejecución verificada, no SLA, alta disponibilidad ni pruebas de carga.
 
 # 8. Conceptos transversales
 
@@ -229,7 +251,7 @@ No existe una URL pública documentada ni una topología cloud desplegada en est
 | Arquitectura Hexagonal / Ports and Adapters en un backend monolítico. | **IMPLEMENTADO:** dominio puro, caso de uso, puerto y adapters. | [ADR-0001](../adr/0001-arquitectura-hexagonal.md). |
 | Comandos y consultas HTTP síncronos; persistencia completada antes de responder. | **IMPLEMENTADO** para las rutas actuales de aforo. | [ADR-0003](../adr/0003-comunicacion-sincrona-asincrona.md) respalda el enfoque síncrono. Su decisión FCM permanece futura. |
 | PostgreSQL como persistencia del contador con transacción y bloqueo de fila. | **IMPLEMENTADO:** `AforoPostgresAdapter`, `schema.sql` y pruebas de persistencia, rollback y concurrencia. | [ADR-0004](../adr/0004-concurrencia-postgresql.md) documenta el bloqueo pesimista con `SELECT ... FOR UPDATE`, la transacción y la evidencia del escenario probado. |
-| Render como plataforma de despliegue. | **OBJETIVO / FUTURO:** no hay servicio desplegado ni IaC en el repositorio. | La versión anterior del arc42 lo registraba como ADR-0002 dentro de este documento. Debe leerse como objetivo, no como despliegue realizado; no se modifica ni se atribuye un ADR independiente. |
+| Deployment mediante Dokploy y Docker Compose. | **IMPLEMENTADO Y VERIFICADO:** Compose despliega `api`, `postgres` y `db-init`; Render fue una alternativa considerada, no el deployment actual. | No hay un ADR independiente de deployment en `docs/adr/`; esta fila registra el estado operativo actual, no una nueva decisión formal. |
 | Métricas en memoria, logs JSON y cierre ante SIGTERM. | **IMPLEMENTADO** en la composición del servidor y `src/shared/logger.js`. | No hay ADR independiente para estas decisiones operativas básicas. |
 
 # 10. Requisitos de calidad
@@ -241,7 +263,7 @@ No existe una URL pública documentada ni una topología cloud desplegada en est
 | Consistencia del contador | Hay evidencia de transacciones y concurrencia en la prueba de PostgreSQL de la sección 10.2. No prueba identidad ni deduplicación. |
 | Mantenibilidad | La separación hexagonal está reflejada en el código y las pruebas unitarias del dominio. |
 | Operabilidad | `/health`, `/ready`, logs, `/metrics` y el cierre por `SIGTERM` existen. Las pruebas de health/readiness verifican respuestas, no un SLA de disponibilidad. |
-| Rendimiento, escalabilidad, seguridad de identidad y disponibilidad cloud | **OBJETIVO / FUTURO o no medido.** No hay benchmark HTTP, prueba WebSocket, despliegue cloud ni autenticación que respalden umbrales cuantitativos. |
+| Rendimiento, escalabilidad, seguridad de identidad y alta disponibilidad | **OBJETIVO / FUTURO o no medido.** Existe un deployment Dokploy verificado, pero no hay benchmark HTTP, SLA, prueba de carga, prueba WebSocket ni autenticación que respalden umbrales cuantitativos. |
 
 ## 10.2 S1 — Concurrencia sobre el contador de aforo
 
@@ -259,6 +281,7 @@ Los resultados reportados para la suite actual son: pruebas base 12/12, contrato
 
 - `/health` responde liveness estático y `/ready` prueba la lectura del repositorio; hay pruebas de sus respuestas. Esto no mide disponibilidad cloud.
 - `/metrics` tiene prueba de conteo de entradas y salidas completadas. No es una prueba de consistencia ni un benchmark.
+- **S8 — Deployment y señales operativas:** Compose define el healthcheck de PostgreSQL, la inicialización con `db-init` y el healthcheck de `api` sobre `/ready`. El equipo reportó un deployment exitoso y verificó públicamente `/health`, `/ready`, `/metrics` y las operaciones de consulta/registro. Esto verifica el despliegue y esas respuestas en una ejecución; no mide disponibilidad, rendimiento, p95, throughput ni retención tras redeploy.
 - Umbrales de 200 ms, P95 de WebSocket, carga de 50 clientes, cambio automático de apertura/cierre y notificaciones en dos minutos no cuentan con implementación/evidencia actual. Si se conservan como metas académicas, deben etiquetarse como objetivos futuros no medidos.
 
 # 11. Riesgos y deuda técnica
@@ -268,10 +291,10 @@ Los siguientes puntos son límites actuales, no mitigaciones implementadas:
 - No existe identidad de estudiantes, autenticación ni autorización/roles.
 - No existe deduplicación por estudiante, validación QR ni historial de accesos; la persistencia guarda solo el contador agregado.
 - `/metrics` es local a cada instancia, se pierde al reiniciar y no agrega datos entre procesos.
-- No existe despliegue cloud, Render, PostgreSQL gestionado ni `render.yaml`/IaC.
+- El deployment actual es Dokploy/Compose con PostgreSQL en contenedor; no es PostgreSQL gestionado. El volumen está configurado, pero no se ha documentado una prueba de retención tras redeploy. No hay IaC completa fuera del Compose versionado.
 - CI todavía no aprovisiona PostgreSQL ni ejecuta `test:postgres`.
 - SonarCloud/Quality Gate y una estrategia final de costos cloud no están implementados.
-- Flutter, QR, WebSocket, FCM, registro manual y estado operativo permanecen pendientes.
+- Existe UI/proyecto Flutter, pero no integración funcional verificada con el backend. QR, WebSocket, FCM, registro manual y estado operativo permanecen pendientes.
 - Erosión vigilada (S9): `npm run arch:check` y el CI aplican 11 reglas de dependencias derivadas de ADR-0001; los hallazgos abiertos (lógica acumulada en `server.js`, `catch {}` vacíos, CI sin `test:postgres`) están en [la auditoría de erosión](../auditoria-erosion.md).
 - Dependencias (S9): `npm audit` sin vulnerabilidades tras la actualización; `express` 4.x y `js-yaml` 4.x están una versión mayor por detrás de `latest`. Ver [la auditoría de dependencias](../auditoria-dependencias.md).
 
@@ -290,7 +313,7 @@ Los siguientes puntos son límites actuales, no mitigaciones implementadas:
 | **QR e identidad** | **OBJETIVO / FUTURO:** medios de identificar estudiantes que todavía no existen en el backend. |
 | **Historial de accesos** | **OBJETIVO / FUTURO:** registros individuales; el esquema actual solo almacena el contador agregado. |
 | **WebSocket y FCM** | **OBJETIVO / FUTURO:** canales de tiempo real y notificaciones no implementados. |
-| **Render y cold start** | **OBJETIVO / FUTURO:** plataforma y efecto operativo que solo aplicarán si se realiza el despliegue. |
-| **Flutter** | **OBJETIVO / FUTURO:** cliente móvil no incluido en el backend actual. |
+| **Render y cold start** | Render fue una alternativa considerada; no es el deployment actual. No se reportan mediciones de cold start del deployment Dokploy. |
+| **Flutter** | Existe un proyecto con UI; no se ha verificado integración funcional con el backend. |
 
 *Documento de arquitectura académica del proyecto Gimnasio UTB. El uso de IA se registra en `docs/ia.md`.*

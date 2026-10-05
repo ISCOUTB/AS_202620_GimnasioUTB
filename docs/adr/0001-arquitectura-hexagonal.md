@@ -27,13 +27,14 @@ Componentes implementados:
 - `src/server.js`: composition root.
 - `src/modules/aforo/infrastructure/http/aforo.router.js`: `crearAforoRouter`.
 - `src/modules/aforo/application/registrar-acceso.usecase.js`: `crearRegistrarAccesoUseCase`.
+- `src/modules/aforo/application/consultar-aforo.usecase.js`: `crearConsultarAforoUseCase`.
 - `src/modules/aforo/domain/aforo.js`: `aplicarAcceso`.
 - `src/modules/aforo/application/ports/aforo-repository.port.js`: `AforoRepositoryPort`.
 - `src/modules/aforo/infrastructure/persistence/aforo-postgres.adapter.js`: `AforoPostgresAdapter`, persistencia real del servidor.
 - `src/modules/aforo/infrastructure/persistence/aforo-memoria.adapter.js`: `AforoMemoriaAdapter`, alternativa en memoria utilizada principalmente para pruebas e inyección.
 - `src/shared/logger.js`: logs estructurados JSON.
 
-`GET /api/v1/aforo` utiliza el getter del repositorio que `server.js` entrega al router; no existe un caso de uso separado de consulta. `/health`, `/ready` y `/metrics` también se componen desde `server.js`.
+`GET /api/v1/aforo` utiliza `crearConsultarAforoUseCase`, compuesto desde `server.js` e inyectado en el router. `/health`, `/ready` y `/metrics` también se componen desde `server.js`.
 
 ## Alcance y evidencia
 
@@ -68,7 +69,7 @@ Mantiene la regla de negocio aislada y permite conectar adapters mediante puerto
 
 ## Evolución futura
 
-**FUTURO / OBJETIVO, no implementado:** Flutter, QR, identidad de estudiantes, autenticación, roles, historial, deduplicación por estudiante, operación de apertura/cierre, WebSocket, FCM, Render, PostgreSQL gestionado e IaC. La arquitectura actual no contiene esos módulos o servicios.
+**FUTURO / OBJETIVO, no implementado:** integración funcional del cliente Flutter, QR, identidad de estudiantes, autenticación, roles, historial, deduplicación por estudiante, operación de apertura/cierre, WebSocket y FCM. El repositorio sí contiene un proyecto Flutter con UI, pero no se ha verificado su integración con el backend. El deployment operativo actual usa Dokploy y Docker Compose; Render no es la plataforma actual, PostgreSQL gestionado no está desplegado y el Compose versionado no constituye IaC completa.
 
 ## Referencias
 

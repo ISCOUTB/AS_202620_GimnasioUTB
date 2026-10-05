@@ -22,7 +22,8 @@ El backend no identifica estudiantes, valida QR, mantiene historial de accesos n
 - **Backend:** Node.js y Express, organizado con Arquitectura Hexagonal / Ports and Adapters. La decisión se describe en [ADR 0001](docs/adr/0001-arquitectura-hexagonal.md).
 - **Persistencia del servidor real:** PostgreSQL mediante `AforoPostgresAdapter`.
 - **Adapter en memoria:** disponible como implementación por defecto de `createApp()`, usada por pruebas que no requieren PostgreSQL.
-- **App móvil Flutter, Render y PostgreSQL gestionado:** pendientes; no hay despliegue configurado.
+- **App Flutter:** existe un proyecto con pantallas e interfaz en `docs/Flutter`; no hay evidencia de integración funcional con las rutas del backend.
+- **Deployment actual:** Docker Compose en Dokploy, con PostgreSQL como servicio del Compose; no es PostgreSQL gestionado. El estado desplegado se describe más abajo.
 
 ## Ejecución local
 
@@ -36,17 +37,25 @@ npm start
 
 `db:init` crea la tabla `aforo_estado` e inicializa el contador si aún no existe. El servidor escucha en el puerto 3000 por defecto. Los logs se escriben como JSON en stdout.
 
+## Deployment verificado (S8)
+
+El backend está desplegado mediante la aplicación Dokploy `gimnasioutb-sistema-kresdf` en [https://gimnasio-utb.iscoutb.dev](https://gimnasio-utb.iscoutb.dev). El deployment usa Docker Compose con tres servicios: `postgres` ejecuta PostgreSQL con un volumen nombrado; `db-init` ejecuta `npm run db:init` cuando PostgreSQL está saludable; y `api` construye la imagen de producción, escucha internamente en el puerto 3000 y espera a que `db-init` termine correctamente. El healthcheck de `api` consulta `/ready`.
+
+El equipo verificó PostgreSQL en estado `Healthy`, la finalización correcta de `db-init`, el arranque de la API y el resultado `Docker Compose Deployed: ✅`. También comprobó los endpoints públicos. En una ejecución concreta, el aforo pasó de 0 a 1 con una entrada y volvió a 0 con una salida. `/metrics` reportó entonces `entrada: 1`, `salida: 1` y `total: 2`. Esos valores son una observación de ese proceso, no métricas históricas persistentes.
+
+Los archivos de deployment son `Dockerfile`, `.dockerignore`, `deploy/compose.lab.yaml` y `deploy/.env.example`. Dokploy genera `deploy/.env` desde la configuración del panel; no se versionan credenciales. El Compose configura un volumen nombrado para PostgreSQL, pero no se ha documentado una prueba de retención de datos después de un redeploy.
+
 ## API actual
 
 | Método y ruta | Comportamiento |
 |---|---|
 | `GET /health` | Liveness estático. Responde `200` con `{"status":"ok","service":"gimnasio-utb-backend"}`. |
 | `GET /ready` | Consulta el repositorio. Responde `200` si está disponible y `503` si la consulta falla. |
-| `GET /metrics` | Devuelve contadores en memoria por instancia, separados por tipo de acceso. Se reinician al reiniciar el proceso. No es una salida Prometheus. |
+| `GET /metrics` | Devuelve `access_operations_total` (`entrada`, `salida`, `total`), en memoria por proceso. Se reinicia con el proceso; no es Prometheus ni una métrica persistente. |
 | `GET /api/v1/aforo` | Devuelve el aforo actual en `data.aforoActual`. |
 | `POST /api/v1/aforo/acceso` | Recibe `{"tipoAcceso":"ENTRADA"}` o `{"tipoAcceso":"SALIDA"}`. Responde `201` si se registra, `400` si falla la entrada o regla de dominio, `503` si el repositorio no está disponible y `500` ante errores inesperados. |
 
-Ejemplo de respuesta de `GET /metrics` después de una entrada y una salida:
+Ejemplo observado después de una entrada y una salida en una ejecución de producción (no es historial persistente):
 
 ```json
 {
@@ -74,9 +83,9 @@ La prueba PostgreSQL incluye persistencia entre instancias, rollback por rechazo
 npm test
 ```
 
-La suite ejecuta pruebas base, contrato y PostgreSQL. La prueba PostgreSQL requiere `DATABASE_URL` apuntando a una base cuyo nombre incluya `test`; sin esa variable se omite. Los resultados validados para el estado actual son: base 12/12, contrato 11/11 y PostgreSQL 8/8.
+`npm test` ejecuta pruebas base, de contrato y PostgreSQL. Las pruebas base y de contrato usan `createApp()` con el adapter en memoria; las pruebas PostgreSQL requieren `DATABASE_URL` apuntando a una base cuyo nombre incluya `test`, y se omiten si no está configurada.
 
-El workflow actual de GitHub Actions ejecuta las pruebas base y de contrato, pero aún no aprovisiona PostgreSQL ni ejecuta la suite PostgreSQL. CI con PostgreSQL, SonarCloud/Quality Gate, Render, `render.yaml`/IaC, PostgreSQL gestionado y estimación de costos siguen pendientes.
+El workflow de GitHub Actions usa Node.js 24 y ejecuta `npm ci`, `npm run test:base`, `npm run test:contrato`, `npm run arch:check` y `npm audit --audit-level=high`. No aprovisiona PostgreSQL ni ejecuta `test:postgres`. SonarCloud/Quality Gate y la automatización de pruebas PostgreSQL en CI no están implementados.
 
 ## Estructura relevante
 

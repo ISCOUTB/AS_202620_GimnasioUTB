@@ -3,9 +3,9 @@ info:
   title: API Backend - Gimnasio UTB
   version: 1.0.0
   description: |
-    Contrato HTTP del backend actual. El cliente móvil y las capacidades de
-    despliegue descritas en la documentación son objetivos futuros, no parte
-    de la implementación actual.
+    Contrato HTTP del backend actual. El deployment actual utiliza Docker
+    Compose en Dokploy. Existe un proyecto Flutter con UI, pero no se ha
+    verificado su integración funcional con estas rutas.
 
     `GET /metrics` devuelve contadores JSON en memoria por instancia; no es
     una exportación Prometheus. `GET /ready` consulta el repositorio y permite
@@ -19,6 +19,8 @@ info:
 servers:
   - url: http://localhost:3000
     description: Desarrollo local
+  - url: https://gimnasio-utb.iscoutb.dev
+    description: Deployment actual mediante Dokploy; HTTPS termina en su proxy/ingress.
 paths:
   /health:
     get:
