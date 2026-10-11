@@ -10,7 +10,7 @@ COPY --chown=node:node package.json package-lock.json ./
 RUN chown -R node:node /app
 
 USER node
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --ignore-scripts
 
 COPY --chown=node:node src/ ./src/
 COPY --chown=node:node scripts/ ./scripts/
