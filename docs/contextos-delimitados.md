@@ -2,11 +2,11 @@
 
 Evidencia S6 — Domain-Driven Design aplicado a Gimnasio UTB.
 
-Este documento identifica los contextos delimitados del dominio a partir del lenguaje de los interesados (`docs/problema.md`), asigna la propiedad de los datos por módulo evitando escrituras compartidas, y documenta las violaciones detectadas en el código actual junto con su plan de corrección.
+Este documento identifica contextos delimitados conceptuales a partir del lenguaje de los interesados (`docs/problema.md`), asigna la propiedad de los datos por módulo y conserva las violaciones/riesgos identificados originalmente en S6 junto con su estado actual.
 
 ## Mapa conceptual de contextos
 
-Este mapa representa contextos del producto, incluidos algunos todavía no implementados; no describe por completo el runtime actual. El backend local expone HTTP/JSON y no configura TLS. Por ello, la relación del cliente con la API es conceptual y no afirma una conexión HTTPS actual.
+Este mapa representa contextos del producto, incluidos algunos todavía no implementados; no describe por completo el runtime actual. Existe un proyecto Flutter con UI, pero no se ha verificado integración funcional con la API. Express sirve HTTP internamente y no configura TLS; el acceso público HTTPS termina en el proxy/ingress de Dokploy. Las relaciones del mapa siguen siendo conceptuales.
 
 ```mermaid
 flowchart TD
@@ -64,12 +64,12 @@ flowchart TD
 
 **Regla que se debe respetar al crecer:** Aforo nunca escribe preferencias del estudiante, y Notificaciones nunca escribe el contador de aforo — solo lo lee. Esa separación es la que permitiría, si se quisiera, extraer Notificaciones como servicio aparte sin tocar Aforo.
 
-## Violaciones detectadas en el código actual y plan de corrección
+## Estado actual de consistencia y riesgos identificados en S6
 
-No existen violaciones de **escritura cruzada entre módulos**, porque hoy solo hay un módulo implementado (Aforo) — no hay otro módulo escribiendo su dato. Sin embargo, se detectaron dos riesgos de diseño ya presentes en el código, que se convertirán en violaciones reales en cuanto se agreguen Notificaciones o Encargado si no se corrigen antes.
+El contexto Aforo es el único módulo implementado; no hay escrituras cruzadas entre módulos. El servidor real usa PostgreSQL y `AforoPostgresAdapter`; el adapter de memoria sigue disponible para pruebas/inyección. Las transiciones PostgreSQL usan `BEGIN`, `SELECT ... FOR UPDATE`, la transición del dominio, `UPDATE` y `COMMIT`, con intento de `ROLLBACK` ante errores. El esquema restringe el contador a valores no negativos. Las pruebas PostgreSQL verifican rechazo de salida desde cero, rollback, persistencia entre instancias del adapter y 20 entradas concurrentes con resultado final 20. Esto no demuestra historial, identidad, carga HTTP ni retención tras redeploy.
 
-| # | Violación / riesgo detectado | Dónde está | Por qué es un problema | Plan de corrección |
-|---|---|---|---|---|
-| V1 | El estado del aforo (`this.aforoActual`) es una propiedad pública mutable del adaptador, no encapsulada | `src/modules/aforo/infrastructure/persistence/aforo-memoria.adapter.js` | Cualquier código dentro del mismo proceso podría reasignar `adapter.aforoActual` directamente, sin pasar por `actualizarAforo(transicionar)` ni por la regla de dominio `aplicarAcceso`. Hoy nadie lo hace, pero nada en el código lo impide — es una violación latente de dueño único. | Encapsular el estado (ej. campo privado `#aforoActual` de la clase) para que la única forma de modificarlo sea a través de los métodos del puerto. |
-| V2 | La lectura del aforo en `server.js` bypassa el caso de uso y llama al repositorio directamente | `src/server.js` (línea `const obtenerAforoActual = () => aforoRepository.obtenerAforoActual();`) | El router recibe una referencia directa al repositorio en vez de pasar por la capa de aplicación. Funciona hoy porque leer no tiene reglas de negocio, pero rompe el patrón de que todo acceso a un dato pasa por su módulo dueño a través de un caso de uso — si mañana leer el aforo necesita una regla (ej. "no mostrar aforo si el gimnasio está cerrado"), ese código quedaría disperso. | Crear un caso de uso explícito `consultarAforoActual` en `application/`, aunque hoy sea un simple passthrough, para que toda entrada al módulo tenga un punto único. |
-| V3 | No existe un puerto de lectura para que futuros módulos (Notificaciones) consulten el aforo sin acceder directamente al adaptador en memoria | Ausente en el código (riesgo, no bug actual) | Sin un contrato definido, es fácil que quien implemente Notificaciones importe directamente `AforoMemoriaAdapter` para "ahorrarse pasos" — eso sí sería una violación real de dueño único (dos módulos acoplados a la misma implementación concreta). | Definir un puerto de solo lectura (ej. `AforoQueryPort`) que Aforo exponga, para que otros módulos dependan del contrato y no de la implementación. |
+| # | Problema/riesgo identificado originalmente en S6 | Corrección/evidencia actual | Estado |
+|---|---|---|---|
+| V1 | `AforoMemoriaAdapter` exponía `this.aforoActual` como propiedad pública mutable. | El estado ahora es el campo privado `#aforoActual`, modificado mediante `actualizarAforo()`. | **Corregida.** No es un riesgo vigente en la implementación actual. |
+| V2 | La lectura de aforo saltaba la capa de aplicación y llegaba al repositorio desde `server.js`. | `crearConsultarAforoUseCase` existe y `server.js` lo compone e inyecta en el router. | **Corregida.** Las consultas actuales pasan por el caso de uso. |
+| V3 | Futuros módulos podrían necesitar un contrato de lectura propio en vez de depender del adapter concreto. | Actualmente solo existe el módulo Aforo; no hay módulo Notificaciones que consuma esa consulta. | **Riesgo futuro abierto/aceptado.** Revaluar al introducir otro módulo consumidor. |

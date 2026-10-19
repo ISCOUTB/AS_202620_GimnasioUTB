@@ -1,5 +1,4 @@
 const { Pool } = require('pg');
-const { AforoDomainError } = require('../../domain/aforo');
 const {
   AforoRepositoryPort,
   AforoRepositoryError,
@@ -9,6 +8,56 @@ function comoErrorDeRepositorio(error) {
   if (error instanceof AforoRepositoryError) return error;
   const message = error instanceof Error ? error.message : String(error);
   return new AforoRepositoryError(message, error);
+}
+
+/**
+ * Ejecuta una consulta y traduce cualquier fallo de PostgreSQL a
+ * AforoRepositoryError, para que el router responda 503.
+ */
+async function ejecutar(client, sql, params) {
+  try {
+    return await client.query(sql, params);
+  } catch (error) {
+    throw comoErrorDeRepositorio(error);
+  }
+}
+
+/** Intenta ROLLBACK sin ocultar el error original que causó el fallo. */
+async function deshacer(client, error) {
+  try {
+    await client.query('ROLLBACK');
+  } catch (rollbackError) {
+    if (error instanceof Error) error.rollbackError = rollbackError;
+  }
+}
+
+/**
+ * Cuerpo de la transacción ya iniciada: bloquea la fila, aplica la transición
+ * del dominio y confirma. Los errores de la transición (p. ej. AforoDomainError)
+ * se propagan sin envolver; los de PostgreSQL ya llegan como AforoRepositoryError.
+ */
+async function transicionarEnTransaccion(client, transicionar) {
+  try {
+    const { rows } = await ejecutar(
+      client,
+      'SELECT aforo_actual FROM aforo_estado WHERE id = 1 FOR UPDATE'
+    );
+    if (rows.length === 0) {
+      throw new AforoRepositoryError('Estado de aforo no inicializado; ejecute npm run db:init');
+    }
+
+    const nuevoAforo = transicionar(rows[0].aforo_actual);
+    const result = await ejecutar(
+      client,
+      'UPDATE aforo_estado SET aforo_actual = $1 WHERE id = 1 RETURNING aforo_actual',
+      [nuevoAforo]
+    );
+    await ejecutar(client, 'COMMIT');
+    return result.rows[0].aforo_actual;
+  } catch (error) {
+    await deshacer(client, error);
+    throw error;
+  }
 }
 
 class AforoPostgresAdapter extends AforoRepositoryPort {
@@ -47,45 +96,17 @@ class AforoPostgresAdapter extends AforoRepositoryPort {
     }
 
     let client;
-    let transactionStarted = false;
-    let transitionFailed = false;
     try {
       client = await this.pool.connect();
-      await client.query('BEGIN');
-      transactionStarted = true;
-      const { rows } = await client.query(
-        'SELECT aforo_actual FROM aforo_estado WHERE id = 1 FOR UPDATE'
-      );
-      if (rows.length === 0) {
-        throw new Error('Estado de aforo no inicializado; ejecute npm run db:init');
-      }
-
-      let nuevoAforo;
-      try {
-        nuevoAforo = transicionar(rows[0].aforo_actual);
-      } catch (error) {
-        transitionFailed = true;
-        throw error;
-      }
-      const result = await client.query(
-        'UPDATE aforo_estado SET aforo_actual = $1 WHERE id = 1 RETURNING aforo_actual',
-        [nuevoAforo]
-      );
-      await client.query('COMMIT');
-      transactionStarted = false;
-      return result.rows[0].aforo_actual;
     } catch (error) {
-      if (transactionStarted) {
-        try {
-          await client.query('ROLLBACK');
-        } catch (rollbackError) {
-          if (error instanceof Error) error.rollbackError = rollbackError;
-        }
-      }
-      if (transitionFailed || error instanceof AforoDomainError) throw error;
       throw comoErrorDeRepositorio(error);
+    }
+
+    try {
+      await ejecutar(client, 'BEGIN');
+      return await transicionarEnTransaccion(client, transicionar);
     } finally {
-      if (client) client.release();
+      client.release();
     }
   }
 

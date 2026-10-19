@@ -13,10 +13,6 @@ const { AforoRepositoryPort } = require('../../application/ports/aforo-repositor
 class AforoMemoriaAdapter extends AforoRepositoryPort {
   #aforoActual = 0; // privado: solo se modifica vía actualizarAforo (corrige V1)
 
-  constructor() {
-    super();
-  }
-
   async obtenerAforoActual() {
     return this.#aforoActual;
   }

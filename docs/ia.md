@@ -21,11 +21,11 @@ Todo el contenido generado o sugerido mediante herramientas de inteligencia arti
 
 Los integrantes son responsables de las decisiones, documentación, diseño y código incluidos en el repositorio.
 
-## Registro de futuras interacciones
+## Registro por entregas
 
-Este documento se actualizará durante el desarrollo del proyecto para registrar nuevos usos relevantes de herramientas de inteligencia artificial.
+Este documento registra los usos relevantes de herramientas de inteligencia artificial por entrega. La herramienta utilizada se especifica en cada entrada.
 
-Este documento registra, de forma trazable, el uso de IA generativa (Claude, Anthropic, vía claude.ai) durante el desarrollo del proyecto, conforme a lo exigido por el curso. Por cada entrega se documenta: el prompt utilizado, la herramienta, un resumen de lo generado, y la verificación/edición realizada por el equipo antes de incorporarlo.
+Este documento registra, de forma trazable, el uso de IA generativa durante el desarrollo del proyecto, conforme a lo exigido por el curso. Por cada entrega se documenta la herramienta, un resumen de la solicitud y del resultado, y la verificación/edición realizada por el equipo antes de incorporarlo.
 
 > **Nota:** Ningún contenido generado se incorporó al proyecto sin revisión del equipo. Las decisiones de arquitectura (elección de stack, estilo arquitectónico) fueron tomadas por el equipo; la IA se usó para estructurar la documentación, comparar alternativas de forma sistemática, y depurar la integración con GitHub.
 
@@ -97,6 +97,19 @@ Este documento registra, de forma trazable, el uso de IA generativa (Claude, Ant
 | **Aceptado** | Se aceptaron ambas tablas, el archivo `docs/contextos-delimitados.md` y la actualización del `README.md` para integrarse al repositorio. |
 | **Motivo** | El mapa de contextos delimitados aún está pendiente de elaborar por el equipo (no fue generado por la IA); las tablas y violaciones sí se generaron con IA pero se validaron contra el código fuente real antes de aceptarlas, siguiendo el mismo criterio de las entregas anteriores de no incorporar nada sin revisión. |
 
+## Semana 8 — Observabilidad existente y deployment con Dokploy
+
+| Campo | Detalle |
+|---|---|
+| **Herramienta** | GitHub Copilot en VS Code |
+| **Objetivo** | Revisar el backend real y preparar/documentar su deployment con Docker Compose en Dokploy, sin alterar la lógica de negocio ni agregar dependencias de observabilidad innecesarias. |
+| **Actividades asistidas por IA** | Se inspeccionaron la arquitectura hexagonal, el adapter PostgreSQL, el adapter de memoria, los endpoints y la observabilidad existente. Se revisó que los logs fueran JSON y que `/metrics` expusiera `access_operations_total` en memoria, sin presentarla como Prometheus. Se propusieron, crearon y revisaron el `Dockerfile`, `.dockerignore`, `deploy/compose.lab.yaml` y `deploy/.env.example`. Se detectó y corrigió en el Dockerfile el permiso de escritura de `/app` antes de ejecutar `npm ci` como usuario `node`. Se analizaron los errores de Compose reportados durante la preparación, incluida la ruta de archivo ausente y la configuración requerida en el entorno generado por Dokploy. |
+| **Resultado asistido** | Se preparó una composición de tres servicios (`postgres`, `db-init`, `api`), con volumen nombrado para PostgreSQL, inicialización mediante `npm run db:init`, dependencias por estado saludable y healthcheck de la API sobre `/ready`. La `DATABASE_URL` se construye internamente con el hostname `postgres`; el archivo real de entorno no se versiona. No se modificó la arquitectura ni se agregaron servicios o dependencias de observabilidad. |
+| **Acciones y verificaciones del equipo** | El equipo configuró las variables en Dokploy, corrigió la configuración del entorno, activó el redeploy mediante webhook y verificó el resultado `Docker Compose Deployed: ✅`, PostgreSQL `Healthy`, la finalización de `db-init` y el arranque de la API. En producción verificó `/health`, `/ready`, `/metrics`, `GET /api/v1/aforo` y `POST /api/v1/aforo/acceso`: en esa ejecución el contador pasó de 0 a 1 con `ENTRADA` y volvió a 0 con `SALIDA`; las métricas observadas fueron entrada 1, salida 1 y total 2. Son resultados de esa ejecución, no métricas históricas persistentes. Copilot ayudó a preparar y revisar los archivos; no ejecutó el deployment ni las solicitudes productivas. |
+| **Archivos relacionados** | `Dockerfile`, `.dockerignore`, `deploy/compose.lab.yaml`, `deploy/.env.example`, `README.md` y esta entrada. Los dos últimos documentan el estado y la trazabilidad; no se modificó código de negocio. |
+| **Validación técnica asistida** | Se revisaron sintaxis YAML, rutas relativas de build, referencias a `package.json`, `package-lock.json`, `src/` y `scripts/`, orden de permisos en Dockerfile, y que el lockfile correspondiera con `package.json`. Docker no estaba disponible localmente, por lo que no se ejecutó una construcción ni un despliegue desde este entorno. Se revisó el estado de Git; los commits relacionados con el deployment son `e960de7` y `32be1b1`. |
+| **Límites** | Las métricas viven en memoria y se reinician con el proceso. El volumen está configurado, pero no se documentó una prueba de retención de datos después de un redeploy. La interfaz Flutter existe, pero no se verificó integración funcional con la API. |
+
 ## Semana 9 — Generación verificada y trazable: cadena, erosión y dependencias
 
 | Campo | Detalle |
@@ -111,5 +124,19 @@ Este documento registra, de forma trazable, el uso de IA generativa (Claude, Ant
 | **Rechazado** | (a) Redactar una evaluación de costo y latencia de un componente generativo: el sistema no tiene ninguno, y se dejó como "No aplica" con la condición para reabrirlo. (b) Proponer la migración a Express 5 y a js-yaml 5: son cambios mayores sin un defecto que los justifique hoy. |
 | **Motivo** | La regla del curso es que la documentación coincida con el código y que todo se pueda defender en vivo: no se incluyó nada que no tuviera evidencia ejecutada. |
 
+
+## Semana 11 — Fallos parciales y decisión de extracción
+
+| Campo | Detalle |
+|---|---|
+| **Fecha** | 18 de octubre de 2026 |
+| **Herramienta** | Claude (claude.ai), con acceso de lectura al repositorio clonado |
+| **Prompt utilizado (resumido)** | Se compartió el enunciado de la evidencia S11 (tabla de modos de fallo con mitigación, diseño de idempotencia o saga si aplica, ADR de extraer o no extraer con la opción "no extraer" evaluada, y actualización de arc42 §11) y se pidió construirla a partir del código real. |
+| **Salida generada** | (1) `docs/s11-fallos-parciales.md`: integraciones I1–I4, tabla F1–F11, diseño de idempotencia de `POST /acceso`, política de reintentos, timeouts, outbox y circuit breaker para Notificaciones, y análisis de saga; (2) `docs/adr/0005-no-extraer-notificaciones.md`; (3) arc42 §9 (fila de ADR-0005) y §11 (nueva subsección 11.1 de modos de fallo); (4) enlaces en `README.md`; (5) esta entrada. |
+| **Verificación** | Cada fila de "Qué pasa hoy" se contrastó con el código: `registrar-acceso.usecase.js` (sin idempotencia), `aforo-postgres.adapter.js` (`Pool` sin timeouts) y `server.js` (cierre ante `SIGTERM`). Se comprobó en `node_modules/pg-pool` y `pg/lib/defaults.js` que `connectionTimeoutMillis`, `statement_timeout`, `lock_timeout` y `query_timeout` no tienen límite por defecto. No se modificó código, por lo que las suites existentes no cambian. **Revisión por el equipo:** ☑ 18/10/2026 — Sebastián Caicedo. |
+| **Aceptado** | La tabla de modos de fallo, el diseño de idempotencia con la clave en la misma transacción, el outbox para Notificaciones y la decisión de no extraer. |
+| **Corregido** | La primera idea fue proponer un circuit breaker también entre la API y PostgreSQL. Se descartó y se dejó explicado en el documento: sin PostgreSQL no hay respuesta alternativa útil, y los timeouts ya hacen fallar rápido. |
+| **Rechazado** | Implementar en esta semana la idempotencia y los timeouts: cambia el puerto, los dos adapters, el router y el contrato OpenAPI, y la evidencia S11 pide el diseño. Queda como trabajo siguiente, con la lista de archivos y pruebas en la sección 3.8 del documento. Tampoco se presentó una saga como necesaria: el sistema usa una sola base y una transacción local basta; la saga se describe solo como escenario hipotético. |
+| **Motivo** | Documentar como IMPLEMENTADO solo lo que existe en el código y poder defender cada decisión en la sustentación. |
 
 *Este registro se actualiza en cada corte con los usos de IA generativa relevantes al entregable correspondiente.*
