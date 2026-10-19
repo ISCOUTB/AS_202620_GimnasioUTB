@@ -125,4 +125,18 @@ Este documento registra, de forma trazable, el uso de IA generativa durante el d
 | **Motivo** | La regla del curso es que la documentación coincida con el código y que todo se pueda defender en vivo: no se incluyó nada que no tuviera evidencia ejecutada. |
 
 
+## Semana 11 — Fallos parciales y decisión de extracción
+
+| Campo | Detalle |
+|---|---|
+| **Fecha** | 18 de octubre de 2026 |
+| **Herramienta** | Claude (claude.ai), con acceso de lectura al repositorio clonado |
+| **Prompt utilizado (resumido)** | Se compartió el enunciado de la evidencia S11 (tabla de modos de fallo con mitigación, diseño de idempotencia o saga si aplica, ADR de extraer o no extraer con la opción "no extraer" evaluada, y actualización de arc42 §11) y se pidió construirla a partir del código real. |
+| **Salida generada** | (1) `docs/s11-fallos-parciales.md`: integraciones I1–I4, tabla F1–F11, diseño de idempotencia de `POST /acceso`, política de reintentos, timeouts, outbox y circuit breaker para Notificaciones, y análisis de saga; (2) `docs/adr/0005-no-extraer-notificaciones.md`; (3) arc42 §9 (fila de ADR-0005) y §11 (nueva subsección 11.1 de modos de fallo); (4) enlaces en `README.md`; (5) esta entrada. |
+| **Verificación** | Cada fila de "Qué pasa hoy" se contrastó con el código: `registrar-acceso.usecase.js` (sin idempotencia), `aforo-postgres.adapter.js` (`Pool` sin timeouts) y `server.js` (cierre ante `SIGTERM`). Se comprobó en `node_modules/pg-pool` y `pg/lib/defaults.js` que `connectionTimeoutMillis`, `statement_timeout`, `lock_timeout` y `query_timeout` no tienen límite por defecto. No se modificó código, por lo que las suites existentes no cambian. **Revisión por el equipo:** ☑ 18/10/2026 — Sebastián Caicedo. |
+| **Aceptado** | La tabla de modos de fallo, el diseño de idempotencia con la clave en la misma transacción, el outbox para Notificaciones y la decisión de no extraer. |
+| **Corregido** | La primera idea fue proponer un circuit breaker también entre la API y PostgreSQL. Se descartó y se dejó explicado en el documento: sin PostgreSQL no hay respuesta alternativa útil, y los timeouts ya hacen fallar rápido. |
+| **Rechazado** | Implementar en esta semana la idempotencia y los timeouts: cambia el puerto, los dos adapters, el router y el contrato OpenAPI, y la evidencia S11 pide el diseño. Queda como trabajo siguiente, con la lista de archivos y pruebas en la sección 3.8 del documento. Tampoco se presentó una saga como necesaria: el sistema usa una sola base y una transacción local basta; la saga se describe solo como escenario hipotético. |
+| **Motivo** | Documentar como IMPLEMENTADO solo lo que existe en el código y poder defender cada decisión en la sustentación. |
+
 *Este registro se actualiza en cada corte con los usos de IA generativa relevantes al entregable correspondiente.*

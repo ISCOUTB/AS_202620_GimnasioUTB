@@ -123,11 +123,13 @@ tests/
 - [Diagramas C4](docs/c4/).
 - [ADR 0001: Arquitectura Hexagonal](docs/adr/0001-arquitectura-hexagonal.md).
 - [ADR 0003: Comunicación síncrona y asíncrona](docs/adr/0003-comunicacion-sincrona-asincrona.md).
+- [ADR 0005: No extraer Notificaciones a un servicio propio](docs/adr/0005-no-extraer-notificaciones.md).
 - [Contextos delimitados](docs/contextos-delimitados.md).
 - [Registro de uso de IA](docs/ia.md).
 - [S9: cadena verificada de una porción construida con IA](docs/s9-cadena-verificada.md).
 - [Auditoría de erosión arquitectónica](docs/auditoria-erosion.md).
 - [Auditoría de dependencias](docs/auditoria-dependencias.md).
+- [S11: fallos parciales, idempotencia y decisión de extracción](docs/s11-fallos-parciales.md).
 
 ## Integrantes
 
