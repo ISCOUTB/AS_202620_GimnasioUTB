@@ -253,6 +253,7 @@ El equipo reportó PostgreSQL `Healthy`, finalización de `db-init`, arranque de
 | PostgreSQL como persistencia del contador con transacción y bloqueo de fila. | **IMPLEMENTADO:** `AforoPostgresAdapter`, `schema.sql` y pruebas de persistencia, rollback y concurrencia. | [ADR-0004](../adr/0004-concurrencia-postgresql.md) documenta el bloqueo pesimista con `SELECT ... FOR UPDATE`, la transacción y la evidencia del escenario probado. |
 | Deployment mediante Dokploy y Docker Compose. | **IMPLEMENTADO Y VERIFICADO:** Compose despliega `api`, `postgres` y `db-init`; Render fue una alternativa considerada, no el deployment actual. | No hay un ADR independiente de deployment en `docs/adr/`; esta fila registra el estado operativo actual, no una nueva decisión formal. |
 | Métricas en memoria, logs JSON y cierre ante SIGTERM. | **IMPLEMENTADO** en la composición del servidor y `src/shared/logger.js`. | No hay ADR independiente para estas decisiones operativas básicas. |
+| No extraer Notificaciones a un servicio: módulo del monolito con puerto, outbox y relay. | **DECIDIDO, NO IMPLEMENTADO:** Notificaciones aún no existe. Se evaluaron "no extraer", "servicio + broker" y "servicio + HTTP". | [ADR-0005](../adr/0005-no-extraer-notificaciones.md). Modos de fallo en la [evidencia S11](../s11-fallos-parciales.md). |
 
 # 10. Requisitos de calidad
 
@@ -285,6 +286,28 @@ Los resultados reportados para la suite actual son: pruebas base 12/12, contrato
 - Umbrales de 200 ms, P95 de WebSocket, carga de 50 clientes, cambio automático de apertura/cierre y notificaciones en dos minutos no cuentan con implementación/evidencia actual. Si se conservan como metas académicas, deben etiquetarse como objetivos futuros no medidos.
 
 # 11. Riesgos y deuda técnica
+
+## 11.1 Modos de fallo parcial (S11)
+
+El análisis completo, con el diseño de cada mitigación, está en la [evidencia S11](../s11-fallos-parciales.md). La columna "Estado" distingue lo que existe en el código de lo que solo está diseñado.
+
+| # | Modo de fallo | Riesgo | Mitigación | Estado |
+|---|---|---|---|---|
+| F1 | Respuesta perdida después del `COMMIT`; el cliente reintenta `POST /acceso`. | **Alto.** El endpoint no es idempotente: el contador se incrementa dos veces. | `Idempotency-Key` guardada en la misma transacción que el `UPDATE`. | DISEÑO |
+| F2 | Reintentos inmediatos y repetidos del cliente. | Medio. Amplifica la carga y, sin F1, duplica conteos. | Retroceso exponencial con jitter, máximo 3, misma clave; `Retry-After` en `503`. | DISEÑO |
+| F3 | PostgreSQL no responde o el pool se agota. | Alto. El `Pool` no tiene `connectionTimeoutMillis` (sin límite por defecto): peticiones colgadas. | Timeouts de conexión, sentencia y consulta; `503` rápido. | PARCIAL: `503` y `/ready` implementados; timeouts en diseño |
+| F4 | Contención sobre la única fila de `aforo_estado`. | Medio en hora pico (latencia, no inconsistencia). | `lock_timeout` y `statement_timeout`; transacción corta. | DISEÑO |
+| F5 | Resultado incierto del `COMMIT` (conexión cortada). | Alto. La API responde `503` aunque el cambio pudo aplicarse; el reintento duplica. | Misma clave de idempotencia que F1. | DISEÑO |
+| F6 | El proceso muere a mitad de la transacción. | Bajo. | Atomicidad de PostgreSQL y `ROLLBACK` del adapter. | IMPLEMENTADO |
+| F7 | Redeploy con peticiones en vuelo. | Medio. | Cierre ordenado ante `SIGTERM` (existe) + idempotencia. | PARCIAL |
+| F8 | Escritura doble aforo + push (Notificaciones). | Alto cuando exista. | Patrón outbox en la misma transacción. | FUTURO / DISEÑO |
+| F9 | FCM lento o caído. | Alto si se llamara en la petición. | Relay asíncrono con timeout y circuit breaker. | FUTURO / DISEÑO |
+| F10 | Entrega duplicada del relay. | Bajo-medio. | Consumidor idempotente por id de evento. | FUTURO / DISEÑO |
+| F11 | Identidad no responde al validar el QR, si fuera un servicio. | Alto en ese escenario. | Mantener Identidad en el monolito; si se extrajera: timeout, breaker y saga con compensación. | FUTURO |
+
+La decisión de no extraer Notificaciones a un servicio propio, y las condiciones para revisarla, están en [ADR-0005](../adr/0005-no-extraer-notificaciones.md).
+
+## 11.2 Límites actuales y deuda técnica
 
 Los siguientes puntos son límites actuales, no mitigaciones implementadas:
 
