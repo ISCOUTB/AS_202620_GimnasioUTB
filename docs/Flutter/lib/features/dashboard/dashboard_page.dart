@@ -5,24 +5,24 @@ class DashboardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cards = [
+    const cards = [
       _MetricCard(
         title: 'Aforo actual',
         value: '68%',
         subtitle: '42 / 62 personas',
-        color: const Color(0xFF0B3D91),
+        color: Color(0xFF0B3D91),
       ),
       _MetricCard(
         title: 'Accesos hoy',
         value: '186',
         subtitle: '+12% vs ayer',
-        color: const Color(0xFF1C9C8C),
+        color: Color(0xFF1C9C8C),
       ),
       _MetricCard(
         title: 'Disponibilidad',
         value: '9',
         subtitle: 'Máquinas libres',
-        color: const Color(0xFFF4B740),
+        color: Color(0xFFF4B740),
       ),
     ];
 
@@ -61,20 +61,20 @@ class DashboardPage extends StatelessWidget {
                 style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
               ),
               const SizedBox(height: 12),
-              _ScheduleItem(
+              const _ScheduleItem(
                 time: '06:00 - 08:00',
                 label: 'Apertura / calentamiento',
-                tone: const Color(0xFF0B3D91),
+                tone: Color(0xFF0B3D91),
               ),
-              _ScheduleItem(
+              const _ScheduleItem(
                 time: '08:00 - 12:00',
                 label: 'Horario pico',
-                tone: const Color(0xFF1C9C8C),
+                tone: Color(0xFF1C9C8C),
               ),
-              _ScheduleItem(
+              const _ScheduleItem(
                 time: '12:00 - 14:00',
                 label: 'Descanso de mantenimiento',
-                tone: const Color(0xFFF4B740),
+                tone: Color(0xFFF4B740),
               ),
             ],
           ),
