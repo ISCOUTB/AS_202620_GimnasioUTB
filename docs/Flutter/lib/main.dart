@@ -1,22 +1,25 @@
 import 'package:flutter/material.dart';
 
 import 'core/theme/app_theme.dart';
+import 'core/api/aforo_api.dart';
 import 'features/auth/login_page.dart';
 
 void main() {
-  runApp(const GymUTBApp());
+  runApp(GymUTBApp(api: AforoApi()));
 }
 
 class GymUTBApp extends StatelessWidget {
-  const GymUTBApp({super.key});
+  const GymUTBApp({required this.api, super.key});
+
+  final AforoApi api;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Gym UTB',
-      theme: AppTheme.lightTheme,
-      home: const LoginPage(),
+      title: 'Gimnasio UTB',
+      theme: AppTheme.darkTheme,
+      home: LoginPage(api: api),
     );
   }
 }
