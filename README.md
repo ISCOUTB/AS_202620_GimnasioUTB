@@ -123,6 +123,7 @@ tests/
 - [Diagramas C4](docs/c4/).
 - [ADR 0001: Arquitectura Hexagonal](docs/adr/0001-arquitectura-hexagonal.md).
 - [ADR 0003: Comunicación síncrona y asíncrona](docs/adr/0003-comunicacion-sincrona-asincrona.md).
+- [ADR 0004: Concurrencia PostgreSQL](docs/adr/0004-concurrencia-postgresql.md).
 - [ADR 0005: No extraer Notificaciones a un servicio propio](docs/adr/0005-no-extraer-notificaciones.md).
 - [Contextos delimitados](docs/contextos-delimitados.md).
 - [Registro de uso de IA](docs/ia.md).
