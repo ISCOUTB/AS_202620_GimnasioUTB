@@ -69,6 +69,58 @@ Ejemplo observado después de una entrada y una salida en una ejecución de prod
 
 Los logs estructurados incluyen `timestamp`, `level`, `event` y `message`. Los callsites actuales no registran credenciales, `DATABASE_URL`, tokens ni payloads de las solicitudes.
 
+## Endpoints de la API
+
+**URL base:** `https://gimnasio-utb.iscoutb.dev`
+
+El backend expone los siguientes endpoints para consultar el estado del servicio, verificar la disponibilidad de la base de datos, consultar métricas operacionales y gestionar el aforo del gimnasio.
+
+| Método | Endpoint | Descripción |
+|:---:|---|---|
+| GET | `/health` | Verifica que el servidor se encuentre activo (liveness). |
+| GET | `/ready` | Verifica que el servicio pueda consultar el repositorio de datos (readiness). |
+| GET | `/metrics` | Consulta el contador operacional de entradas y salidas. |
+| GET | `/api/v1/aforo` | Consulta el número actual de personas dentro del gimnasio. |
+| POST | `/api/v1/aforo/acceso` | Registra una entrada o salida y actualiza el aforo. |
+
+### Ejemplos de uso
+
+**Consultar aforo actual:**
+
+```http
+GET /api/v1/aforo
+```
+
+**Registrar entrada:**
+
+```http
+POST /api/v1/aforo/acceso
+Content-Type: application/json
+
+{
+  "tipoAcceso": "ENTRADA"
+}
+```
+
+**Registrar salida:**
+
+```http
+POST /api/v1/aforo/acceso
+Content-Type: application/json
+
+{
+  "tipoAcceso": "SALIDA"
+}
+```
+
+**Consultar métricas:**
+
+```http
+GET /metrics
+```
+
+**Nota:** El contador de aforo se almacena en PostgreSQL. Las métricas operacionales de accesos se mantienen en memoria durante la ejecución del proceso y se reinician cuando este se reinicia.
+
 ## Arquitectura y consistencia
 
 El dominio contiene la regla de transición del contador; la aplicación depende de `AforoRepositoryPort`, cuyo contrato actual incluye `obtenerAforoActual()` y `actualizarAforo(transicionar)`. La infraestructura ofrece el adapter PostgreSQL y el adapter en memoria.
