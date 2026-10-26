@@ -9,7 +9,7 @@
 - **Asignatura:** [Arquitectura de Software]
 - **Nombre del taller:** Taller de mensajería asíncrona
 - **Repositorio:** [https://github.com/ISCOUTB/AS_202620_GimnasioUTB](https://github.com/ISCOUTB/AS_202620_GimnasioUTB)
-- **URL del commit final:** [Añadir únicamente después de verificar que está publicado]
+- **URL del commit final:** https://github.com/ISCOUTB/AS_202620_GimnasioUTB/commit/cccd2c0b195824307afdfb5befa5826eb3cd6393
 
 ## Resumen de lo implementado
 
