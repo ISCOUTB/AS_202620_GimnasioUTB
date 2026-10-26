@@ -8,10 +8,12 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "db:init": "node scripts/init-db.js",
-    "test": "npm run test:base && npm run test:contrato && npm run test:postgres",
+    "test": "npm run test:base && npm run test:contrato && npm run test:mensajeria && npm run test:postgres",
     "test:base": "node --test tests/health.test.js tests/domain/aforo.test.js tests/aforo.integration.test.js",
     "test:contrato": "node --test tests/contrato.test.js",
     "test:postgres": "node --test tests/postgres/aforo-postgres.integration.test.js",
+    "test:mensajeria": "node --test tests/messaging.test.js",
+    "demo:mensajeria": "node experiments/messaging/demo.js",
     "arch:check": "depcruise src --config .dependency-cruiser.cjs",
     "arch:graph": "depcruise src --config .dependency-cruiser.cjs --output-type mermaid"
   },

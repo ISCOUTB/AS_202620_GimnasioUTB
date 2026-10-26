@@ -185,6 +185,7 @@ tests/
 - [Auditoría de dependencias](docs/auditoria-dependencias.md).
 - [S11: fallos parciales, idempotencia y decisión de extracción](docs/s11-fallos-parciales.md).
 - [S12: estrategia de datos y eventos (consistencia, caché y log de eventos)](docs/s12-datos-eventos.md).
+- [Taller: prototipo aislado de mensajería asíncrona](docs/taller-mensajeria/README.md).
 
 ## Integrantes
 
