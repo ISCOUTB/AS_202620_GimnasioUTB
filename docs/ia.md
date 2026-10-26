@@ -139,4 +139,19 @@ Este documento registra, de forma trazable, el uso de IA generativa durante el d
 | **Rechazado** | Implementar en esta semana la idempotencia y los timeouts: cambia el puerto, los dos adapters, el router y el contrato OpenAPI, y la evidencia S11 pide el diseño. Queda como trabajo siguiente, con la lista de archivos y pruebas en la sección 3.8 del documento. Tampoco se presentó una saga como necesaria: el sistema usa una sola base y una transacción local basta; la saga se describe solo como escenario hipotético. |
 | **Motivo** | Documentar como IMPLEMENTADO solo lo que existe en el código y poder defender cada decisión en la sustentación. |
 
+
+## Semana 12 — Arquitecturas de datos y eventos
+
+| Campo | Detalle |
+|---|---|
+| **Fecha** | 25 de octubre de 2026 |
+| **Herramienta** | Claude (claude.ai), con acceso de lectura al repositorio clonado |
+| **Prompt utilizado (resumido)** | Se compartió el enunciado de la semana 12 (espectro de consistencia, caché e invalidación, eventos, búsqueda y pipelines) y la evidencia S12 (tabla operación → garantía, diseño de caché con política de invalidación, ADR de la decisión de datos más costosa de revertir, almacenes y brokers en C4 nivel 2, arc42 §8) y se pidió construirla a partir del código y la documentación existentes. |
+| **Salida generada** | (1) `docs/s12-datos-eventos.md`: escenarios Q1–Q5, tabla O1–O12, diseño de caché, flujo por eventos con garantías de entrega y orden, búsqueda y pipeline de reportes; (2) `docs/adr/0006-log-de-eventos-de-acceso.md`; (3) arc42 §8.2 reescrita, §8.6 y §8.7 nuevas, fila en §9, escenario Q3 en §10.3, riesgos en §11.2 y §11.3, términos en §12; (4) diagrama de datos y eventos y tabla de almacenes en `docs/c4/c4_level2.md`; (5) enlaces en `README.md`; (6) esta entrada. |
+| **Verificación** | Se contrastó con el código: `aforo-postgres.adapter.js` (lectura sin bloqueo en `obtenerAforoActual`, escritura con `FOR UPDATE`), `schema.sql` (solo `aforo_estado`, sin historial), `server.js` (`/ready` y los casos de uso comparten el mismo repositorio, por lo que la caché debe componerse aparte) y `deploy/compose.lab.yaml` (una sola instancia de `api`, `postgres:16-alpine`). La afirmación central del log (versiones sin huecos ni repetidas bajo concurrencia, incluso con transacciones revertidas) se comprobó con un script de laboratorio fuera del repositorio sobre PostgreSQL 16: 3 corridas de 70 operaciones concurrentes, todas con versiones 1..N y el contador reconstruible desde el log. No se modificó código, por lo que las suites existentes no cambian. **Revisión por el equipo:** ☐ fecha y responsable. |
+| **Aceptado** | La tabla operación → garantía, la caché en proceso con write-through por versión y TTL de 2 s, y el log de eventos append-only (ADR-0006). |
+| **Corregido** | (a) La primera política de caché fue "borrar la entrada al escribir". Se cambió a write-through con guarda de versión porque una lectura lenta que sale antes de una escritura podía volver después y dejar la caché atrasada hasta el TTL. (b) Se reemplazaron las tablas `solicitud_acceso` y `outbox_evento` de S11 por el log único, porque el outbox con `SKIP LOCKED` no garantizaba orden y el diseño de WebSocket lo necesita; se dejó explícito en ADR-0006. |
+| **Rechazado** | Redis y caché HTTP (sección 4.3 del documento), un broker de mensajes y un motor de búsqueda (sin escenario que los justifique), event sourcing puro (ADR-0006, opción C) e implementar la caché y el log esta semana: la evidencia pide el diseño y el cambio toca puerto, adapters, `server.js` y pruebas (lista en la sección 7). |
+| **Motivo** | Que cada garantía salga de un escenario de calidad y no de la tecnología, y documentar como IMPLEMENTADO solo lo que existe en el código. |
+
 *Este registro se actualiza en cada corte con los usos de IA generativa relevantes al entregable correspondiente.*

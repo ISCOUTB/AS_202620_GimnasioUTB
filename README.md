@@ -177,12 +177,14 @@ tests/
 - [ADR 0003: Comunicación síncrona y asíncrona](docs/adr/0003-comunicacion-sincrona-asincrona.md).
 - [ADR 0004: Concurrencia PostgreSQL](docs/adr/0004-concurrencia-postgresql.md).
 - [ADR 0005: No extraer Notificaciones a un servicio propio](docs/adr/0005-no-extraer-notificaciones.md).
+- [ADR 0006: Log de eventos de acceso append-only](docs/adr/0006-log-de-eventos-de-acceso.md).
 - [Contextos delimitados](docs/contextos-delimitados.md).
 - [Registro de uso de IA](docs/ia.md).
 - [S9: cadena verificada de una porción construida con IA](docs/s9-cadena-verificada.md).
 - [Auditoría de erosión arquitectónica](docs/auditoria-erosion.md).
 - [Auditoría de dependencias](docs/auditoria-dependencias.md).
 - [S11: fallos parciales, idempotencia y decisión de extracción](docs/s11-fallos-parciales.md).
+- [S12: estrategia de datos y eventos (consistencia, caché y log de eventos)](docs/s12-datos-eventos.md).
 
 ## Integrantes
 
