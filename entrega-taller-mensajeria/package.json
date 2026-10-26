@@ -1,0 +1,13 @@
+{
+  "name": "entrega-taller-mensajeria",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Prototipo académico autocontenido de mensajería asíncrona",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "demo:mensajeria": "node 02-codigo/demo.js",
+    "test": "node --test 03-pruebas/messaging.test.js"
+  }
+}
