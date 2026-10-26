@@ -224,9 +224,22 @@ El equipo reportó PostgreSQL `Healthy`, finalización de `db-init`, arranque de
 
 **IMPLEMENTADO:** dominio, aplicación, puerto e infraestructura están separados. El caso de uso depende del contrato del repositorio, no de `pg`; el adapter PostgreSQL es infraestructura. El adapter de memoria permite pruebas sin DB.
 
-## 8.2 Persistencia y consistencia
+## 8.2 Persistencia y estrategia de consistencia
 
 **IMPLEMENTADO:** el contador persistido es una única fila de `aforo_estado`. Cada transición PostgreSQL comienza con `BEGIN`, obtiene el bloqueo de fila con `SELECT ... FOR UPDATE`, calcula el nuevo valor mediante la función de dominio, ejecuta `UPDATE` y confirma con `COMMIT`. En error intenta `ROLLBACK`. Esto respalda la consistencia del contador para las operaciones y escenarios probados; no identifica estudiantes ni evita duplicados por estudiante.
+
+**Estrategia (S12):** la consistencia fuerte se reserva para las escrituras que protegen el invariante `aforo ≥ 0` y para lo que debe confirmarse junto con ellas; las lecturas que solo muestran el aforo bajan en el espectro. La tabla completa operación → garantía está en la [evidencia S12 §3](../s12-datos-eventos.md).
+
+| Punto del espectro | Operaciones | Mecanismo | Estado |
+|---|---|---|---|
+| Fuerte (serializable sobre la fila) | Registrar entrada/salida; clave de idempotencia; anexar evento al log; abrir/cerrar; corrección manual | Transacción local con `SELECT ... FOR UPDATE` | IMPLEMENTADO para el registro; el resto DISEÑO / FUTURO |
+| De sesión (leer lo propio) | Respuesta al que registra | El `201` devuelve el valor del `COMMIT`; *write-through* en la caché | IMPLEMENTADO (respuesta); caché DISEÑO |
+| Eventual con atraso ≤ 2 s, sin retroceso | `GET /api/v1/aforo` desde la app | Caché en proceso con TTL y versión (8.6) | DISEÑO |
+| Eventual, al menos una vez, en orden | Notificaciones, WebSocket | Lectores del log con checkpoint (8.7) | FUTURO / DISEÑO |
+| Eventual, T + 1 día | Reportes para Bienestar | Lote nocturno idempotente sobre el log | FUTURO / DISEÑO |
+| Ninguna | `/metrics` | Contador en memoria por proceso | IMPLEMENTADO (riesgo aceptado) |
+
+Cuando PostgreSQL no responde, las escrituras fallan con `503`: se prefiere no registrar a registrar mal. Todas las operaciones fuertes viven en la misma base, por lo que bastan transacciones locales; no se usan sagas ni transacciones distribuidas.
 
 ## 8.3 Salud y ciclo de vida
 
@@ -244,6 +257,31 @@ El equipo reportó PostgreSQL `Healthy`, finalización de `db-init`, arranque de
 
 **OBJETIVO / FUTURO:** autenticación, autorización/roles, identidad, QR, historial, deduplicación por estudiante, WebSocket y FCM. No hay adapters ni lógica implementada para esas capacidades.
 
+## 8.6 Caché
+
+**DISEÑO, no implementado.** Hoy cada `GET /api/v1/aforo` consulta PostgreSQL. Detalle completo en la [evidencia S12 §4](../s12-datos-eventos.md).
+
+- **Qué se cachea:** solo el aforo actual (y, en el futuro, el estado abierto/cerrado). **No** se cachean la lectura dentro de una escritura, `/ready`, las respuestas del `POST`, ni identidad/QR/roles.
+- **Dónde:** en el proceso de la API, como decorador de `AforoRepositoryPort` (`AforoRepositoryCacheado`). Se descartaron la caché HTTP (el servidor no puede invalidarla y los atrasos se suman) y Redis (con una sola instancia no mejora la garantía y agrega un modo de fallo).
+- **Política de invalidación:**
+  - Escritura confirmada en la instancia → **reemplaza** la entrada con el valor y la `version` del `COMMIT` (*write-through*).
+  - Lectura o escritura que vuelve con `version` menor a la guardada → **se descarta** (nunca retroceder).
+  - Error de repositorio en una escritura (resultado incierto, F5) → **se borra** la entrada.
+  - Rechazo del dominio → no se toca.
+  - Escrituras fuera de la instancia → las acota el **TTL de 2 s**.
+  - Al vencer el TTL, una sola lectura va a la base (*single-flight*).
+  - Con PostgreSQL caído no se sirven valores vencidos.
+- **Requisitos:** el puerto devuelve `{ aforoActual, version }`; `/ready` usa el repositorio real; `/metrics` agrega `cache_hits` y `cache_misses`.
+
+## 8.7 Eventos y datos derivados
+
+**DISEÑO / FUTURO.** Decisión en [ADR-0006](../adr/0006-log-de-eventos-de-acceso.md); flujo y garantías en la [evidencia S12 §5](../s12-datos-eventos.md).
+
+- Cada transición confirmada anexa un evento inmutable a `acceso_evento` **en la misma transacción**, numerado con `aforo_estado.version`. El log es historial, registro de idempotencia y fuente de eventos.
+- Un worker (misma imagen, otro proceso) lee el log por consumidor con `consumidor_checkpoint`. Entrega **al menos una vez**; orden **total y sin huecos**, porque la versión se asigna con el bloqueo de ADR-0004 tomado.
+- No hay broker: el log en PostgreSQL cumple ese papel mientras no haya consumidores externos al monolito.
+- No hay motor de búsqueda: ningún escenario lo pide; las consultas de historial usarán índices de PostgreSQL.
+
 # 9. Decisiones arquitectónicas
 
 | Decisión | Estado y evidencia | ADR / formalización |
@@ -254,6 +292,7 @@ El equipo reportó PostgreSQL `Healthy`, finalización de `db-init`, arranque de
 | Deployment mediante Dokploy y Docker Compose. | **IMPLEMENTADO Y VERIFICADO:** Compose despliega `api`, `postgres` y `db-init`; Render fue una alternativa considerada, no el deployment actual. | No hay un ADR independiente de deployment en `docs/adr/`; esta fila registra el estado operativo actual, no una nueva decisión formal. |
 | Métricas en memoria, logs JSON y cierre ante SIGTERM. | **IMPLEMENTADO** en la composición del servidor y `src/shared/logger.js`. | No hay ADR independiente para estas decisiones operativas básicas. |
 | No extraer Notificaciones a un servicio. | **DECIDIDO, NO IMPLEMENTADO:** Notificaciones, su puerto, outbox y relay aún no existen; son parte del diseño futuro evaluado, no componentes actuales. Se compararon "no extraer", "servicio + broker" y "servicio + HTTP". | [ADR-0005](../adr/0005-no-extraer-notificaciones.md). Modos de fallo en la [evidencia S11](../s11-fallos-parciales.md). |
+| Registrar cada transición en un log de eventos append-only junto al contador. | **DECIDIDO, NO IMPLEMENTADO:** hoy solo existe `aforo_estado`. Se compararon "solo estado", "estado + log", "event sourcing puro" y "broker como fuente". Refina las tablas de idempotencia y outbox de S11. | [ADR-0006](../adr/0006-log-de-eventos-de-acceso.md). Estrategia de datos en la [evidencia S12](../s12-datos-eventos.md). |
 
 # 10. Requisitos de calidad
 
@@ -283,6 +322,7 @@ Los resultados reportados para la suite actual son: pruebas base 12/12, contrato
 - `/health` responde liveness estático y `/ready` prueba la lectura del repositorio; hay pruebas de sus respuestas. Esto no mide disponibilidad cloud.
 - `/metrics` tiene prueba de conteo de entradas y salidas completadas. No es una prueba de consistencia ni un benchmark.
 - **S8 — Deployment y señales operativas:** Compose define el healthcheck de PostgreSQL, la inicialización con `db-init` y el healthcheck de `api` sobre `/ready`. El equipo reportó un deployment exitoso y verificó públicamente `/health`, `/ready`, `/metrics` y las operaciones de consulta/registro. Esto verifica el despliegue y esas respuestas en una ejecución; no mide disponibilidad, rendimiento, p95, throughput ni retención tras redeploy.
+- **Q3 — Frescura de la consulta (S12, OBJETIVO no medido):** el aforo que entrega `GET /api/v1/aforo` no tiene más de 2 s de atraso respecto al último `COMMIT`. Hoy se cumple de forma trivial porque no hay caché; pasa a depender del TTL cuando se implemente la sección 8.6.
 - Umbrales de 200 ms, P95 de WebSocket, carga de 50 clientes, cambio automático de apertura/cierre y notificaciones en dos minutos no cuentan con implementación/evidencia actual. Si se conservan como metas académicas, deben etiquetarse como objetivos futuros no medidos.
 
 # 11. Riesgos y deuda técnica
@@ -320,6 +360,17 @@ Los siguientes puntos son límites actuales, no mitigaciones implementadas:
 - Existe UI/proyecto Flutter, pero no integración funcional verificada con el backend. QR, WebSocket, FCM, registro manual y estado operativo permanecen pendientes.
 - Erosión vigilada (S9): `npm run arch:check` y el CI aplican 11 reglas de dependencias derivadas de ADR-0001; los hallazgos abiertos (lógica acumulada en `server.js`, `catch {}` vacíos, CI sin `test:postgres`) están en [la auditoría de erosión](../auditoria-erosion.md).
 - Dependencias (S9): `npm audit` sin vulnerabilidades tras la actualización; `express` 4.x y `js-yaml` 4.x están una versión mayor por detrás de `latest`. Ver [la auditoría de dependencias](../auditoria-dependencias.md).
+- **Historia no registrada (S12):** mientras ADR-0006 no se implemente, cada transición sobrescribe el contador y la historia se pierde de forma irreversible.
+
+## 11.3 Riesgos de la estrategia de datos (S12)
+
+| Riesgo | Mitigación | Estado |
+|---|---|---|
+| El `INSERT` del evento alarga el tiempo con el bloqueo tomado (agrava F4). | Medir en prueba de carga; transacción sigue siendo de 1 lectura y 2 escrituras. | DISEÑO |
+| Crecimiento sin límite de `acceso_evento`. | Política de retención y particionado por mes. | DISEÑO |
+| Datos personales en el log cuando exista identidad. | Definir retención y anonimización **antes** de agregar `estudiante_id` (ADR-0006, regla 4). | FUTURO |
+| El orden total del log depende del bloqueo de una sola fila (ADR-0004). | Condición de revisión anotada en ADR-0006. | DISEÑO |
+| Caché atrasada entre instancias. | TTL de 2 s como cota (Q3). | DISEÑO |
 
 # 12. Glosario
 
@@ -338,5 +389,9 @@ Los siguientes puntos son límites actuales, no mitigaciones implementadas:
 | **WebSocket y FCM** | **OBJETIVO / FUTURO:** canales de tiempo real y notificaciones no implementados. |
 | **Render y cold start** | Render fue una alternativa considerada; no es el deployment actual. No se reportan mediciones de cold start del deployment Dokploy. |
 | **Flutter** | Existe un proyecto con UI; no se ha verificado integración funcional con el backend. |
+| **Consistencia eventual con atraso acotado** | La lectura puede no tener el último valor, pero su atraso no supera una cota conocida (2 s para el aforo). **DISEÑO.** |
+| **Write-through** | Política de caché en la que la escritura actualiza la entrada con el valor confirmado, en vez de solo borrarla. **DISEÑO.** |
+| **Log de eventos (`acceso_evento`)** | Tabla append-only con una fila por transición confirmada, ordenada por `version`. **DISEÑO** (ADR-0006). |
+| **Checkpoint de consumidor** | Última `version` del log que un consumidor procesó; define desde dónde continúa. **DISEÑO.** |
 
 *Documento de arquitectura académica del proyecto Gimnasio UTB. El uso de IA se registra en `docs/ia.md`.*
