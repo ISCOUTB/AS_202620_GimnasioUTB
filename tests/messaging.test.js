@@ -15,6 +15,7 @@ function makeMessage(eventId = 'evt-test-1') {
   const producer = createProducer(queue, {
     eventId,
     now: () => new Date('2026-10-25T19:00:00.000Z'),
+    log: () => {},
   });
   const message = producer.publishAccess('ENTRADA');
   return { queue, message };
@@ -104,11 +105,40 @@ test('rechaza de manera controlada campos obligatorios ausentes y versiones inco
   const missingEventId = { ...message };
   delete missingEventId.eventId;
   const incompatibleVersion = { ...message, schemaVersion: 2 };
+  const invalidDate = { ...message, occurredAt: '2026-02-31T19:00:00.000Z' };
 
   await assert.rejects(consumer.process(missingEventId), InvalidMessageError);
   await assert.rejects(consumer.process(incompatibleVersion), /schemaVersion no compatible/);
+  await assert.rejects(consumer.process(invalidDate), /ISO 8601/);
   assert.equal(consumer.metrics.attempts, 0);
   assert.equal(consumer.deadLetterQueue.length, 0);
+});
+
+test('la publicación y el procesamiento se correlacionan mediante el mismo eventId', async () => {
+  const queue = new InMemoryMessageQueue();
+  const records = [];
+  const now = () => new Date('2026-10-25T19:00:00.000Z');
+  const producer = createProducer(queue, {
+    eventId: 'evt-correlated-1',
+    now,
+    log: (record) => records.push(record),
+  });
+  const consumer = createConsumer({
+    handleMessage: async () => {},
+    now,
+    log: (record) => records.push(record),
+  });
+
+  producer.publishAccess('ENTRADA');
+  await consumer.process(queue.receive());
+
+  const publishedRecord = records.find((record) => record.result === 'published');
+  const processedRecord = records.find((record) => record.result === 'processed');
+  assert.equal(publishedRecord.eventId, 'evt-correlated-1');
+  assert.equal(processedRecord.eventId, publishedRecord.eventId);
+  assert.equal(publishedRecord.correlationId, processedRecord.correlationId);
+  assert.equal(processedRecord.correlationId, publishedRecord.eventId);
+  assert.equal(publishedRecord.eventType, processedRecord.eventType);
 });
 
 test('emite logs estructurados con ID, tipo, intento y resultado', async () => {
@@ -170,4 +200,32 @@ test('el consumidor deduplica también dos entregas concurrentes del mismo event
     { status: 'duplicate', attempts: 0 },
   ]);
   assert.equal(businessEffects, 1);
+});
+
+test('dos entregas concurrentes de un mensaje fallido no confunden el fallo con un duplicado exitoso', async () => {
+  const { message } = makeMessage();
+  let calls = 0;
+  let finishFirstAttempt;
+  const firstAttemptGate = new Promise((resolve) => { finishFirstAttempt = resolve; });
+  const consumer = createConsumer({
+    handleMessage: async () => {
+      calls += 1;
+      if (calls === 1) await firstAttemptGate;
+      throw new RecoverableProcessingError('base temporalmente no disponible');
+    },
+    sleep: async () => {},
+    log: () => {},
+  });
+
+  const first = consumer.process(message);
+  await new Promise((resolve) => setImmediate(resolve));
+  const concurrentDelivery = consumer.process(message);
+  finishFirstAttempt();
+
+  const results = await Promise.all([first, concurrentDelivery]);
+  assert.equal(results[0].status, 'dead-lettered');
+  assert.deepEqual(results[1], results[0]);
+  assert.equal(calls, 3);
+  assert.equal(consumer.metrics.duplicates, 0);
+  assert.equal(consumer.deadLetterQueue.length, 1);
 });

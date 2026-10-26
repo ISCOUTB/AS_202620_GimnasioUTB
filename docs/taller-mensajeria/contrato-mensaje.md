@@ -6,7 +6,7 @@ El productor genera un objeto JSON con esta estructura:
 
 | Campo | Tipo | Obligatorio | Regla |
 |---|---|---:|---|
-| `eventId` | string | Sí | Identificador no vacío y único del evento; el productor usa UUID. |
+| `eventId` | string | Sí | Identificador único del evento; el productor genera un UUID aleatorio por publicación. Se reutiliza en logs del productor y consumidor para correlacionar el recorrido. |
 | `eventType` | string | Sí | Valor fijo `aforo.acceso.registrado`. |
 | `occurredAt` | string | Sí | Fecha ISO 8601 válida con zona horaria, normalmente UTC (`Z`). |
 | `schemaVersion` | integer | Sí | Valor `1`, que identifica el contrato del evento. |
@@ -54,7 +54,7 @@ Versión no soportada:
 }
 ```
 
-También se rechazan fechas no ISO, tipos de evento desconocidos, valores distintos de `ENTRADA`/`SALIDA`, datos ausentes y cualquier propiedad adicional dentro de `data`. El consumidor lanza `InvalidMessageError` antes de ejecutar el manejador y registra el rechazo; no consume un intento de procesamiento ni agrega el mensaje a la DLQ de fallos del manejador.
+También se rechazan fechas ISO inválidas (por ejemplo, día inexistente), tipos de evento desconocidos, valores distintos de `ENTRADA`/`SALIDA`, datos ausentes y cualquier propiedad adicional dentro de `data`. El consumidor lanza `InvalidMessageError` antes de ejecutar el manejador y registra el rechazo; no consume un intento de procesamiento ni agrega el mensaje a la DLQ de fallos del manejador.
 
 ## Versionado y compatibilidad
 

@@ -39,9 +39,10 @@ function validateMessage(message) {
   }
   if (
     typeof message.occurredAt !== 'string'
-    || !/^\d{4}-\d{2}-\d{2}T/.test(message.occurredAt)
-    || !/(Z|[+-]\d{2}:\d{2})$/.test(message.occurredAt)
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(message.occurredAt)
     || Number.isNaN(Date.parse(message.occurredAt))
+    || new Date(`${message.occurredAt.slice(0, 10)}T00:00:00.000Z`).toISOString().slice(0, 10)
+      !== message.occurredAt.slice(0, 10)
   ) {
     throw new InvalidMessageError('occurredAt debe ser una fecha ISO 8601 con zona horaria.');
   }
@@ -90,11 +91,22 @@ class InMemoryMessageQueue {
   }
 }
 
-function createProducer(queue, options = {}) {
+function createProducer(queue, {
+  eventId,
+  now = () => new Date(),
+  log = (record) => process.stdout.write(`${JSON.stringify(record)}\n`),
+} = {}) {
   return {
     publishAccess(tipoAcceso) {
-      const message = createMessage(tipoAcceso, options);
+      const message = createMessage(tipoAcceso, { eventId, now });
       queue.publish(message);
+      log({
+        timestamp: now().toISOString(),
+        eventId: message.eventId,
+        correlationId: message.eventId,
+        eventType: message.eventType,
+        result: 'published',
+      });
       return message;
     },
   };
@@ -131,6 +143,7 @@ function createConsumer({
     log({
       timestamp: now().toISOString(),
       eventId: typeof message.eventId === 'string' ? message.eventId : null,
+      correlationId: typeof message.eventId === 'string' ? message.eventId : null,
       eventType: typeof message.eventType === 'string' ? message.eventType : null,
       ...fields,
     });
@@ -216,7 +229,8 @@ function createConsumer({
 
     const activeWork = inFlight.get(message.eventId);
     if (activeWork) {
-      await activeWork;
+      const activeResult = await activeWork;
+      if (activeResult.status !== 'processed') return activeResult;
       metrics.duplicates += 1;
       emit(message, { level: 'info', result: 'duplicate', attempt: 0 });
       return { status: 'duplicate', attempts: 0 };

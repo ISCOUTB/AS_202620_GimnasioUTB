@@ -17,13 +17,13 @@ flowchart LR
     C -->|logs JSON y contadores| O[Observabilidad]
 ```
 
-- **Productor:** `createProducer` crea un evento con UUID y lo publica en `InMemoryMessageQueue`.
+- **Productor:** `createProducer` crea un evento con UUID y lo publica en `InMemoryMessageQueue`; después emite un log `published` con `eventId`, `correlationId` y `eventType`.
 - **Contrato:** `eventId`, `eventType`, `occurredAt`, `schemaVersion` y `data.tipoAcceso`; los detalles están en [contrato-mensaje.md](./contrato-mensaje.md).
 - **Consumidor:** valida el contrato, procesa el mensaje y emite logs estructurados.
 - **Idempotencia:** guarda los IDs procesados en un conjunto en memoria y evita también que dos entregas concurrentes del mismo ID invoquen dos veces el manejador.
 - **Reintentos:** tres intentos totales para errores expresamente clasificados como recuperables; espera 100 ms antes del segundo y 200 ms antes del tercero. Los errores no recuperables van directamente a la DLQ.
 - **DLQ:** lista en memoria con mensaje, número de intentos, fecha y causa del fallo.
-- **Observabilidad:** logs JSON por intento y contadores de intentos, procesados, duplicados, reintentos, fallos definitivos y mensajes en DLQ.
+- **Observabilidad:** el registro del productor y los registros del consumidor comparten `eventId`, `correlationId` y `eventType`; los logs JSON incluyen resultado, intento y error cuando aplica. También hay contadores de intentos, procesados, duplicados, reintentos, fallos definitivos y mensajes en DLQ.
 
 ## Tecnologías y prerrequisitos
 

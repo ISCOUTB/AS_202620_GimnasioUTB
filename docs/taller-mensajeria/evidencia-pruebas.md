@@ -7,10 +7,10 @@ Los comandos de npm se ejecutaron con `npm.cmd` en PowerShell porque la polític
 | Comando | Resultado observado |
 |---|---|
 | `npm.cmd ci` | Correcto: restauró 129 paquetes; auditoría informó 0 vulnerabilidades. |
-| `npm.cmd run test:mensajeria` | Correcto: 7 pruebas, 7 pasaron, 0 fallaron, 0 omitidas. |
-| `npm.cmd run demo:mensajeria` | Correcto: el productor publicó un evento v1, el consumidor lo procesó en el intento 1, la proyección mostró `ENTRADA: 1`, y la DLQ quedó vacía. La salida incluyó dos logs JSON y el resumen JSON. |
-| `npm.cmd test` | Correcto: 12 pruebas base, 11 de contrato y 7 del taller pasaron; la prueba PostgreSQL se omitió. Total: 30 pasaron y 1 omitida. |
-| `npm.cmd run arch:check` | Correcto: `no dependency violations found` (11 módulos, 15 dependencias). El primer intento, antes de `npm.cmd ci`, no encontró `depcruise`; se restauraron las dependencias declaradas y se repitió correctamente. |
+| `npm.cmd run test:mensajeria` | Correcto tras los cambios de esta revisión: 9 pruebas pasaron, 0 fallaron, 0 omitidas. |
+| `npm.cmd run demo:mensajeria` | Correcto tras los cambios: el log `published` y los logs de consumidor comparten `eventId`/`correlationId`; procesó en el intento 1, la proyección mostró `ENTRADA: 1` y la DLQ quedó vacía. |
+| `npm.cmd test` | Correcto tras los cambios: 12 pruebas base, 11 de contrato y 9 del taller pasaron; la prueba PostgreSQL se omitió. Total: 32 pasaron y 1 omitida. |
+| `npm.cmd run arch:check` | Correcto tras los cambios: `no dependency violations found` (11 módulos, 15 dependencias). |
 
 `tests/postgres/aforo-postgres.integration.test.js` se omite cuando falta `DATABASE_URL`; este entorno no configuró esa variable, por lo que no se verificó integración con PostgreSQL.
 
@@ -25,5 +25,7 @@ Las pruebas usan `node:test`, mocks del efecto de negocio y un `sleep` inyectado
 5. **Fallo definitivo:** se envía a DLQ después de un intento, sin esperar ni reintentar.
 6. **Contrato inválido:** campo obligatorio ausente y `schemaVersion: 2` producen rechazo controlado antes de llamar al procesador o incrementar los intentos.
 7. **Observabilidad:** los logs del consumidor incluyen ID y tipo de evento, intento y resultado.
+8. **Correlación de extremo a extremo:** comprobado por prueba y demo; el log `published` del productor y el log `processed` del consumidor registran el mismo `eventId`, `correlationId` y `eventType`.
+9. **Entrega concurrente fallida:** comprobado por prueba; una entrega simultánea que comparte un procesamiento terminado en DLQ devuelve ese mismo fallo y no se informa incorrectamente como `duplicate` exitoso.
 
 La demostración no es evidencia de persistencia, entrega en broker ni comportamiento de producción. Los logs se generan en cada ejecución; no se adjuntan capturas ni métricas persistentes.

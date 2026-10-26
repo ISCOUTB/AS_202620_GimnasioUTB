@@ -35,7 +35,7 @@ Se elige C. El prototipo vive en `experiments/messaging/`, fuera del módulo de 
 - **Idempotencia:** IDs completados se guardan en memoria; repetición posterior o concurrente del mismo ID no invoca de nuevo el manejador. Esto no es exactamente una vez y la tabla de IDs se pierde al reiniciar.
 - **Reintentos:** solo un `RecoverableProcessingError` es recuperable. El primer intento es inmediato; después del primer fallo espera 100 ms y después del segundo 200 ms. Tres intentos totales como máximo. Errores definitivos se envían a la DLQ inmediatamente.
 - **DLQ:** agotamiento de reintentos o fallo definitivo guarda el mensaje, intentos, fecha y error en una lista en memoria. No hay re-proceso ni retención durable.
-- **Observabilidad:** cada intento emite JSON con `eventId`, `eventType`, resultado, número de intento y, si aplica, error; hay contadores en memoria por consumidor.
+- **Observabilidad:** el productor emite un registro `published` con `eventId`, `correlationId` y `eventType`; cada intento del consumidor registra esos mismos identificadores, resultado, número de intento y, si aplica, error. El `eventId` actúa como `correlationId`. Hay contadores en memoria por consumidor.
 
 ## Ventajas, desventajas y riesgos
 
