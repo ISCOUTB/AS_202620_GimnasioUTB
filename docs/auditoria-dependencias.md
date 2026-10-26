@@ -37,6 +37,16 @@
 
 El CI ahora corre `npm audit --audit-level=high`, de modo que una vulnerabilidad alta o crítica nueva rompe el build. Las moderadas no lo rompen: se revisan en cada corte.
 
+### 3.1 Actualización del 25 de octubre de 2026 (semana 12)
+
+El paso de auditoría del CI falló en el PR de S12 sin que ese PR tocara dependencias: se publicaron avisos nuevos sobre versiones que ya estaban en el lockfile. Es justo el caso para el que se agregó el paso.
+
+| Momento | Resultado de `npm audit` |
+|---|---|
+| Antes | **1 alta:** `body-parser` < 1.20.9, denegación de servicio con bytes sobrantes tras un cuerpo comprimido (GHSA-27r3-jxmh-p828), dependencia de `express`. **1 moderada:** `fast-uri` 3.0.0 a 3.1.8, cuatro avisos de interpretación de URI, dependencia de `ajv` (solo desarrollo, prueba de contrato). |
+| Acción | `npm audit fix`: `body-parser` 1.20.8 → 1.20.9 y `fast-uri` 3.1.8 → 3.1.9. Solo cambia `package-lock.json`; `package.json` no cambia y no hay cambios mayores. |
+| Después | **0 vulnerabilidades.** Base 12/12, contrato 11/11 y `arch:check` sin violaciones. |
+
 ## 4. ¿Cuáles propuso el modelo?
 
 - `express` y `pg`: `docs/ia.md` registra que en las semanas 3 y 4 Claude generó el esqueleto Node.js/Express y el código base con PostgreSQL. Ambas pasaron la verificación anterior.
