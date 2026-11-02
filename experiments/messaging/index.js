@@ -79,7 +79,7 @@ class InMemoryMessageQueue {
 
   publish(message) {
     validateMessage(message);
-    this.messages.push(JSON.parse(JSON.stringify(message)));
+    this.messages.push(structuredClone(message));
   }
 
   receive() {
@@ -169,41 +169,41 @@ function createConsumer({
     return { status: 'dead-lettered', attempts, error: error.message };
   }
 
-  async function processNewMessage(message) {
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      metrics.attempts += 1;
-      emit(message, { level: 'info', result: 'attempt_started', attempt });
-      try {
-        await handleMessage(message);
-        processedEventIds.add(message.eventId);
-        metrics.processed += 1;
-        emit(message, { level: 'info', result: 'processed', attempt });
-        return { status: 'processed', attempts: attempt };
-      } catch (error) {
-        if (!(error instanceof RecoverableProcessingError)) {
-          metrics.permanentFailures += 1;
-          return deadLetter(message, attempt, error);
-        }
-
-        if (attempt === maxAttempts) {
-          return deadLetter(message, attempt, error);
-        }
-
-        const delayMs = backoffMs[attempt - 1];
-        metrics.retries += 1;
-        emit(message, {
-          level: 'warn',
-          result: 'retry_scheduled',
-          attempt,
-          nextAttempt: attempt + 1,
-          delayMs,
-          error: error.message,
-          errorType: error.name,
-        });
-        await sleep(delayMs);
+  // Reintentos secuenciales por recursión: cada intento depende del
+  // resultado del anterior, así que no hay nada que paralelizar.
+  async function processNewMessage(message, attempt = 1) {
+    metrics.attempts += 1;
+    emit(message, { level: 'info', result: 'attempt_started', attempt });
+    try {
+      await handleMessage(message);
+      processedEventIds.add(message.eventId);
+      metrics.processed += 1;
+      emit(message, { level: 'info', result: 'processed', attempt });
+      return { status: 'processed', attempts: attempt };
+    } catch (error) {
+      if (!(error instanceof RecoverableProcessingError)) {
+        metrics.permanentFailures += 1;
+        return deadLetter(message, attempt, error);
       }
+
+      if (attempt === maxAttempts) {
+        return deadLetter(message, attempt, error);
+      }
+
+      const delayMs = backoffMs[attempt - 1];
+      metrics.retries += 1;
+      emit(message, {
+        level: 'warn',
+        result: 'retry_scheduled',
+        attempt,
+        nextAttempt: attempt + 1,
+        delayMs,
+        error: error.message,
+        errorType: error.name,
+      });
+      await sleep(delayMs);
+      return processNewMessage(message, attempt + 1);
     }
-    throw new Error('Se alcanzó un estado inesperado en el ciclo de reintentos.');
   }
 
   async function process(message) {

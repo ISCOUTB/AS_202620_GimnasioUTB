@@ -31,14 +31,17 @@ function cabecerasSeguridad(req, res, next) {
  * @param {{ origenesPermitidos: string[] }} opciones
  */
 function crearCors({ origenesPermitidos = [] } = {}) {
-  const permitidos = new Set(origenesPermitidos);
+  // Map origen -> origen: la cabecera se escribe con el valor de la
+  // configuración, nunca con el texto que envió el cliente.
+  const permitidos = new Map(origenesPermitidos.map((origen) => [origen, origen]));
 
   return function cors(req, res, next) {
-    const origen = req.headers.origin;
-    if (origen) res.vary('Origin');
+    const origenSolicitado = req.headers.origin;
+    if (origenSolicitado) res.vary('Origin');
 
-    if (origen && permitidos.has(origen)) {
-      res.setHeader('Access-Control-Allow-Origin', origen);
+    const origenConfigurado = permitidos.get(origenSolicitado);
+    if (origenConfigurado) {
+      res.setHeader('Access-Control-Allow-Origin', origenConfigurado);
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
       res.setHeader('Access-Control-Max-Age', '600');
@@ -53,8 +56,15 @@ function crearCors({ origenesPermitidos = [] } = {}) {
 function parsearOrigenes(valor) {
   return String(valor || '')
     .split(',')
-    .map((origen) => origen.trim().replace(/\/+$/, ''))
+    .map((origen) => quitarBarrasFinales(origen.trim()))
     .filter(Boolean);
+}
+
+/** Quita las "/" del final sin expresión regular (evita backtracking). */
+function quitarBarrasFinales(texto) {
+  let fin = texto.length;
+  while (fin > 0 && texto[fin - 1] === '/') fin -= 1;
+  return texto.slice(0, fin);
 }
 
 function hash(valor) {
