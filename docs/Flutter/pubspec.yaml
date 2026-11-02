@@ -30,7 +30,7 @@ dependencies:
   path_provider_windows: 2.3.0
   percent_indicator: ^4.2.5
   provider: ^6.1.5+1
-  shared_preferences: ^2.5.5
+  shared_preferences: ^2.5.6
   shared_preferences_android: ^2.4.28
   shared_preferences_foundation: ^2.5.7
   shared_preferences_linux: 2.4.1
