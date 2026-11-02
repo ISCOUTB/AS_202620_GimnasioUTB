@@ -34,7 +34,7 @@ class _HomeShellState extends State<HomeShell> {
 
   void _logout() {
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute<void>(builder: (_) => LoginPage(api: widget.api)),
+      MaterialPageRoute<void>(builder: (_) => LoginPage(api: widget.api.sinTokenOperador())),
       (_) => false,
     );
   }

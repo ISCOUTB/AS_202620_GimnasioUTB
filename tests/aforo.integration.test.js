@@ -3,8 +3,12 @@ const assert = require('node:assert/strict');
 const { createApp } = require('../src/server');
 const { logger } = require('../src/shared/logger');
 
+// Token de prueba (ADR-0007): las escrituras exigen Authorization: Bearer.
+const TOKEN = 'token-de-prueba-de-al-menos-32-caracteres-xx';
+const HEADERS = { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` };
+
 async function withServer(fn) {
-  const app = createApp();
+  const app = createApp({ operadorToken: TOKEN });
   const server = app.listen(0);
   const { port } = server.address();
   try {
@@ -18,7 +22,7 @@ test('corte vertical: registrar una entrada sube el aforo y se refleja en la con
   await withServer(async (baseUrl) => {
     const postRes = await fetch(`${baseUrl}/api/v1/aforo/acceso`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: HEADERS,
       body: JSON.stringify({ estudianteId: 'T00012345', tipoAcceso: 'ENTRADA' }),
     });
     const postBody = await postRes.json();
@@ -38,7 +42,7 @@ test('corte vertical: una salida sin aforo previo responde 400 (regla de dominio
   await withServer(async (baseUrl) => {
     const res = await fetch(`${baseUrl}/api/v1/aforo/acceso`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: HEADERS,
       body: JSON.stringify({ estudianteId: 'T00012345', tipoAcceso: 'SALIDA' }),
     });
     const body = await res.json();
@@ -53,7 +57,7 @@ test('GET /metrics cuenta entradas y salidas procesadas', async () => {
     for (const tipoAcceso of ['ENTRADA', 'SALIDA']) {
       const response = await fetch(`${baseUrl}/api/v1/aforo/acceso`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: HEADERS,
         body: JSON.stringify({ tipoAcceso }),
       });
       assert.strictEqual(response.status, 201);
@@ -72,7 +76,7 @@ test('GET /metrics cuenta entradas y salidas procesadas', async () => {
 test('fallos del logger no alteran el resultado HTTP ni ocultan errores del acceso', async () => {
   const originalInfo = logger.info;
   const originalWarn = logger.warn;
-  const app = createApp();
+  const app = createApp({ operadorToken: TOKEN });
   const server = app.listen(0);
   const { port } = server.address();
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -87,21 +91,21 @@ test('fallos del logger no alteran el resultado HTTP ni ocultan errores del acce
   try {
     const successfulResponse = await fetch(`${baseUrl}/api/v1/aforo/acceso`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: HEADERS,
       body: JSON.stringify({ tipoAcceso: 'ENTRADA' }),
     });
     assert.strictEqual(successfulResponse.status, 201);
 
     const successfulExitResponse = await fetch(`${baseUrl}/api/v1/aforo/acceso`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: HEADERS,
       body: JSON.stringify({ tipoAcceso: 'SALIDA' }),
     });
     assert.strictEqual(successfulExitResponse.status, 201);
 
     const rejectedResponse = await fetch(`${baseUrl}/api/v1/aforo/acceso`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: HEADERS,
       body: JSON.stringify({ tipoAcceso: 'SALIDA' }),
     });
     const rejectedBody = await rejectedResponse.json();

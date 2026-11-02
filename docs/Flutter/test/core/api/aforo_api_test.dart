@@ -51,6 +51,67 @@ void main() {
       expect(aforo, 6);
     });
 
+    test('envía el token de operador como Bearer en el registro', () async {
+      final client = MockClient((request) async {
+        expect(request.headers['authorization'], 'Bearer token-operador');
+        return http.Response(
+          jsonEncode({
+            'status': 'success',
+            'data': {'aforoActual': 1},
+          }),
+          201,
+        );
+      });
+
+      final aforo = await AforoApi(client: client, baseUrl: 'https://api.test')
+          .conTokenOperador(' token-operador ')
+          .registrarAcceso(TipoAcceso.entrada);
+
+      expect(aforo, 1);
+    });
+
+    test('no envía Authorization en las consultas ni sin token', () async {
+      final client = MockClient((request) async {
+        expect(request.headers.containsKey('authorization'), isFalse);
+        return http.Response(
+          jsonEncode({
+            'status': 'success',
+            'data': {'aforoActual': 3},
+          }),
+          request.method == 'GET' ? 200 : 201,
+        );
+      });
+
+      final api = AforoApi(client: client, baseUrl: 'https://api.test');
+      expect(await api.consultarAforo(), 3);
+      expect(await api.registrarAcceso(TipoAcceso.entrada), 3);
+    });
+
+    test('muestra el mensaje 401 cuando el token no es válido', () async {
+      final client = MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'status': 'error',
+            'message': 'Se requiere un token de operador válido.',
+          }),
+          401,
+        ),
+      );
+
+      await expectLater(
+        AforoApi(client: client, baseUrl: 'https://api.test')
+            .conTokenOperador('incorrecto')
+            .registrarAcceso(TipoAcceso.entrada),
+        throwsA(
+          isA<AforoApiException>().having(
+            (error) => error.message,
+            'message',
+            contains('token de operador'),
+          ),
+        ),
+      );
+    });
+
     test('expone el mensaje de error del contrato', () async {
       final client = MockClient(
         (_) async => http.Response(

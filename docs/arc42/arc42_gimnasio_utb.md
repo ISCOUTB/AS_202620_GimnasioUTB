@@ -20,7 +20,7 @@ El propósito del producto es ofrecer información confiable sobre la disponibil
 
 **IMPLEMENTADO:** backend Node.js/Express con Arquitectura Hexagonal / Ports and Adapters; módulo de aforo; caso de uso de registro; `AforoRepositoryPort`; adapters PostgreSQL y memoria; API HTTP; transacciones con bloqueo de fila; readiness, liveness, métricas locales, logs estructurados y cierre ordenado ante `SIGTERM`.
 
-**ESTADO PARCIAL:** existe un proyecto Flutter con pantallas/UI, pero no se ha verificado integración funcional con el backend. **OBJETIVO / FUTURO:** QR e identidad de estudiantes; autenticación y roles; historial de accesos y deduplicación por estudiante; registro manual; estado operativo de apertura/cierre; WebSocket; FCM; PostgreSQL gestionado; IaC completa; SonarCloud/Quality Gate y definición final de costos. El backend sí está desplegado en Dokploy mediante Docker Compose; Render fue una alternativa, no la plataforma actual.
+**ESTADO PARCIAL:** el proyecto Flutter consume `GET /api/v1/aforo` y `POST /api/v1/aforo/acceso` (con token de operador, ADR-0007); su cliente HTTP tiene pruebas con `MockClient`, y la verificación manual contra el deployment queda a cargo del equipo. **OBJETIVO / FUTURO:** QR e identidad de estudiantes; usuarios y roles individuales; historial de accesos y deduplicación por estudiante; registro manual; estado operativo de apertura/cierre; WebSocket; FCM; PostgreSQL gestionado; IaC completa; SonarCloud/Quality Gate y definición final de costos. El backend sí está desplegado en Dokploy mediante Docker Compose; Render fue una alternativa, no la plataforma actual.
 
 El backend actual no identifica personas. Su contador no constituye un registro de quién está dentro del gimnasio.
 
@@ -36,7 +36,7 @@ Rendimiento bajo carga, alta disponibilidad cloud, seguridad de identidad y expe
 
 | Stakeholder | Interés y estado |
 |---|---|
-| Estudiantes | Quieren conocer la disponibilidad. Existe UI Flutter, pero su integración con el backend y la identidad de estudiante no están implementadas/verificadas. |
+| Estudiantes | Quieren conocer la disponibilidad. La app Flutter consulta el aforo del backend; la identidad de estudiante no está implementada. |
 | Encargado del gimnasio | Requeriría operar registros manuales y apertura/cierre. Estas capacidades están pendientes. |
 | Bienestar Universitario y área administrativa | Interesados en la gestión del aforo y el uso del gimnasio. |
 | Equipo de desarrollo y evaluadores | Necesitan decisiones trazables y evidencia verificable por corte académico. |
@@ -60,7 +60,7 @@ La solución se desarrolla como proyecto académico incremental y su arquitectur
 
 ## 2.3 Restricciones y requisitos futuros
 
-El repositorio contiene el proyecto Flutter/UI y la configuración de deployment Docker Compose para Dokploy. La integración funcional Flutter-backend, QR, datos personales, autenticación, autorización, notificaciones, WebSocket y PostgreSQL gestionado no están implementados/verificados. La infraestructura de la plataforma Dokploy es externa al repositorio; Compose es la configuración de deployment versionada, no IaC completa. Los requisitos legales relacionados con identificación y datos personales deberán analizarse cuando esas funciones se incorporen; este documento no afirma que ya estén implementadas ni que exista una evaluación de cumplimiento.
+El repositorio contiene el proyecto Flutter/UI y la configuración de deployment Docker Compose para Dokploy. QR, datos personales, usuarios y roles individuales, notificaciones, WebSocket y PostgreSQL gestionado no están implementados/verificados. La infraestructura de la plataforma Dokploy es externa al repositorio; Compose es la configuración de deployment versionada, no IaC completa. Los requisitos legales relacionados con identificación y datos personales deberán analizarse cuando esas funciones se incorporen; este documento no afirma que ya estén implementadas ni que exista una evaluación de cumplimiento.
 
 # 3. Contexto y alcance del sistema
 
@@ -78,7 +78,7 @@ flowchart LR
 
 El cliente HTTP invoca la API. El servidor real persiste el contador en PostgreSQL mediante `AforoPostgresAdapter`. En pruebas, `createApp()` puede componer `AforoMemoriaAdapter`.
 
-El proyecto Flutter contiene UI, pero no se ha verificado que consuma estas rutas. **OBJETIVO / FUTURO:** integración funcional Flutter-backend, identidad/QR, notificaciones, estado operativo, WebSocket y FCM. Estos elementos no se muestran como dependencias activas del backend.
+El cliente Flutter (`docs/Flutter/lib/core/api/aforo_api.dart`) consume estas rutas; el registro envía `Authorization: Bearer` con el token de operador (ADR-0007). **OBJETIVO / FUTURO:** identidad/QR, notificaciones, estado operativo, WebSocket y FCM. Estos elementos no se muestran como dependencias activas del backend.
 
 ## 3.3 Interfaces HTTP implementadas
 
@@ -86,7 +86,7 @@ El proyecto Flutter contiene UI, pero no se ha verificado que consuma estas ruta
 - `GET /ready`: consulta el repositorio; responde `503` si la lectura falla.
 - `GET /metrics`: devuelve `access_operations_total` en memoria, separado en `entrada`, `salida` y `total`.
 - `GET /api/v1/aforo`: consulta el contador actual.
-- `POST /api/v1/aforo/acceso`: acepta `tipoAcceso` con valor `ENTRADA` o `SALIDA`.
+- `POST /api/v1/aforo/acceso`: acepta `tipoAcceso` con valor `ENTRADA` o `SALIDA`. Exige `Authorization: Bearer <token de operador>` (`401` sin token válido; `503` si el servidor no tiene `OPERADOR_TOKEN`; `413` si el cuerpo supera 1 KB). ADR-0007.
 
 Los contratos y cuerpos de respuesta están descritos en `docs/openapi.yaml`; las rutas de aforo se implementan en `src/modules/aforo/infrastructure/http/aforo.router.js`.
 
@@ -255,7 +255,7 @@ Cuando PostgreSQL no responde, las escrituras fallan con `503`: se prefiere no r
 
 ## 8.5 Conceptos futuros
 
-**OBJETIVO / FUTURO:** autenticación, autorización/roles, identidad, QR, historial, deduplicación por estudiante, WebSocket y FCM. No hay adapters ni lógica implementada para esas capacidades.
+**OBJETIVO / FUTURO:** usuarios y roles individuales, identidad, QR, historial, deduplicación por estudiante, WebSocket y FCM. No hay adapters ni lógica implementada para esas capacidades.
 
 ## 8.6 Caché
 
@@ -282,6 +282,31 @@ Cuando PostgreSQL no responde, las escrituras fallan con `503`: se prefiere no r
 - No hay broker: el log en PostgreSQL cumple ese papel mientras no haya consumidores externos al monolito.
 - No hay motor de búsqueda: ningún escenario lo pide; las consultas de historial usarán índices de PostgreSQL.
 
+## 8.8 Seguridad (S13)
+
+Modelo de amenazas completo, análisis de dependencias y privacidad en la [evidencia S13](../s13-seguridad-amenazas.md). Decisión estructural en [ADR-0007](../adr/0007-autenticacion-operador-y-cors.md).
+
+**Principios aplicados**
+
+- **Falla cerrado:** si falta la configuración de seguridad, la operación se niega (`503`) en vez de quedar abierta.
+- **La seguridad HTTP vive en el borde:** los middlewares están en `src/shared/http/seguridad.js` y los compone `server.js`. Dominio, casos de uso y adaptadores de persistencia no saben que existe un token (ADR-0001, regla M2 de `arch:check`).
+- **Mínimo dato:** el backend no recolecta datos personales; los campos extra del cuerpo se ignoran y no se registran.
+- **Automatizar la cadena de suministro:** lo que entra por npm, pub, Docker o Actions pasa por CI y Dependabot.
+
+| Control | Dónde | Amenaza | Estado |
+|---|---|---|---|
+| Token de operador (`Bearer`) en `POST /acceso`, comparación en tiempo constante, falla cerrado | `seguridad.js`, `server.js` | T1, T5 | IMPLEMENTADO |
+| CORS con lista blanca (`CORS_ORIGINS`) | `seguridad.js` | T2 | IMPLEMENTADO |
+| Límite de cuerpo JSON 1 KB (`413`); autenticación antes del parseo | `server.js` | T5 | IMPLEMENTADO |
+| Cabeceras defensivas; sin `X-Powered-By`; errores genéricos | `seguridad.js`, router | T6 | IMPLEMENTADO |
+| Token solo en memoria en la app; nunca en logs | Flutter, logger | T3, T7 | IMPLEMENTADO |
+| PostgreSQL sin puerto publicado | `compose.lab.yaml` | T12 | IMPLEMENTADO |
+| `npm ci --ignore-scripts`, `npm audit`, `npm audit signatures`, permisos `contents: read`, Dependabot | CI, `.github/dependabot.yml` | T8, T10 | IMPLEMENTADO |
+| Timeouts del pool; límite de tasa y HSTS en el proxy | Adapter PostgreSQL, Dokploy | T5, T13 | PENDIENTE |
+| Imágenes y acciones fijadas por digest/SHA | `Dockerfile`, Compose, CI | T9, T10 | PENDIENTE |
+
+**Configuración requerida en cada entorno:** `OPERADOR_TOKEN` (≥ 32 caracteres, generado con `crypto.randomBytes`) y `CORS_ORIGINS` (solo si se usa Flutter web). Ambas se definen en el panel de Dokploy; nunca en el repositorio.
+
 # 9. Decisiones arquitectónicas
 
 | Decisión | Estado y evidencia | ADR / formalización |
@@ -292,6 +317,7 @@ Cuando PostgreSQL no responde, las escrituras fallan con `503`: se prefiere no r
 | Deployment mediante Dokploy y Docker Compose. | **IMPLEMENTADO Y VERIFICADO:** Compose despliega `api`, `postgres` y `db-init`; Render fue una alternativa considerada, no el deployment actual. | No hay un ADR independiente de deployment en `docs/adr/`; esta fila registra el estado operativo actual, no una nueva decisión formal. |
 | Métricas en memoria, logs JSON y cierre ante SIGTERM. | **IMPLEMENTADO** en la composición del servidor y `src/shared/logger.js`. | No hay ADR independiente para estas decisiones operativas básicas. |
 | No extraer Notificaciones a un servicio. | **DECIDIDO, NO IMPLEMENTADO:** Notificaciones, su puerto, outbox y relay aún no existen; son parte del diseño futuro evaluado, no componentes actuales. Se compararon "no extraer", "servicio + broker" y "servicio + HTTP". | [ADR-0005](../adr/0005-no-extraer-notificaciones.md). Modos de fallo en la [evidencia S11](../s11-fallos-parciales.md). |
+| Proteger el registro de accesos con token de operador y limitar CORS a una lista blanca. | **IMPLEMENTADO:** `src/shared/http/seguridad.js`, `server.js`, cliente Flutter; pruebas en `tests/seguridad.test.js` y contrato. Excepción documentada a la regla de versionado (`2.0.0` en `/api/v1`). | [ADR-0007](../adr/0007-autenticacion-operador-y-cors.md). Amenazas en la [evidencia S13](../s13-seguridad-amenazas.md). |
 | Registrar cada transición en un log de eventos append-only junto al contador. | **DECIDIDO, NO IMPLEMENTADO:** hoy solo existe `aforo_estado`. Se compararon "solo estado", "estado + log", "event sourcing puro" y "broker como fuente". Refina las tablas de idempotencia y outbox de S11. | [ADR-0006](../adr/0006-log-de-eventos-de-acceso.md). Estrategia de datos en la [evidencia S12](../s12-datos-eventos.md). |
 
 # 10. Requisitos de calidad
@@ -315,7 +341,7 @@ Cuando PostgreSQL no responde, las escrituras fallan con `503`: se prefiere no r
 | Resultado | Las veinte operaciones se completan y el aforo final es 20. En la prueba implementada de 20 operaciones concurrentes contra el adapter PostgreSQL no se observaron lost updates y el estado final coincidió con las operaciones exitosas. |
 | Límite | Es una prueba de integración del adapter, no una prueba de carga HTTP. No demuestra unicidad, identidad, QR ni deduplicación por estudiante, ni garantiza resultados ante cualquier carga. |
 
-Los resultados reportados para la suite actual son: pruebas base 12/12, contrato 11/11 y PostgreSQL 8/8. La suite PostgreSQL requiere `DATABASE_URL` de prueba; su ausencia hace que Node test la omita.
+Los resultados reportados para la suite actual son: pruebas base 19/19 (incluye `tests/seguridad.test.js`), contrato 14/14 y PostgreSQL 8/8. La suite PostgreSQL requiere `DATABASE_URL` de prueba; su ausencia hace que Node test la omita.
 
 ## 10.3 Otros escenarios
 
@@ -351,13 +377,13 @@ La decisión de no extraer Notificaciones a un servicio propio, y las condicione
 
 Los siguientes puntos son límites actuales, no mitigaciones implementadas:
 
-- No existe identidad de estudiantes, autenticación ni autorización/roles.
+- No existe identidad de estudiantes ni usuarios/roles individuales; las escrituras se protegen con un token de operador compartido (ADR-0007, riesgo aceptado en 11.4).
 - No existe deduplicación por estudiante, validación QR ni historial de accesos; la persistencia guarda solo el contador agregado.
 - `/metrics` es local a cada instancia, se pierde al reiniciar y no agrega datos entre procesos.
 - El deployment actual es Dokploy/Compose con PostgreSQL en contenedor; no es PostgreSQL gestionado. El volumen está configurado, pero no se ha documentado una prueba de retención tras redeploy. No hay IaC completa fuera del Compose versionado.
 - CI todavía no aprovisiona PostgreSQL ni ejecuta `test:postgres`.
 - SonarCloud/Quality Gate y una estrategia final de costos cloud no están implementados.
-- Existe UI/proyecto Flutter, pero no integración funcional verificada con el backend. QR, WebSocket, FCM, registro manual y estado operativo permanecen pendientes.
+- La app Flutter está integrada con las rutas de aforo; no se ha ejecutado una prueba automatizada de extremo a extremo contra el deployment. QR, WebSocket, FCM, registro manual y estado operativo permanecen pendientes.
 - Erosión vigilada (S9): `npm run arch:check` y el CI aplican 11 reglas de dependencias derivadas de ADR-0001; los hallazgos abiertos (lógica acumulada en `server.js`, `catch {}` vacíos, CI sin `test:postgres`) están en [la auditoría de erosión](../auditoria-erosion.md).
 - Dependencias (S9): `npm audit` sin vulnerabilidades tras la actualización; `express` 4.x y `js-yaml` 4.x están una versión mayor por detrás de `latest`. Ver [la auditoría de dependencias](../auditoria-dependencias.md).
 - **Historia no registrada (S12):** mientras ADR-0006 no se implemente, cada transición sobrescribe el contador y la historia se pierde de forma irreversible.
@@ -371,6 +397,19 @@ Los siguientes puntos son límites actuales, no mitigaciones implementadas:
 | Datos personales en el log cuando exista identidad. | Definir retención y anonimización **antes** de agregar `estudiante_id` (ADR-0006, regla 4). | FUTURO |
 | El orden total del log depende del bloqueo de una sola fila (ADR-0004). | Condición de revisión anotada en ADR-0006. | DISEÑO |
 | Caché atrasada entre instancias. | TTL de 2 s como cota (Q3). | DISEÑO |
+
+## 11.4 Amenazas aceptadas y residuales (S13)
+
+Tabla completa (T1–T16) y plan con responsables en la [evidencia S13](../s13-seguridad-amenazas.md). Aquí quedan solo las que el equipo **acepta** conscientemente o que siguen abiertas con riesgo medio o alto.
+
+| ID | Amenaza | Riesgo residual | Por qué se acepta / qué falta | Condición para revisarla |
+|---|---|---|---|---|
+| T3 | Token de operador compartido: quien lo tenga opera sin atribución. | **Medio** | Usuarios por operador exigen el contexto Identidad, que no existe. Se compensa con token largo, no persistido y rotación. | Al implementar Identidad (ADR-0007) o si el token se filtra. |
+| T4 | Sin historial no se puede investigar una manipulación. | Medio | Depende de implementar ADR-0006. | Al implementar el log de eventos. |
+| T5 | Un `GET` masivo llega a PostgreSQL; el pool no tiene timeouts. | Medio | Pendientes los timeouts (S11 §3.7) y el límite de tasa del proxy. | Al cerrar las acciones 5 y 6 del plan S13. |
+| T15 | `/metrics` es público. | Bajo | Los contadores no son personales y el aforo ya es público. | Si `/metrics` incluye datos por usuario o de infraestructura. |
+| — | Logs del proxy de Dokploy pueden guardar IP de clientes. | Bajo | Infraestructura fuera del repositorio; retención por verificar. | Antes de tratar datos de estudiantes. |
+| — | El backend responde `503` en registro mientras no se configure `OPERADOR_TOKEN` en Dokploy. | Operativo | Consecuencia deliberada de fallar cerrado. | Al configurar la variable (acción 2 del plan S13). |
 
 # 12. Glosario
 
@@ -388,7 +427,7 @@ Los siguientes puntos son límites actuales, no mitigaciones implementadas:
 | **Historial de accesos** | **OBJETIVO / FUTURO:** registros individuales; el esquema actual solo almacena el contador agregado. |
 | **WebSocket y FCM** | **OBJETIVO / FUTURO:** canales de tiempo real y notificaciones no implementados. |
 | **Render y cold start** | Render fue una alternativa considerada; no es el deployment actual. No se reportan mediciones de cold start del deployment Dokploy. |
-| **Flutter** | Existe un proyecto con UI; no se ha verificado integración funcional con el backend. |
+| **Flutter** | App cliente en `docs/Flutter`; consume las rutas de aforo y envía el token de operador en el registro. |
 | **Consistencia eventual con atraso acotado** | La lectura puede no tener el último valor, pero su atraso no supera una cota conocida (2 s para el aforo). **DISEÑO.** |
 | **Write-through** | Política de caché en la que la escritura actualiza la entrada con el valor confirmado, en vez de solo borrarla. **DISEÑO.** |
 | **Log de eventos (`acceso_evento`)** | Tabla append-only con una fila por transición confirmada, ordenada por `version`. **DISEÑO** (ADR-0006). |

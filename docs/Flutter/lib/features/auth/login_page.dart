@@ -6,12 +6,39 @@ import '../../widgets/status_card.dart';
 import '../dashboard/home_shell.dart';
 import '../dashboard/workspace_mode.dart';
 
-class LoginPage extends StatelessWidget {
+class LoginPage extends StatefulWidget {
   const LoginPage({required this.api, super.key});
 
   final AforoApi api;
 
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final TextEditingController _tokenController = TextEditingController();
+  bool _ocultarToken = true;
+  String? _errorToken;
+
+  @override
+  void dispose() {
+    _tokenController.dispose();
+    super.dispose();
+  }
+
   void _openWorkspace(BuildContext context, WorkspaceMode mode) {
+    var api = widget.api;
+    if (mode == WorkspaceMode.operator) {
+      final token = _tokenController.text.trim();
+      if (token.isEmpty) {
+        setState(() => _errorToken = 'Ingresa el token de operador.');
+        return;
+      }
+      // El token queda solo en memoria (ADR-0007). El backend lo valida en
+      // cada registro; si es incorrecto, la pantalla de accesos mostrará 401.
+      api = api.conTokenOperador(token);
+      _tokenController.clear();
+    }
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
         builder: (_) => HomeShell(api: api, mode: mode),
@@ -91,17 +118,16 @@ class LoginPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
                   const StatusCard(
-                    title: 'Inicio de sesión no disponible',
+                    title: 'Acceso por perfil',
                     message:
-                        'La API actual no ofrece autenticación ni roles. '
-                        'No se validarán credenciales ni se iniciará una '
-                        'sesión real.',
-                    icon: Icons.lock_open_rounded,
-                    color: AppTheme.warning,
+                        'Consultar el aforo es público. Registrar entradas '
+                        'y salidas exige el token de operador que entrega '
+                        'el administrador del gimnasio.',
+                    icon: Icons.lock_outline_rounded,
                   ),
                   const SizedBox(height: 22),
                   Text(
-                    'CONTINUAR SIN SESIÓN',
+                    'ELIGE CÓMO ENTRAR',
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
                           color: AppTheme.textSecondary,
                           letterSpacing: 1.1,
@@ -117,7 +143,33 @@ class LoginPage extends StatelessWidget {
                     icon: const Icon(Icons.insights_rounded),
                     label: const Text('Consultar aforo'),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: _tokenController,
+                    obscureText: _ocultarToken,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: InputDecoration(
+                      labelText: 'Token de operador',
+                      errorText: _errorToken,
+                      suffixIcon: IconButton(
+                        tooltip: _ocultarToken ? 'Mostrar' : 'Ocultar',
+                        onPressed: () =>
+                            setState(() => _ocultarToken = !_ocultarToken),
+                        icon: Icon(
+                          _ocultarToken
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                        ),
+                      ),
+                    ),
+                    onChanged: (_) {
+                      if (_errorToken != null) {
+                        setState(() => _errorToken = null);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 10),
                   OutlinedButton.icon(
                     onPressed: () => _openWorkspace(
                       context,
@@ -128,9 +180,8 @@ class LoginPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 18),
                   Text(
-                    'La operación de acceso usa un endpoint que actualmente '
-                    'no exige autenticación. Úsalo solo en un entorno '
-                    'controlado.',
+                    'El token no se guarda en el dispositivo: se borra al '
+                    'cerrar la vista de operación.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],

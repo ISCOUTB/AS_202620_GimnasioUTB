@@ -22,7 +22,7 @@ El backend no identifica estudiantes, valida QR, mantiene historial de accesos n
 - **Backend:** Node.js y Express, organizado con Arquitectura Hexagonal / Ports and Adapters. La decisión se describe en [ADR 0001](docs/adr/0001-arquitectura-hexagonal.md).
 - **Persistencia del servidor real:** PostgreSQL mediante `AforoPostgresAdapter`.
 - **Adapter en memoria:** disponible como implementación por defecto de `createApp()`, usada por pruebas que no requieren PostgreSQL.
-- **App Flutter:** existe un proyecto con pantallas e interfaz en `docs/Flutter`; no hay evidencia de integración funcional con las rutas del backend.
+- **App Flutter:** proyecto en `docs/Flutter`; consulta el aforo y registra accesos contra esta API (instrucciones en [su README](docs/Flutter/README.md)).
 - **Deployment actual:** Docker Compose en Dokploy, con PostgreSQL como servicio del Compose; no es PostgreSQL gestionado. El estado desplegado se describe más abajo.
 
 ## Ejecución local
@@ -34,6 +34,14 @@ npm install
 npm run db:init
 npm start
 ```
+
+Variables de entorno (ver `.env.example`):
+
+| Variable | Obligatoria | Para qué |
+|---|---|---|
+| `DATABASE_URL` | Sí | Conexión a PostgreSQL. |
+| `OPERADOR_TOKEN` | Para registrar accesos | Secreto de mínimo 32 caracteres que exige `POST /api/v1/aforo/acceso`. Sin él, ese endpoint responde `503`. Generarlo con `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. |
+| `CORS_ORIGINS` | Solo para Flutter web | Orígenes permitidos separados por coma, p. ej. `http://localhost:8080`. |
 
 `db:init` crea la tabla `aforo_estado` e inicializa el contador si aún no existe. El servidor escucha en el puerto 3000 por defecto. Los logs se escriben como JSON en stdout.
 
@@ -53,7 +61,7 @@ Los archivos de deployment son `Dockerfile`, `.dockerignore`, `deploy/compose.la
 | `GET /ready` | Consulta el repositorio. Responde `200` si está disponible y `503` si la consulta falla. |
 | `GET /metrics` | Devuelve `access_operations_total` (`entrada`, `salida`, `total`), en memoria por proceso. Se reinicia con el proceso; no es Prometheus ni una métrica persistente. |
 | `GET /api/v1/aforo` | Devuelve el aforo actual en `data.aforoActual`. |
-| `POST /api/v1/aforo/acceso` | Recibe `{"tipoAcceso":"ENTRADA"}` o `{"tipoAcceso":"SALIDA"}`. Responde `201` si se registra, `400` si falla la entrada o regla de dominio, `503` si el repositorio no está disponible y `500` ante errores inesperados. |
+| `POST /api/v1/aforo/acceso` | Exige `Authorization: Bearer <OPERADOR_TOKEN>`. Recibe `{"tipoAcceso":"ENTRADA"}` o `{"tipoAcceso":"SALIDA"}`. Responde `201` si se registra, `400` si falla la entrada o regla de dominio, `401` sin token válido, `413` si el cuerpo supera 1 KB, `503` si el repositorio no está disponible o el servidor no tiene token configurado, y `500` ante errores inesperados. |
 
 Ejemplo observado después de una entrada y una salida en una ejecución de producción (no es historial persistente):
 
@@ -96,6 +104,7 @@ GET /api/v1/aforo
 ```http
 POST /api/v1/aforo/acceso
 Content-Type: application/json
+Authorization: Bearer <OPERADOR_TOKEN>
 
 {
   "tipoAcceso": "ENTRADA"
@@ -107,6 +116,7 @@ Content-Type: application/json
 ```http
 POST /api/v1/aforo/acceso
 Content-Type: application/json
+Authorization: Bearer <OPERADOR_TOKEN>
 
 {
   "tipoAcceso": "SALIDA"
@@ -137,7 +147,7 @@ npm test
 
 `npm test` ejecuta pruebas base, de contrato y PostgreSQL. Las pruebas base y de contrato usan `createApp()` con el adapter en memoria; las pruebas PostgreSQL requieren `DATABASE_URL` apuntando a una base cuyo nombre incluya `test`, y se omiten si no está configurada.
 
-El workflow de GitHub Actions usa Node.js 24 y ejecuta `npm ci`, `npm run test:base`, `npm run test:contrato`, `npm run arch:check` y `npm audit --audit-level=high`. No aprovisiona PostgreSQL ni ejecuta `test:postgres`. SonarCloud/Quality Gate y la automatización de pruebas PostgreSQL en CI no están implementados.
+El workflow de GitHub Actions usa Node.js 24 y ejecuta `npm ci --ignore-scripts`, `npm run test:base` (incluye las pruebas de seguridad de S13), `npm run test:contrato`, `npm run test:mensajeria`, `npm run arch:check`, `npm audit --audit-level=high` y `npm audit signatures`, con permisos de solo lectura sobre el repositorio. Dependabot (`.github/dependabot.yml`) propone actualizaciones semanales de npm, pub, Docker y GitHub Actions. No aprovisiona PostgreSQL ni ejecuta `test:postgres`. SonarCloud/Quality Gate y la automatización de pruebas PostgreSQL en CI no están implementados.
 
 ## Estructura relevante
 
@@ -185,6 +195,8 @@ tests/
 - [Auditoría de dependencias](docs/auditoria-dependencias.md).
 - [S11: fallos parciales, idempotencia y decisión de extracción](docs/s11-fallos-parciales.md).
 - [S12: estrategia de datos y eventos (consistencia, caché y log de eventos)](docs/s12-datos-eventos.md).
+- [S13: modelado de amenazas, dependencias y privacidad](docs/s13-seguridad-amenazas.md).
+- [ADR 0007: Token de operador y CORS con lista blanca](docs/adr/0007-autenticacion-operador-y-cors.md).
 - [Taller: prototipo aislado de mensajería asíncrona](docs/taller-mensajeria/README.md).
 
 ## Integrantes

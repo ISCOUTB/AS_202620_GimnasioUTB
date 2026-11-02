@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -23,3 +26,5 @@ jobs:
         run: npm run arch:check
       - name: Auditoría de dependencias (vulnerabilidades altas o críticas)
         run: npm audit --audit-level=high
+      - name: Firmas y procedencia de los paquetes instalados (S13, cadena de suministro)
+        run: npm audit signatures

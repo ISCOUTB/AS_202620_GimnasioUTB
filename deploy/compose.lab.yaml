@@ -39,6 +39,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: ${PORT:-3000}
+      # Sin OPERADOR_TOKEN la API arranca, pero POST /acceso responde 503 (falla cerrado, ADR-0007).
+      OPERADOR_TOKEN: ${OPERADOR_TOKEN:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
       DATABASE_URL: "postgresql://${POSTGRES_USER:?Define POSTGRES_USER en deploy/.env}:${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en deploy/.env}@postgres:5432/${POSTGRES_DB:?Define POSTGRES_DB en deploy/.env}"
     expose:
       - "${PORT:-3000}"
