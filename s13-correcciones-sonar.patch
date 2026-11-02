@@ -1,0 +1,220 @@
+diff --git a/entrega-taller-mensajeria/02-codigo/index.js b/entrega-taller-mensajeria/02-codigo/index.js
+index a7ee475..2b9e1d9 100644
+--- a/entrega-taller-mensajeria/02-codigo/index.js
++++ b/entrega-taller-mensajeria/02-codigo/index.js
+@@ -79,7 +79,7 @@ class InMemoryMessageQueue {
+ 
+   publish(message) {
+     validateMessage(message);
+-    this.messages.push(JSON.parse(JSON.stringify(message)));
++    this.messages.push(structuredClone(message));
+   }
+ 
+   receive() {
+@@ -169,41 +169,41 @@ function createConsumer({
+     return { status: 'dead-lettered', attempts, error: error.message };
+   }
+ 
+-  async function processNewMessage(message) {
+-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+-      metrics.attempts += 1;
+-      emit(message, { level: 'info', result: 'attempt_started', attempt });
+-      try {
+-        await handleMessage(message);
+-        processedEventIds.add(message.eventId);
+-        metrics.processed += 1;
+-        emit(message, { level: 'info', result: 'processed', attempt });
+-        return { status: 'processed', attempts: attempt };
+-      } catch (error) {
+-        if (!(error instanceof RecoverableProcessingError)) {
+-          metrics.permanentFailures += 1;
+-          return deadLetter(message, attempt, error);
+-        }
+-
+-        if (attempt === maxAttempts) {
+-          return deadLetter(message, attempt, error);
+-        }
++  // Reintentos secuenciales por recursión: cada intento depende del
++  // resultado del anterior, así que no hay nada que paralelizar.
++  async function processNewMessage(message, attempt = 1) {
++    metrics.attempts += 1;
++    emit(message, { level: 'info', result: 'attempt_started', attempt });
++    try {
++      await handleMessage(message);
++      processedEventIds.add(message.eventId);
++      metrics.processed += 1;
++      emit(message, { level: 'info', result: 'processed', attempt });
++      return { status: 'processed', attempts: attempt };
++    } catch (error) {
++      if (!(error instanceof RecoverableProcessingError)) {
++        metrics.permanentFailures += 1;
++        return deadLetter(message, attempt, error);
++      }
+ 
+-        const delayMs = backoffMs[attempt - 1];
+-        metrics.retries += 1;
+-        emit(message, {
+-          level: 'warn',
+-          result: 'retry_scheduled',
+-          attempt,
+-          nextAttempt: attempt + 1,
+-          delayMs,
+-          error: error.message,
+-          errorType: error.name,
+-        });
+-        await sleep(delayMs);
++      if (attempt === maxAttempts) {
++        return deadLetter(message, attempt, error);
+       }
++
++      const delayMs = backoffMs[attempt - 1];
++      metrics.retries += 1;
++      emit(message, {
++        level: 'warn',
++        result: 'retry_scheduled',
++        attempt,
++        nextAttempt: attempt + 1,
++        delayMs,
++        error: error.message,
++        errorType: error.name,
++      });
++      await sleep(delayMs);
++      return processNewMessage(message, attempt + 1);
+     }
+-    throw new Error('Se alcanzó un estado inesperado en el ciclo de reintentos.');
+   }
+ 
+   async function process(message) {
+diff --git a/experiments/messaging/index.js b/experiments/messaging/index.js
+index a7ee475..2b9e1d9 100644
+--- a/experiments/messaging/index.js
++++ b/experiments/messaging/index.js
+@@ -79,7 +79,7 @@ class InMemoryMessageQueue {
+ 
+   publish(message) {
+     validateMessage(message);
+-    this.messages.push(JSON.parse(JSON.stringify(message)));
++    this.messages.push(structuredClone(message));
+   }
+ 
+   receive() {
+@@ -169,41 +169,41 @@ function createConsumer({
+     return { status: 'dead-lettered', attempts, error: error.message };
+   }
+ 
+-  async function processNewMessage(message) {
+-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+-      metrics.attempts += 1;
+-      emit(message, { level: 'info', result: 'attempt_started', attempt });
+-      try {
+-        await handleMessage(message);
+-        processedEventIds.add(message.eventId);
+-        metrics.processed += 1;
+-        emit(message, { level: 'info', result: 'processed', attempt });
+-        return { status: 'processed', attempts: attempt };
+-      } catch (error) {
+-        if (!(error instanceof RecoverableProcessingError)) {
+-          metrics.permanentFailures += 1;
+-          return deadLetter(message, attempt, error);
+-        }
+-
+-        if (attempt === maxAttempts) {
+-          return deadLetter(message, attempt, error);
+-        }
++  // Reintentos secuenciales por recursión: cada intento depende del
++  // resultado del anterior, así que no hay nada que paralelizar.
++  async function processNewMessage(message, attempt = 1) {
++    metrics.attempts += 1;
++    emit(message, { level: 'info', result: 'attempt_started', attempt });
++    try {
++      await handleMessage(message);
++      processedEventIds.add(message.eventId);
++      metrics.processed += 1;
++      emit(message, { level: 'info', result: 'processed', attempt });
++      return { status: 'processed', attempts: attempt };
++    } catch (error) {
++      if (!(error instanceof RecoverableProcessingError)) {
++        metrics.permanentFailures += 1;
++        return deadLetter(message, attempt, error);
++      }
+ 
+-        const delayMs = backoffMs[attempt - 1];
+-        metrics.retries += 1;
+-        emit(message, {
+-          level: 'warn',
+-          result: 'retry_scheduled',
+-          attempt,
+-          nextAttempt: attempt + 1,
+-          delayMs,
+-          error: error.message,
+-          errorType: error.name,
+-        });
+-        await sleep(delayMs);
++      if (attempt === maxAttempts) {
++        return deadLetter(message, attempt, error);
+       }
++
++      const delayMs = backoffMs[attempt - 1];
++      metrics.retries += 1;
++      emit(message, {
++        level: 'warn',
++        result: 'retry_scheduled',
++        attempt,
++        nextAttempt: attempt + 1,
++        delayMs,
++        error: error.message,
++        errorType: error.name,
++      });
++      await sleep(delayMs);
++      return processNewMessage(message, attempt + 1);
+     }
+-    throw new Error('Se alcanzó un estado inesperado en el ciclo de reintentos.');
+   }
+ 
+   async function process(message) {
+diff --git a/src/shared/http/seguridad.js b/src/shared/http/seguridad.js
+index 48f6708..f364f7a 100644
+--- a/src/shared/http/seguridad.js
++++ b/src/shared/http/seguridad.js
+@@ -31,14 +31,17 @@ function cabecerasSeguridad(req, res, next) {
+  * @param {{ origenesPermitidos: string[] }} opciones
+  */
+ function crearCors({ origenesPermitidos = [] } = {}) {
+-  const permitidos = new Set(origenesPermitidos);
++  // Map origen -> origen: la cabecera se escribe con el valor de la
++  // configuración, nunca con el texto que envió el cliente.
++  const permitidos = new Map(origenesPermitidos.map((origen) => [origen, origen]));
+ 
+   return function cors(req, res, next) {
+-    const origen = req.headers.origin;
+-    if (origen) res.vary('Origin');
++    const origenSolicitado = req.headers.origin;
++    if (origenSolicitado) res.vary('Origin');
+ 
+-    if (origen && permitidos.has(origen)) {
+-      res.setHeader('Access-Control-Allow-Origin', origen);
++    const origenConfigurado = permitidos.get(origenSolicitado);
++    if (origenConfigurado) {
++      res.setHeader('Access-Control-Allow-Origin', origenConfigurado);
+       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+       res.setHeader('Access-Control-Max-Age', '600');
+@@ -53,10 +56,17 @@ function crearCors({ origenesPermitidos = [] } = {}) {
+ function parsearOrigenes(valor) {
+   return String(valor || '')
+     .split(',')
+-    .map((origen) => origen.trim().replace(/\/+$/, ''))
++    .map((origen) => quitarBarrasFinales(origen.trim()))
+     .filter(Boolean);
+ }
+ 
++/** Quita las "/" del final sin expresión regular (evita backtracking). */
++function quitarBarrasFinales(texto) {
++  let fin = texto.length;
++  while (fin > 0 && texto[fin - 1] === '/') fin -= 1;
++  return texto.slice(0, fin);
++}
++
+ function hash(valor) {
+   return crypto.createHash('sha256').update(String(valor)).digest();
+ }
