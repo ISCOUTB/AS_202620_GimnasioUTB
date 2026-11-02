@@ -53,10 +53,10 @@ packages:
     dependency: "direct main"
     description:
       name: cached_network_image_web
-      sha256: "38762ec3bd2295f4d79545add118f525bd5a105a53692c06208c4875f2abde62"
+      sha256: "99ba26ba4de2fd5524b84a8c6f14931aaeb25d740a954e92d8249e7be6cd9e31"
       url: "https://pub.dev"
     source: hosted
-    version: "2.0.3"
+    version: "2.0.4"
   characters:
     dependency: transitive
     description:
