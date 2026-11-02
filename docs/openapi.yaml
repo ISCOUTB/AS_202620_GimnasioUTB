@@ -1,11 +1,19 @@
 openapi: 3.1.0
 info:
   title: API Backend - Gimnasio UTB
-  version: 1.0.0
+  version: 2.0.0
   description: |
     Contrato HTTP del backend actual. El deployment actual utiliza Docker
-    Compose en Dokploy. Existe un proyecto Flutter con UI, pero no se ha
-    verificado su integración funcional con estas rutas.
+    Compose en Dokploy. El cliente Flutter (`docs/Flutter/lib/core/api/aforo_api.dart`)
+    consume estas rutas.
+
+    **2.0.0 (S13, ADR-0007):** `POST /api/v1/aforo/acceso` exige
+    `Authorization: Bearer <token de operador>`. Es un cambio incompatible y,
+    por la regla de abajo, debería ir en `/api/v2`. Se hace una excepción
+    documentada en ADR-0007: es una corrección de seguridad, el único
+    consumidor (la app Flutter del equipo) se actualiza en el mismo cambio, y
+    mantener `/api/v1` sin autenticación dejaría abierta la vulnerabilidad.
+    Las lecturas (`GET`) siguen siendo públicas.
 
     `GET /metrics` devuelve contadores JSON en memoria por instancia; no es
     una exportación Prometheus. `GET /ready` consulta el repositorio y permite
@@ -82,6 +90,8 @@ paths:
     post:
       operationId: registrarAcceso
       summary: Registra una entrada o salida y devuelve el aforo resultante
+      security:
+        - tokenOperador: []
       requestBody:
         required: true
         content:
@@ -101,6 +111,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RespuestaError'
+        '401':
+          description: Falta la cabecera Authorization o el token de operador no es válido
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '413':
+          description: El cuerpo supera 1 KB
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
         '500':
           description: Error inesperado al procesar el acceso
           content:
@@ -108,12 +134,20 @@ paths:
               schema:
                 $ref: '#/components/schemas/RespuestaError'
         '503':
-          description: El repositorio de aforo no está disponible
+          description: El repositorio de aforo no está disponible, o el servidor no tiene configurado OPERADOR_TOKEN (falla cerrado)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RespuestaError'
 components:
+  securitySchemes:
+    tokenOperador:
+      type: http
+      scheme: bearer
+      description: |
+        Secreto compartido del operador del gimnasio (variable OPERADOR_TOKEN
+        del servidor, mínimo 32 caracteres). Medida provisional hasta que
+        exista el contexto Identidad con usuarios y roles (ADR-0007).
   schemas:
     SolicitudAcceso:
       type: object

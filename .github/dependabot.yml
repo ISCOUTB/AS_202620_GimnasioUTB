@@ -1,0 +1,28 @@
+# S13 — cadena de suministro: PRs automáticos de actualización (mitigación M8).
+# Cada PR pasa por el CI (pruebas, contrato, arch:check, npm audit) antes de fusionarse.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      parches-y-menores:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: pub
+    directory: /docs/Flutter
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

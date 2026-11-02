@@ -113,11 +113,11 @@ class _AccessPageState extends State<AccessPage> {
         ),
         const SizedBox(height: 18),
         const StatusCard(
-          title: 'Operación sin autenticación',
+          title: 'Operación con token de operador',
           message:
-              'La API recibe solo ENTRADA o SALIDA; no recibe cédula ni '
-              'identifica a la persona. Esta pantalla no es un registro '
-              'individual de estudiantes.',
+              'Cada registro envía tu token de operador. La API recibe solo '
+              'ENTRADA o SALIDA; no recibe cédula ni identifica a la persona. '
+              'Esta pantalla no es un registro individual de estudiantes.',
           icon: Icons.warning_amber_rounded,
           color: AppTheme.warning,
         ),

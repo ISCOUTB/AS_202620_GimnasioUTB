@@ -12,6 +12,7 @@ const Ajv2020 = require('ajv/dist/2020');
 const { createApp } = require('../src/server');
 const { AforoPostgresAdapter } = require('../src/modules/aforo/infrastructure/persistence/aforo-postgres.adapter');
 
+const TOKEN = 'token-de-prueba-de-al-menos-32-caracteres-xx';
 const SPEC_ID = 'https://gimnasio-utb.local/openapi.json';
 const spec = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'docs', 'openapi.yaml'), 'utf8'));
 
@@ -31,8 +32,8 @@ function validadorSolicitud(ruta, metodo) {
   return ajv.getSchema(`${SPEC_ID}#${ptr}`);
 }
 
-async function withServer(fn, aforoRepository) {
-  const app = createApp({ aforoRepository });
+async function withServer(fn, aforoRepository, operadorToken = TOKEN) {
+  const app = createApp({ aforoRepository, operadorToken });
   const server = app.listen(0);
   const { port } = server.address();
   try {
@@ -85,6 +86,35 @@ const casos = [
         },
       },
     ],
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso (sin token de operador) -> 401',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso', status: 401,
+    body: { tipoAcceso: 'ENTRADA' }, cumpleSolicitud: true, sinToken: true,
+    respuestaEsperada: {
+      status: 'error',
+      message: 'Se requiere un token de operador válido.',
+    },
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso (cuerpo demasiado grande) -> 413',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso', status: 413,
+    solicitudes: [{
+      rawBody: JSON.stringify({ tipoAcceso: 'ENTRADA', relleno: 'x'.repeat(2048) }),
+      respuestaEsperada: {
+        status: 'error',
+        message: 'El cuerpo de la solicitud excede el tamaño permitido.',
+      },
+    }],
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso (token no configurado en el servidor) -> 503',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso', status: 503,
+    body: { tipoAcceso: 'ENTRADA' }, cumpleSolicitud: true, operadorToken: null,
+    respuestaEsperada: {
+      status: 'error',
+      message: 'El registro de accesos no está habilitado en este entorno.',
+    },
   },
   {
     nombre: 'POST /api/v1/aforo/acceso (repositorio no disponible) -> 503',
@@ -140,7 +170,10 @@ for (const caso of casos) {
 
         const res = await fetch(`${baseUrl}${caso.ruta}`, {
           method: caso.metodo.toUpperCase(),
-          headers: { 'Content-Type': solicitud.contentType || 'application/json' },
+          headers: {
+            'Content-Type': solicitud.contentType || 'application/json',
+            ...(caso.metodo === 'post' && !caso.sinToken ? { Authorization: `Bearer ${TOKEN}` } : {}),
+          },
           body: solicitud.rawBody ?? (solicitud.body !== undefined
             ? JSON.stringify(solicitud.body)
             : undefined),
@@ -183,7 +216,7 @@ for (const caso of casos) {
       }
 
       cubiertos.add(`${caso.metodo.toUpperCase()} ${caso.ruta} ${caso.status}`);
-    }, caso.aforoRepository);
+    }, caso.aforoRepository, caso.operadorToken === undefined ? TOKEN : caso.operadorToken);
   });
 }
 

@@ -22,19 +22,36 @@ class AforoApiException implements Exception {
 }
 
 class AforoApi {
-  AforoApi({http.Client? client, String? baseUrl})
+  AforoApi({http.Client? client, String? baseUrl, String? operatorToken})
       : _client = client ?? http.Client(),
         _baseUrl = (baseUrl ??
                 const String.fromEnvironment(
                   'GYM_API_BASE_URL',
                   defaultValue: 'https://gimnasio-utb.iscoutb.dev',
                 ))
-            .replaceFirst(RegExp(r'/+$'), '');
+            .replaceFirst(RegExp(r'/+$'), ''),
+        _operatorToken = operatorToken;
 
   static const Duration requestTimeout = Duration(seconds: 8);
 
   final http.Client _client;
   final String _baseUrl;
+
+  /// Token de operador (ADR-0007). Solo vive en memoria: no se guarda en
+  /// SharedPreferences ni en disco, y se descarta al cerrar sesión.
+  final String? _operatorToken;
+
+  bool get tieneTokenOperador => (_operatorToken ?? '').isNotEmpty;
+
+  /// Devuelve un cliente igual a este que envía el token en las escrituras.
+  AforoApi conTokenOperador(String token) => AforoApi(
+        client: _client,
+        baseUrl: _baseUrl,
+        operatorToken: token.trim(),
+      );
+
+  /// Devuelve un cliente igual a este, sin token (al cerrar sesión).
+  AforoApi sinTokenOperador() => AforoApi(client: _client, baseUrl: _baseUrl);
 
   Future<int> consultarAforo() async {
     final response = await _get('/api/v1/aforo');
@@ -73,7 +90,10 @@ class AforoApi {
       return await _client
           .post(
             Uri.parse('$_baseUrl$path'),
-            headers: const {'Content-Type': 'application/json'},
+            headers: {
+              'Content-Type': 'application/json',
+              if (tieneTokenOperador) 'Authorization': 'Bearer $_operatorToken',
+            },
             body: jsonEncode(body),
           )
           .timeout(requestTimeout);

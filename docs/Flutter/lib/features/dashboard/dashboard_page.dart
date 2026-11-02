@@ -104,10 +104,11 @@ class DashboardPageState extends State<DashboardPage> {
         const SizedBox(height: 18),
         if (isOperator) ...[
           const StatusCard(
-            title: 'Vista de operación sin autenticar',
+            title: 'Vista de operación',
             message:
-                'El backend no valida roles ni protege el registro de accesos. '
-                'No se está comprobando que seas administrador.',
+                'El backend protege el registro de accesos con un token de '
+                'operador compartido. Todavía no hay usuarios ni roles '
+                'individuales.',
             icon: Icons.warning_amber_rounded,
             color: AppTheme.warning,
           ),

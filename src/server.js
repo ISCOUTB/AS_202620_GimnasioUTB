@@ -5,12 +5,41 @@ const { AforoPostgresAdapter } = require('./modules/aforo/infrastructure/persist
 const { crearRegistrarAccesoUseCase } = require('./modules/aforo/application/registrar-acceso.usecase');
 const { crearConsultarAforoUseCase } = require('./modules/aforo/application/consultar-aforo.usecase');
 const { logger } = require('./shared/logger');
+const {
+  cabecerasSeguridad,
+  crearCors,
+  parsearOrigenes,
+  crearAutenticacionOperador,
+} = require('./shared/http/seguridad');
+
+const LIMITE_CUERPO_JSON = '1kb';
 
 
-function createApp({ aforoRepository } = {}) {
+/**
+ * @param {object} [opciones]
+ * @param {object} [opciones.aforoRepository] adaptador del puerto de aforo
+ * @param {string} [opciones.operadorToken] secreto que exige POST /acceso (ADR-0007)
+ * @param {string[]} [opciones.origenesCors] orígenes web permitidos (ADR-0007)
+ */
+function createApp({ aforoRepository, operadorToken, origenesCors = [] } = {}) {
   const app = express();
-  app.use(express.json());
+  app.disable('x-powered-by');
+  app.use(cabecerasSeguridad);
+  app.use(crearCors({ origenesPermitidos: origenesCors }));
+  // La autenticación va antes del parseo: una petición sin token no consume
+  // recursos de parseo ni llega al caso de uso.
+  app.post('/api/v1/aforo/acceso', crearAutenticacionOperador({ token: operadorToken, logger }));
+  app.use(express.json({ limit: LIMITE_CUERPO_JSON }));
   app.use((error, req, res, next) => {
+    if (error?.type === 'entity.too.large') {
+      try {
+        logger.warn('http.body_too_large', 'Request body exceeds the allowed size');
+      } catch {}
+      return res.status(413).json({
+        status: 'error',
+        message: 'El cuerpo de la solicitud excede el tamaño permitido.',
+      });
+    }
     if (error?.type === 'entity.parse.failed') {
       try {
         logger.warn('http.invalid_json', 'Malformed JSON request body');
@@ -69,7 +98,11 @@ function createApp({ aforoRepository } = {}) {
 
 if (require.main === module) {
   const aforoRepository = new AforoPostgresAdapter();
-  const app = createApp({ aforoRepository });
+  const app = createApp({
+    aforoRepository,
+    operadorToken: process.env.OPERADOR_TOKEN,
+    origenesCors: parsearOrigenes(process.env.CORS_ORIGINS),
+  });
   const port = process.env.PORT || 3000;
   const server = app.listen(port, () => {
     logger.info('server.started', `HTTP server listening on port ${port}`);

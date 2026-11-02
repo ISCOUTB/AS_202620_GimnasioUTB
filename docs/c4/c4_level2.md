@@ -2,14 +2,15 @@
 C4Container
     title C4 Level 2 - Contenedores actuales
 
-    System_Ext(cliente, "Cliente HTTP", "Cliente genérico de la API; no se asume que sea una app o un usuario autenticado.")
+    System_Ext(cliente, "App Flutter / cliente HTTP", "App del equipo (docs/Flutter) u otro cliente. Las escrituras exigen token de operador.")
 
     Container_Boundary(sistema, "Gimnasio UTB") {
         Container(api, "Backend / API", "Node.js / Express", "Expone la API HTTP, procesa operaciones de aforo y endpoints operativos.")
         ContainerDb(db, "Base de datos", "PostgreSQL", "Persiste el contador en la fila aforo_estado.")
     }
 
-    Rel(cliente, api, "Consulta aforo, registra entradas/salidas y consulta endpoints operativos", "HTTP / JSON")
+    Rel(cliente, api, "Consulta aforo (público) y endpoints operativos", "HTTPS / JSON")
+    Rel(cliente, api, "Registra entradas/salidas", "HTTPS / JSON + Authorization: Bearer (ADR-0007)")
     Rel(api, db, "Lee y actualiza aforo", "SQL mediante driver pg; conexión por DATABASE_URL")
 ```
 
