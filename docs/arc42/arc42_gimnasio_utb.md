@@ -341,15 +341,24 @@ Modelo de amenazas completo, análisis de dependencias y privacidad en la [evide
 | Resultado | Las veinte operaciones se completan y el aforo final es 20. En la prueba implementada de 20 operaciones concurrentes contra el adapter PostgreSQL no se observaron lost updates y el estado final coincidió con las operaciones exitosas. |
 | Límite | Es una prueba de integración del adapter, no una prueba de carga HTTP. No demuestra unicidad, identidad, QR ni deduplicación por estudiante, ni garantiza resultados ante cualquier carga. |
 
-Los resultados reportados para la suite actual son: pruebas base 19/19 (incluye `tests/seguridad.test.js`), contrato 14/14 y PostgreSQL 8/8. La suite PostgreSQL requiere `DATABASE_URL` de prueba; su ausencia hace que Node test la omita.
+La evidencia fechada de [S9](../s9-cadena-verificada.md) reporta una ejecución el 3 de octubre de 2026, con Node v22.22.2 y PostgreSQL 16 local: base 12/12, contrato 11/11 y PostgreSQL 8/8 mediante `DATABASE_URL=... npm run test:postgres`; la suite incluye el subtest de 20 entradas concurrentes. Este es un resultado documentado, no se conserva su salida original. [La evidencia de la entrega del taller](../../entrega-taller-mensajeria/01-documentacion/evidencia-pruebas.md) registra otra ejecución raíz en la que PostgreSQL se omitió por falta de `DATABASE_URL`. Además, arc42 conserva otro conteo sin fecha (base 19/19, contrato 14/14 y PostgreSQL 8/8), por lo que no se asume que corresponda a la misma ejecución. Durante esta actualización (8 de noviembre de 2026), `DATABASE_URL` no estaba configurada y el historial de PowerShell disponible solo contiene `npm.cmd test`; no fue posible reproducir PostgreSQL ni recuperar la salida original.
 
 ## 10.3 Otros escenarios
 
 - `/health` responde liveness estático y `/ready` prueba la lectura del repositorio; hay pruebas de sus respuestas. Esto no mide disponibilidad cloud.
 - `/metrics` tiene prueba de conteo de entradas y salidas completadas. No es una prueba de consistencia ni un benchmark.
 - **S8 — Deployment y señales operativas:** Compose define el healthcheck de PostgreSQL, la inicialización con `db-init` y el healthcheck de `api` sobre `/ready`. El equipo reportó un deployment exitoso y verificó públicamente `/health`, `/ready`, `/metrics` y las operaciones de consulta/registro. Esto verifica el despliegue y esas respuestas en una ejecución; no mide disponibilidad, rendimiento, p95, throughput ni retención tras redeploy.
-- **Q3 — Frescura de la consulta (S12, OBJETIVO no medido):** el aforo que entrega `GET /api/v1/aforo` no tiene más de 2 s de atraso respecto al último `COMMIT`. Hoy se cumple de forma trivial porque no hay caché; pasa a depender del TTL cuando se implemente la sección 8.6.
+- **Q3 — Frescura de la consulta (S12, OBJETIVO no medido):** el aforo que entrega `GET /api/v1/aforo` no debe tener más de 2 s de atraso respecto al último `COMMIT`. No hay una medición de frescura que permita comprobar el límite; la ausencia actual de caché no constituye evidencia medida de cumplimiento. El riesgo y el límite de consistencia deben reevaluarse si se implementa la caché descrita en la sección 8.6.
 - Umbrales de 200 ms, P95 de WebSocket, carga de 50 clientes, cambio automático de apertura/cierre y notificaciones en dos minutos no cuentan con implementación/evidencia actual. Si se conservan como metas académicas, deben etiquetarse como objetivos futuros no medidos.
+
+## 10.4 Contraste de resultados con los umbrales
+
+| Escenario | Umbral / criterio esperado | Resultado medido y unidad | Contexto de ejecución | Comparación y estado | Significado arquitectónico |
+|---|---|---|---|---|---|
+| **S1 — Concurrencia sobre el contador de aforo** (sección 10.2) | Tras 20 operaciones concurrentes de entrada, el contador debe terminar en 20. Unidad: operaciones de entrada / unidades del contador de aforo. | El reporte fechado registra 20 operaciones concurrentes y un aforo final de 20; reporta 8/8 pruebas PostgreSQL. | [Prueba de integración PostgreSQL](../../tests/postgres/aforo-postgres.integration.test.js). [S9](../s9-cadena-verificada.md) informa ejecución del 3 de octubre de 2026 con Node v22.22.2 y PostgreSQL 16 local, usando `DATABASE_URL=... npm run test:postgres`; el reporte incluye la comprobación 20→20. No se encontró la salida original. [La evidencia de pruebas de la entrega](../../entrega-taller-mensajeria/01-documentacion/evidencia-pruebas.md) registra otra ejecución raíz en la que PostgreSQL se omitió por falta de `DATABASE_URL`. | **Cumple según el reporte fechado (20/20), pero no se pudo reproducir durante esta actualización.** | Respalda que el adapter PostgreSQL serializó correctamente las 20 transiciones en el escenario probado, sin demostrar rendimiento, carga HTTP ni comportamiento ante concurrencia superior. |
+| **Q3 — Frescura de la consulta** (sección 10.3) | Atraso máximo de 2 s respecto al último `COMMIT`. Unidad: segundos. | No se encontró un valor medido de atraso, ni un registro que permita calcularlo. | El escenario está descrito como objetivo no medido; no hay benchmark ni prueba de frescura reportados. | **Sin evidencia suficiente para determinar cumplimiento.** | La arquitectura no ofrece una garantía comprobada de frescura de 2 s. Si se implementa caché, se debe medir su atraso respecto al `COMMIT` y contrastarlo con el límite. |
+
+La duración aproximada de 111 ms reportada para las pruebas de la entrega del taller corresponde a la suite completa, no al atraso de Q3 ni a un umbral de respuesta; no se usa como sustituto de esa medición. Para cerrar la trazabilidad de S1 se requiere conservar la salida original del 3 de octubre o ejecutar de nuevo la prueba con una `DATABASE_URL` de pruebas y registrar salida y fecha. Para Q3 se requiere ejecutar y registrar una medición del atraso en segundos.
 
 # 11. Riesgos y deuda técnica
 
@@ -410,6 +419,14 @@ Tabla completa (T1–T16) y plan con responsables en la [evidencia S13](../s13-s
 | T15 | `/metrics` es público. | Bajo | Los contadores no son personales y el aforo ya es público. | Si `/metrics` incluye datos por usuario o de infraestructura. |
 | — | Logs del proxy de Dokploy pueden guardar IP de clientes. | Bajo | Infraestructura fuera del repositorio; retención por verificar. | Antes de tratar datos de estudiantes. |
 | — | El backend responde `503` en registro mientras no se configure `OPERADOR_TOKEN` en Dokploy. | Operativo | Consecuencia deliberada de fallar cerrado. | Al configurar la variable (acción 2 del plan S13). |
+
+## 11.5 Revisión por pares
+
+No se encontró en el repositorio un acta, comentario o documento que identifique observaciones como resultado de una revisión por pares. Por tanto, no es posible atribuir hallazgos a compañeros ni decidir su aceptación. [La auditoría de erosión](../auditoria-erosion.md), sección 4, documenta hallazgos de una revisión manual, pero no identifica revisores ni la caracteriza como revisión por pares; no se presentan aquí como observaciones de compañeros.
+
+| Hallazgo señalado por los compañeros | Riesgo o deuda técnica relacionada | Impacto para el proyecto | Decisión tomada | Justificación | Acción correctiva o pendiente | Estado actual |
+|---|---|---|---|---|---|---|
+| No hay observaciones con fuente verificable disponible. | No determinable sin conocer el hallazgo. | No determinable sin evidencia de la revisión. | Pendiente; no clasificable como aceptar, aceptar parcialmente o no aceptar. | No se debe atribuir una observación a compañeros sin una fuente que la respalde. | Proporcionar el acta, comentario o documento de revisión, con fecha y observaciones; entonces registrar su impacto, decisión y acción. | Pendiente de evidencia. |
 
 # 12. Glosario
 
