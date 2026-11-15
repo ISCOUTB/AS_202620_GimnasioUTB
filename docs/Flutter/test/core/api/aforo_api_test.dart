@@ -51,7 +51,7 @@ void main() {
       expect(aforo, 6);
     });
 
-    test('envía el token de operador como Bearer en el registro', () async {
+    test('envía el token de operador como Bearer al registrar', () async {
       final client = MockClient((request) async {
         expect(request.headers['authorization'], 'Bearer token-operador');
         return http.Response(

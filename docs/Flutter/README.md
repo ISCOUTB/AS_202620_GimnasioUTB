@@ -24,6 +24,19 @@ Para apuntar a otro servidor, se puede establecer la URL en tiempo de ejecución
 flutter run --dart-define=GYM_API_BASE_URL=https://servidor-configurado
 ```
 
+### Generar APK Android
+
+Desde este directorio:
+
+```bash
+flutter build apk --release
+```
+
+El archivo se genera en `build/app/outputs/flutter-apk/app-release.apk`. La
+configuración actual firma el APK con la clave de depuración; sirve para
+instalación y pruebas, pero antes de publicarlo hay que configurar una clave de
+firma de release y un identificador de aplicación propio.
+
 ### Conexión con el backend (S13)
 
 | Escenario | Comando | Qué configurar en el backend |
@@ -31,7 +44,7 @@ flutter run --dart-define=GYM_API_BASE_URL=https://servidor-configurado
 | Windows contra el deployment | `flutter run -d windows` | Nada: las apps nativas no usan CORS. |
 | Navegador contra el deployment | `flutter run -d chrome --web-port 8080` | `CORS_ORIGINS=http://localhost:8080` en Dokploy. |
 | Navegador contra backend local | `flutter run -d chrome --web-port 8080 --dart-define=GYM_API_BASE_URL=http://localhost:3000` | `CORS_ORIGINS=http://localhost:8080` y `OPERADOR_TOKEN` en el entorno del proceso (p. ej. `node --env-file=.env src/server.js`). |
-| Emulador Android contra backend local | `flutter run --dart-define=GYM_API_BASE_URL=http://10.0.2.2:3000` | Nada. Requiere crear antes la plataforma: `flutter create --platforms=android .` (el proyecto hoy solo trae `web/` y `windows/`). |
+| Emulador Android contra backend local | `flutter run --dart-define=GYM_API_BASE_URL=http://10.0.2.2:3000` | Nada. |
 
 `--web-port 8080` fija el puerto: sin él Flutter elige uno aleatorio y el
 origen no coincidiría con la lista blanca de CORS.

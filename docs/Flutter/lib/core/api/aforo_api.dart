@@ -92,7 +92,7 @@ class AforoApi {
             Uri.parse('$_baseUrl$path'),
             headers: {
               'Content-Type': 'application/json',
-              if (tieneTokenOperador) 'Authorization': 'Bearer $_operatorToken',
+              if (tieneTokenOperador) 'Authorization': 'Bearer ${_operatorToken!}',
             },
             body: jsonEncode(body),
           )
