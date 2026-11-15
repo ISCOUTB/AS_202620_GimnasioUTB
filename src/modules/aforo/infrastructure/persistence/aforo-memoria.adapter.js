@@ -18,7 +18,7 @@ class AforoMemoriaAdapter extends AforoRepositoryPort {
   }
 
   async actualizarAforo(transicionar) {
-    const nuevoAforo = transicionar(this.#aforoActual);
+    const nuevoAforo = await transicionar(this.#aforoActual);
     this.#aforoActual = nuevoAforo;
     return nuevoAforo;
   }

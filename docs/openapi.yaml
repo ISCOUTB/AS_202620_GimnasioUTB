@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: API Backend - Gimnasio UTB
-  version: 2.0.0
+  version: 2.1.0
   description: |
     Contrato HTTP del backend actual. El deployment actual utiliza Docker
     Compose en Dokploy. El cliente Flutter (`docs/Flutter/lib/core/api/aforo_api.dart`)
@@ -18,6 +18,10 @@ info:
     `GET /metrics` devuelve contadores JSON en memoria por instancia; no es
     una exportación Prometheus. `GET /ready` consulta el repositorio y permite
     comprobar la disponibilidad de PostgreSQL en el servidor real.
+
+    **2.1.0:** se añaden sesiones para cuentas estudiantiles sintéticas de
+    demostración y QR de un solo uso, además del endpoint para que el operador
+    registre el acceso al escanearlos. No hay SSO ni identidad institucional.
 
     Versionado (semver sobre este archivo):
     - MAJOR: cambio incompatible (renombrar/eliminar un campo, cambiar un código HTTP,
@@ -139,6 +143,117 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RespuestaError'
+  /api/v1/estudiantes/sesion:
+    post:
+      operationId: iniciarSesionEstudiante
+      summary: Inicia sesión con una cuenta sintética de demostración
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SolicitudSesionEstudiante'
+      responses:
+        '200':
+          description: Sesión temporal creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaSesionEstudiante'
+        '400':
+          description: Solicitud inválida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '401':
+          description: Credenciales inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '503':
+          description: Identidad no disponible en este entorno
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+  /api/v1/estudiantes/qr:
+    post:
+      operationId: emitirQrEstudiante
+      summary: Emite un QR temporal de un solo uso para el estudiante autenticado
+      security:
+        - sesionEstudiante: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '201':
+          description: QR emitido con vencimiento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaQr'
+        '401':
+          description: Sesión ausente, inválida o vencida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '503':
+          description: Identidad no disponible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+  /api/v1/aforo/acceso-qr:
+    post:
+      operationId: registrarAccesoQr
+      summary: Consume el QR de un estudiante y registra su entrada o salida
+      security:
+        - tokenOperador: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [qr]
+              additionalProperties: false
+              properties:
+                qr:
+                  type: string
+                  minLength: 1
+                  maxLength: 256
+      responses:
+        '201':
+          description: Acceso registrado y QR consumido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaAccesoQr'
+        '400':
+          description: QR inválido, vencido, ya utilizado o transición rechazada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '401':
+          description: Token de operador inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '503':
+          description: Persistencia o identidad no disponible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
 components:
   securitySchemes:
     tokenOperador:
@@ -148,6 +263,10 @@ components:
         Secreto compartido del operador del gimnasio (variable OPERADOR_TOKEN
         del servidor, mínimo 32 caracteres). Medida provisional hasta que
         exista el contexto Identidad con usuarios y roles (ADR-0007).
+    sesionEstudiante:
+      type: http
+      scheme: bearer
+      description: Token de sesión temporal asociado a una cuenta sintética de demostración.
   schemas:
     SolicitudAcceso:
       type: object
@@ -215,5 +334,79 @@ components:
               type: integer
               minimum: 0
             total:
+              type: integer
+              minimum: 0
+    SolicitudSesionEstudiante:
+      type: object
+      required: [codigoEstudiante, contrasena]
+      additionalProperties: false
+      properties:
+        codigoEstudiante:
+          type: string
+          minLength: 1
+          maxLength: 64
+        contrasena:
+          type: string
+          minLength: 1
+          maxLength: 256
+    RespuestaSesionEstudiante:
+      type: object
+      required: [status, data]
+      additionalProperties: false
+      properties:
+        status:
+          const: success
+        data:
+          type: object
+          required: [token, expiresAt, estudiante]
+          additionalProperties: false
+          properties:
+            token:
+              type: string
+            expiresAt:
+              type: string
+              format: date-time
+            estudiante:
+              type: object
+              required: [codigoEstudiante, nombre]
+              additionalProperties: false
+              properties:
+                codigoEstudiante:
+                  type: string
+                nombre:
+                  type: string
+    RespuestaQr:
+      type: object
+      required: [status, data]
+      additionalProperties: false
+      properties:
+        status:
+          const: success
+        data:
+          type: object
+          required: [token, expiresAt]
+          additionalProperties: false
+          properties:
+            token:
+              type: string
+            expiresAt:
+              type: string
+              format: date-time
+    RespuestaAccesoQr:
+      type: object
+      required: [status, data]
+      additionalProperties: false
+      properties:
+        status:
+          const: success
+        data:
+          type: object
+          required: [tipoAcceso, aforoActual]
+          additionalProperties: false
+          properties:
+            tipoAcceso:
+              type: string
+              enum: [ENTRADA, SALIDA]
+            aforoActual:
               type: integer
               minimum: 0

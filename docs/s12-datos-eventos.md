@@ -81,7 +81,7 @@ Se diseña ahora para que la política de invalidación no se improvise cuando h
 | Lectura dentro de una escritura (O1) | **No** | La regla `aforo ≥ 0` debe evaluarse sobre el valor real bloqueado. Cachear aquí rompería Q1. |
 | `GET /ready` | **No** | Debe reflejar si PostgreSQL responde ahora. |
 | Respuestas del `POST` | **No** | No son lecturas; la idempotencia (O2) se resuelve en la base, no en caché (S11 §3.4). |
-| Identidad, QR, roles (FUTURO) | **No** | Una revocación debe aplicar de inmediato; cachearlos abre una ventana de acceso indebido. |
+| Sesión/QR sintéticos; roles individuales (parcial/futuro) | **No** | Sesión y QR se validan en PostgreSQL; no cachearlos hace efectivas de inmediato su expiración y consumo. Los roles individuales siguen pendientes. |
 
 ### 4.3 Dónde va la caché: opciones
 

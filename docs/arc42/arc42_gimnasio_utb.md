@@ -14,15 +14,15 @@ date: Septiembre 2026
 
 El gimnasio de la Universidad Tecnológica de Bolívar alcanza su máxima capacidad en ciertos horarios. Los estudiantes pueden desplazarse sin saber si hay cupo; además, la disponibilidad real puede diferir del horario previsto.
 
-El propósito del producto es ofrecer información confiable sobre la disponibilidad del gimnasio. La solución completa contempla una aplicación móvil y funciones para estudiantes y encargados. El alcance implementado en este repositorio es un backend que mantiene un contador agregado de aforo y ofrece una API HTTP para consultarlo y aplicar transiciones de entrada o salida.
+El propósito del producto es ofrecer información confiable sobre la disponibilidad del gimnasio. El repositorio incluye un backend, una aplicación Flutter y un flujo de acceso individual demostrable con cuentas sintéticas.
 
 ## 1.2 Alcance implementado y objetivo
 
-**IMPLEMENTADO:** backend Node.js/Express con Arquitectura Hexagonal / Ports and Adapters; módulo de aforo; caso de uso de registro; `AforoRepositoryPort`; adapters PostgreSQL y memoria; API HTTP; transacciones con bloqueo de fila; readiness, liveness, métricas locales, logs estructurados y cierre ordenado ante `SIGTERM`.
+**IMPLEMENTADO:** backend Node.js/Express con Arquitectura Hexagonal / Ports and Adapters; consulta y registro de aforo; cuentas estudiantiles sintéticas; sesión temporal; QR de un solo uso; escaneo desde Flutter; transacción PostgreSQL; readiness, liveness, métricas locales, logs estructurados y cierre ordenado ante `SIGTERM`.
 
-**ESTADO PARCIAL:** el proyecto Flutter consume `GET /api/v1/aforo` y `POST /api/v1/aforo/acceso` (con token de operador, ADR-0007); su cliente HTTP tiene pruebas con `MockClient`, y la verificación manual contra el deployment queda a cargo del equipo. **OBJETIVO / FUTURO:** QR e identidad de estudiantes; usuarios y roles individuales; historial de accesos y deduplicación por estudiante; registro manual; estado operativo de apertura/cierre; WebSocket; FCM; PostgreSQL gestionado; IaC completa; SonarCloud/Quality Gate y definición final de costos. El backend sí está desplegado en Dokploy mediante Docker Compose; Render fue una alternativa, no la plataforma actual.
+**IMPLEMENTADO:** la app Flutter consulta el aforo, permite iniciar sesión con una cuenta estudiantil sintética y muestra un QR temporal; el operador puede escanearlo o registrar una transición manual. El QR se consume y el aforo se actualiza en una transacción PostgreSQL. **OBJETIVO / FUTURO:** SSO institucional; roles individuales; historial completo de eventos y deduplicación de operaciones manuales; apertura/cierre; WebSocket; FCM; PostgreSQL gestionado; IaC completa; SonarCloud/Quality Gate y definición final de costos. El deployment está en Dokploy mediante Docker Compose; Render fue una alternativa.
 
-El backend actual no identifica personas. Su contador no constituye un registro de quién está dentro del gimnasio.
+La identidad usada es sintética y no representa cuentas UTB reales. La tabla de estado individual no constituye un historial de eventos.
 
 ## 1.3 Objetivos de calidad
 
@@ -30,13 +30,13 @@ El backend actual no identifica personas. Su contador no constituye un registro 
 - **Mantenibilidad:** aislar el dominio de Express y del driver PostgreSQL mediante el puerto de persistencia.
 - **Operación verificable:** separar liveness (`/health`) de readiness (`/ready`) y consultar contadores operacionales (`/metrics`).
 
-Rendimiento bajo carga, alta disponibilidad cloud, seguridad de identidad y experiencia de uso móvil son objetivos futuros; no cuentan con evidencia de implementación en este backend.
+Rendimiento bajo carga, alta disponibilidad cloud, SSO institucional y experiencia móvil en dispositivos reales siguen sin evidencia de verificación.
 
 ## 1.4 Stakeholders
 
 | Stakeholder | Interés y estado |
 |---|---|
-| Estudiantes | Quieren conocer la disponibilidad. La app Flutter consulta el aforo del backend; la identidad de estudiante no está implementada. |
+| Estudiantes | Quieren conocer la disponibilidad y presentar un QR. La autenticación disponible usa exclusivamente cuentas sintéticas de demostración. |
 | Encargado del gimnasio | Requeriría operar registros manuales y apertura/cierre. Estas capacidades están pendientes. |
 | Bienestar Universitario y área administrativa | Interesados en la gestión del aforo y el uso del gimnasio. |
 | Equipo de desarrollo y evaluadores | Necesitan decisiones trazables y evidencia verificable por corte académico. |
@@ -60,13 +60,13 @@ La solución se desarrolla como proyecto académico incremental y su arquitectur
 
 ## 2.3 Restricciones y requisitos futuros
 
-El repositorio contiene el proyecto Flutter/UI y la configuración de deployment Docker Compose para Dokploy. QR, datos personales, usuarios y roles individuales, notificaciones, WebSocket y PostgreSQL gestionado no están implementados/verificados. La infraestructura de la plataforma Dokploy es externa al repositorio; Compose es la configuración de deployment versionada, no IaC completa. Los requisitos legales relacionados con identificación y datos personales deberán analizarse cuando esas funciones se incorporen; este documento no afirma que ya estén implementadas ni que exista una evaluación de cumplimiento.
+El repositorio contiene el proyecto Flutter/UI y la configuración de deployment Docker Compose para Dokploy. El flujo QR usa cuentas sintéticas y no integra SSO ni datos institucionales. Roles individuales de operadores, notificaciones, WebSocket y PostgreSQL gestionado no están implementados/verificados. La infraestructura de Dokploy es externa al repositorio; Compose es configuración de deployment versionada, no IaC completa.
 
 # 3. Contexto y alcance del sistema
 
 ## 3.1 Contexto de negocio
 
-El problema de negocio es informar y gestionar la ocupación del gimnasio. El backend implementado expone un contador agregado; no recibe ni valida identidad, QR o roles. Estudiantes y encargados son stakeholders del producto objetivo, pero el backend actual no los representa como actores autenticados.
+El backend expone el contador agregado y asocia accesos QR con cuentas sintéticas. La escritura manual sigue usando un token compartido de operador; no hay autenticación individual de encargados.
 
 ## 3.2 Contexto técnico implementado
 
@@ -78,7 +78,7 @@ flowchart LR
 
 El cliente HTTP invoca la API. El servidor real persiste el contador en PostgreSQL mediante `AforoPostgresAdapter`. En pruebas, `createApp()` puede componer `AforoMemoriaAdapter`.
 
-El cliente Flutter (`docs/Flutter/lib/core/api/aforo_api.dart`) consume estas rutas; el registro envía `Authorization: Bearer` con el token de operador (ADR-0007). **OBJETIVO / FUTURO:** identidad/QR, notificaciones, estado operativo, WebSocket y FCM. Estos elementos no se muestran como dependencias activas del backend.
+El cliente Flutter consume las rutas de aforo y estudiantes descritas en `docs/openapi.yaml`. El operador envía `Authorization: Bearer` con el token compartido (ADR-0007); la sesión de estudiante es separada y solo aplica a cuentas sintéticas. Notificaciones, estado operativo, WebSocket y FCM siguen siendo futuros.
 
 ## 3.3 Interfaces HTTP implementadas
 
@@ -111,7 +111,7 @@ La observabilidad implementada es básica: logs JSON en stdout, `/health`, `/rea
 
 ## 4.3 Arquitectura objetivo
 
-**OBJETIVO / FUTURO:** añadir integración funcional del cliente móvil y los componentes operativos descritos en la visión, identidad, historial y canales de notificación. El deployment runtime actual se describe en la sección 7.
+**OBJETIVO / FUTURO:** añadir SSO, roles individuales de operador, historial completo y canales de notificación. El deployment runtime actual se describe en la sección 7.
 
 # 5. Vista de bloques
 
@@ -176,9 +176,9 @@ La prueba de integración PostgreSQL comprueba rechazo de salida desde cero y ro
 
 `GET /api/v1/aforo` pasa por `crearConsultarAforoUseCase`, que consulta el repositorio; si la lectura termina correctamente, la ruta responde `200` con `{ status: "success", data: { aforoActual } }`. La lectura no ejecuta una transición.
 
-## 6.3 Funcionalidad futura
+## 6.3 Flujos fuera del alcance
 
-El escaneo QR, identificación del estudiante, corrección manual por un encargado, apertura/cierre, difusión WebSocket y notificaciones FCM no forman parte de estos flujos implementados.
+El QR de cuenta sintética sí está implementado. El historial completo, la corrección con trazabilidad, apertura/cierre, difusión WebSocket y notificaciones FCM no forman parte de estos flujos.
 
 # 7. Vista de despliegue
 
@@ -226,7 +226,7 @@ El equipo reportó PostgreSQL `Healthy`, finalización de `db-init`, arranque de
 
 ## 8.2 Persistencia y estrategia de consistencia
 
-**IMPLEMENTADO:** el contador persistido es una única fila de `aforo_estado`. Cada transición PostgreSQL comienza con `BEGIN`, obtiene el bloqueo de fila con `SELECT ... FOR UPDATE`, calcula el nuevo valor mediante la función de dominio, ejecuta `UPDATE` y confirma con `COMMIT`. En error intenta `ROLLBACK`. Esto respalda la consistencia del contador para las operaciones y escenarios probados; no identifica estudiantes ni evita duplicados por estudiante.
+**IMPLEMENTADO:** el contador persistido está en `aforo_estado`. El registro QR consume el token, alterna el estado individual y actualiza el contador bajo la misma transacción PostgreSQL. La operación manual conserva la actualización del contador sin asociar una identidad.
 
 **Estrategia (S12):** la consistencia fuerte se reserva para las escrituras que protegen el invariante `aforo ≥ 0` y para lo que debe confirmarse junto con ellas; las lecturas que solo muestran el aforo bajan en el espectro. La tabla completa operación → garantía está en la [evidencia S12 §3](../s12-datos-eventos.md).
 
@@ -255,7 +255,7 @@ Cuando PostgreSQL no responde, las escrituras fallan con `503`: se prefiere no r
 
 ## 8.5 Conceptos futuros
 
-**OBJETIVO / FUTURO:** usuarios y roles individuales, identidad, QR, historial, deduplicación por estudiante, WebSocket y FCM. No hay adapters ni lógica implementada para esas capacidades.
+**OBJETIVO / FUTURO:** SSO, roles individuales de operadores, historial completo, deduplicación de operaciones manuales, WebSocket y FCM.
 
 ## 8.6 Caché
 
@@ -378,7 +378,7 @@ El análisis completo, con el diseño de cada mitigación, está en la [evidenci
 | F8 | Escritura doble aforo + push (Notificaciones). | Alto cuando exista. | Patrón outbox en la misma transacción. | FUTURO / DISEÑO |
 | F9 | FCM lento o caído. | Alto si se llamara en la petición. | Relay asíncrono con timeout y circuit breaker. | FUTURO / DISEÑO |
 | F10 | La entrega al menos una vez puede producir mensajes duplicados. | Bajo-medio. | Diseño futuro: procesamiento idempotente por ID estable; no garantiza que FCM o el dispositivo no muestren duplicados. No hay mecanismo implementado. | FUTURO / DISEÑO |
-| F11 | Identidad no responde al validar el QR, si fuera un servicio. | Alto en ese escenario. | Mantener Identidad en el monolito; si se extrajera: timeout, breaker y saga con compensación. | FUTURO |
+| F11 | Identidad no responde al validar el QR, si fuera un servicio. | Alto solo si se extrajera. | Identidad permanece como módulo interno y consume el QR en la transacción local; si se extrajera: timeout, breaker y saga con compensación. | Implementado en monolito; extracción futura |
 
 La decisión de no extraer Notificaciones a un servicio propio, y las condiciones para revisarla, están en [ADR-0005](../adr/0005-no-extraer-notificaciones.md).
 
@@ -386,13 +386,13 @@ La decisión de no extraer Notificaciones a un servicio propio, y las condicione
 
 Los siguientes puntos son límites actuales, no mitigaciones implementadas:
 
-- No existe identidad de estudiantes ni usuarios/roles individuales; las escrituras se protegen con un token de operador compartido (ADR-0007, riesgo aceptado en 11.4).
-- No existe deduplicación por estudiante, validación QR ni historial de accesos; la persistencia guarda solo el contador agregado.
+- La identidad de estudiantes usa cuentas sintéticas; no hay SSO ni identidad institucional. Los encargados comparten el token de operador (ADR-0007).
+- El QR tiene un solo uso y cambia el estado individual, pero no existe historial de eventos ni deduplicación del registro manual.
 - `/metrics` es local a cada instancia, se pierde al reiniciar y no agrega datos entre procesos.
 - El deployment actual es Dokploy/Compose con PostgreSQL en contenedor; no es PostgreSQL gestionado. El volumen está configurado, pero no se ha documentado una prueba de retención tras redeploy. No hay IaC completa fuera del Compose versionado.
 - CI todavía no aprovisiona PostgreSQL ni ejecuta `test:postgres`.
 - SonarCloud/Quality Gate y una estrategia final de costos cloud no están implementados.
-- La app Flutter está integrada con las rutas de aforo; no se ha ejecutado una prueba automatizada de extremo a extremo contra el deployment. QR, WebSocket, FCM, registro manual y estado operativo permanecen pendientes.
+- Las pruebas automatizadas cubren cliente y backend por separado; no se ha ejecutado una prueba extremo a extremo contra el deployment. WebSocket, FCM y estado operativo permanecen pendientes.
 - Erosión vigilada (S9): `npm run arch:check` y el CI aplican 11 reglas de dependencias derivadas de ADR-0001; los hallazgos abiertos (lógica acumulada en `server.js`, `catch {}` vacíos, CI sin `test:postgres`) están en [la auditoría de erosión](../auditoria-erosion.md).
 - Dependencias (S9): `npm audit` sin vulnerabilidades tras la actualización; `express` 4.x y `js-yaml` 4.x están una versión mayor por detrás de `latest`. Ver [la auditoría de dependencias](../auditoria-dependencias.md).
 - **Historia no registrada (S12):** mientras ADR-0006 no se implemente, cada transición sobrescribe el contador y la historia se pierde de forma irreversible.
@@ -403,7 +403,7 @@ Los siguientes puntos son límites actuales, no mitigaciones implementadas:
 |---|---|---|
 | El `INSERT` del evento alarga el tiempo con el bloqueo tomado (agrava F4). | Medir en prueba de carga; transacción sigue siendo de 1 lectura y 2 escrituras. | DISEÑO |
 | Crecimiento sin límite de `acceso_evento`. | Política de retención y particionado por mes. | DISEÑO |
-| Datos personales en el log cuando exista identidad. | Definir retención y anonimización **antes** de agregar `estudiante_id` (ADR-0006, regla 4). | FUTURO |
+| Datos sintéticos de demostración. | No cargar información personal; conservar la restricción de base de pruebas y evaluar retención antes de incorporar datos reales. | IMPLEMENTADO / límite |
 | El orden total del log depende del bloqueo de una sola fila (ADR-0004). | Condición de revisión anotada en ADR-0006. | DISEÑO |
 | Caché atrasada entre instancias. | TTL de 2 s como cota (Q3). | DISEÑO |
 
@@ -440,11 +440,11 @@ No se encontró en el repositorio un acta, comentario o documento que identifiqu
 | **Readiness** | Comprobación de que el repositorio puede responder; la entrega `GET /ready`. |
 | **Métrica operacional** | Contador `access_operations_total` en memoria por instancia, servido en JSON por `GET /metrics`; no es Prometheus. |
 | **Adapter de memoria** | Implementación en RAM de `AforoRepositoryPort`, usada por defecto en `createApp()` y pruebas sin DB. |
-| **QR e identidad** | **OBJETIVO / FUTURO:** medios de identificar estudiantes que todavía no existen en el backend. |
+| **QR e identidad** | **IMPLEMENTADO para demostración:** cuentas sintéticas, sesión temporal y QR de un solo uso; SSO institucional FUTURO. |
 | **Historial de accesos** | **OBJETIVO / FUTURO:** registros individuales; el esquema actual solo almacena el contador agregado. |
 | **WebSocket y FCM** | **OBJETIVO / FUTURO:** canales de tiempo real y notificaciones no implementados. |
 | **Render y cold start** | Render fue una alternativa considerada; no es el deployment actual. No se reportan mediciones de cold start del deployment Dokploy. |
-| **Flutter** | App cliente en `docs/Flutter`; consume las rutas de aforo y envía el token de operador en el registro. |
+| **Flutter** | App cliente en `docs/Flutter`; consulta el aforo, muestra QR con sesión sintética y envía el token de operador para escanear o registrar. |
 | **Consistencia eventual con atraso acotado** | La lectura puede no tener el último valor, pero su atraso no supera una cota conocida (2 s para el aforo). **DISEÑO.** |
 | **Write-through** | Política de caché en la que la escritura actualiza la entrada con el valor confirmado, en vez de solo borrarla. **DISEÑO.** |
 | **Log de eventos (`acceso_evento`)** | Tabla append-only con una fila por transición confirmada, ordenada por `version`. **DISEÑO** (ADR-0006). |

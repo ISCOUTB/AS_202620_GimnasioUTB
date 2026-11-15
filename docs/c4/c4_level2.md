@@ -2,22 +2,23 @@
 C4Container
     title C4 Level 2 - Contenedores actuales
 
-    System_Ext(cliente, "App Flutter / cliente HTTP", "App del equipo (docs/Flutter) u otro cliente. Las escrituras exigen token de operador.")
+    System_Ext(cliente, "App Flutter / cliente HTTP", "Consulta el aforo; usa sesión sintética estudiantil o token compartido de operador.")
 
     Container_Boundary(sistema, "Gimnasio UTB") {
-        Container(api, "Backend / API", "Node.js / Express", "Expone la API HTTP, procesa operaciones de aforo y endpoints operativos.")
-        ContainerDb(db, "Base de datos", "PostgreSQL", "Persiste el contador en la fila aforo_estado.")
+        Container(api, "Backend / API", "Node.js / Express", "Expone API de aforo, sesiones sintéticas, QR y endpoints operativos.")
+        ContainerDb(db, "Base de datos", "PostgreSQL", "Persiste aforo, cuentas sintéticas, sesiones, QR y estado individual.")
     }
 
     Rel(cliente, api, "Consulta aforo (público) y endpoints operativos", "HTTPS / JSON")
     Rel(cliente, api, "Registra entradas/salidas", "HTTPS / JSON + Authorization: Bearer (ADR-0007)")
-    Rel(api, db, "Lee y actualiza aforo", "SQL mediante driver pg; conexión por DATABASE_URL")
+    Rel(cliente, api, "Inicia sesión y muestra/escanea QR temporal", "HTTPS / JSON + Bearer según endpoint")
+    Rel(api, db, "Lee y actualiza aforo e identidad transaccional", "SQL mediante driver pg; conexión por DATABASE_URL")
 ```
 
 ## Contenedores y evidencia
 
 - **Backend / API:** el proceso real se inicia desde `src/server.js`; usa Express y compone `AforoPostgresAdapter`. La aplicación expone las rutas del módulo de aforo y `/health`, `/ready` y `/metrics`.
-- **PostgreSQL:** `src/modules/aforo/infrastructure/persistence/schema.sql` crea `aforo_estado`, con una única fila permitida para el contador y restricción de valor no negativo.
+- **PostgreSQL:** `schema.sql` crea el contador, cuentas sintéticas, sesiones, credenciales QR y estado individual.
 - **Adapters internos:** `AforoPostgresAdapter` es la implementación usada por el servidor real. `AforoMemoriaAdapter` es una alternativa inyectable y se usa por defecto en `createApp()` para pruebas sin PostgreSQL. Ninguno es un contenedor separado.
 - El adapter PostgreSQL realiza transacciones con bloqueo de fila; el detalle pertenece a la vista de componentes/ejecución, no representa un servicio adicional.
 
@@ -61,4 +62,4 @@ El worker sí es un contenedor propio en este diseño: es otro proceso con su pr
 
 ## Arquitectura objetivo / futura
 
-**No implementado actualmente:** aplicación Flutter, identidad/autenticación/roles, QR, historial, deduplicación, WebSocket, FCM, Render, PostgreSQL gestionado e infraestructura como código. No son contenedores ni conexiones del sistema actual.
+**No implementado actualmente:** SSO institucional, roles individuales de encargados, historial completo, deduplicación de operaciones manuales, WebSocket, FCM, Render, PostgreSQL gestionado e infraestructura como código. Las cuentas disponibles son sintéticas y no representan identidad UTB.

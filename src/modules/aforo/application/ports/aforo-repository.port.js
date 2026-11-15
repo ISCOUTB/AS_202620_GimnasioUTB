@@ -21,7 +21,7 @@ class AforoRepositoryPort {
 
   /**
    * Aplica una transición al estado actual de forma atómica.
-   * @param {(aforoActual: number) => number} transicionar
+   * @param {(aforoActual: number, transaccion?: object) => number | Promise<number>} transicionar
    * @returns {Promise<number>} el nuevo aforo
    */
   async actualizarAforo(transicionar) {

@@ -70,6 +70,89 @@ void main() {
       expect(aforo, 1);
     });
 
+    test('inicia sesión estudiantil sin enviar la contraseña en otra ruta',
+        () async {
+      final client = MockClient((request) async {
+        expect(request.method, 'POST');
+        expect(request.url.path, '/api/v1/estudiantes/sesion');
+        expect(request.headers.containsKey('authorization'), isFalse);
+        expect(
+          jsonDecode(request.body),
+          {'codigoEstudiante': 'demo-001', 'contrasena': 'clave-sintetica'},
+        );
+        return http.Response(
+          jsonEncode({
+            'status': 'success',
+            'data': {
+              'token': 'sesion-temporal',
+              'expiresAt': '2026-11-15T12:00:00.000Z',
+              'estudiante': {
+                'codigoEstudiante': 'demo-001',
+                'nombre': 'Estudiante de prueba',
+              },
+            },
+          }),
+          200,
+        );
+      });
+
+      final sesion = await AforoApi(client: client, baseUrl: 'https://api.test')
+          .iniciarSesionEstudiante(
+        codigoEstudiante: 'demo-001',
+        contrasena: 'clave-sintetica',
+      );
+
+      expect(sesion.token, 'sesion-temporal');
+      expect(sesion.codigoEstudiante, 'demo-001');
+    });
+
+    test('solicita un QR con la sesión del estudiante', () async {
+      final client = MockClient((request) async {
+        expect(request.url.path, '/api/v1/estudiantes/qr');
+        expect(request.headers['authorization'], 'Bearer sesion-estudiante');
+        return http.Response(
+          jsonEncode({
+            'status': 'success',
+            'data': {
+              'token': 'qr-temporal',
+              'expiresAt': '2026-11-15T12:00:00.000Z',
+            },
+          }),
+          201,
+        );
+      });
+
+      final qr = await AforoApi(client: client, baseUrl: 'https://api.test')
+          .conTokenEstudiante('sesion-estudiante')
+          .emitirQrEstudiante();
+
+      expect(qr.token, 'qr-temporal');
+      expect(qr.expiresAt, DateTime.parse('2026-11-15T12:00:00.000Z'));
+    });
+
+    test('registra el QR escaneado con el token del operador', () async {
+      final client = MockClient((request) async {
+        expect(request.url.path, '/api/v1/aforo/acceso-qr');
+        expect(request.headers['authorization'], 'Bearer token-operador');
+        expect(jsonDecode(request.body), {'qr': 'qr-temporal'});
+        return http.Response(
+          jsonEncode({
+            'status': 'success',
+            'data': {'tipoAcceso': 'ENTRADA', 'aforoActual': 2},
+          }),
+          201,
+        );
+      });
+
+      final resultado = await AforoApi(
+        client: client,
+        baseUrl: 'https://api.test',
+      ).conTokenOperador('token-operador').registrarAccesoQr('qr-temporal');
+
+      expect(resultado.tipoAcceso, TipoAcceso.entrada);
+      expect(resultado.aforoActual, 2);
+    });
+
     test('no envía Authorization en las consultas ni sin token', () async {
       final client = MockClient((request) async {
         expect(request.headers.containsKey('authorization'), isFalse);

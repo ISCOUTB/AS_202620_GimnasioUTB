@@ -11,6 +11,10 @@ const yaml = require('js-yaml');
 const Ajv2020 = require('ajv/dist/2020');
 const { createApp } = require('../src/server');
 const { AforoPostgresAdapter } = require('../src/modules/aforo/infrastructure/persistence/aforo-postgres.adapter');
+const {
+  CredencialesInvalidasError,
+  QrNoValidoError,
+} = require('../src/modules/identidad/application/identidad.errors');
 
 const TOKEN = 'token-de-prueba-de-al-menos-32-caracteres-xx';
 const SPEC_ID = 'https://gimnasio-utb.local/openapi.json';
@@ -32,8 +36,8 @@ function validadorSolicitud(ruta, metodo) {
   return ajv.getSchema(`${SPEC_ID}#${ptr}`);
 }
 
-async function withServer(fn, aforoRepository, operadorToken = TOKEN) {
-  const app = createApp({ aforoRepository, operadorToken });
+async function withServer(fn, aforoRepository, operadorToken = TOKEN, identidadRepository) {
+  const app = createApp({ aforoRepository, operadorToken, identidadRepository });
   const server = app.listen(0);
   const { port } = server.address();
   try {
@@ -147,6 +151,95 @@ const casos = [
       message: 'Error interno al registrar el acceso.',
     },
   },
+  {
+    nombre: 'POST /api/v1/estudiantes/sesion -> 200',
+    metodo: 'post', ruta: '/api/v1/estudiantes/sesion', status: 200,
+    body: { codigoEstudiante: 'demo-001', contrasena: 'clave-de-prueba' },
+    cumpleSolicitud: true,
+    identidadRepository: {
+      iniciarSesion: async () => ({
+        token: 'sesion-prueba',
+        expiresAt: '2026-11-15T12:00:00.000Z',
+        estudiante: { codigoEstudiante: 'demo-001', nombre: 'Demo' },
+      }),
+    },
+  },
+  {
+    nombre: 'POST /api/v1/estudiantes/sesion -> 400',
+    metodo: 'post', ruta: '/api/v1/estudiantes/sesion', status: 400,
+    body: {}, cumpleSolicitud: false,
+    identidadRepository: {},
+  },
+  {
+    nombre: 'POST /api/v1/estudiantes/sesion -> 401',
+    metodo: 'post', ruta: '/api/v1/estudiantes/sesion', status: 401,
+    body: { codigoEstudiante: 'demo-001', contrasena: 'incorrecta' },
+    cumpleSolicitud: true,
+    identidadRepository: {
+      iniciarSesion: async () => { throw new CredencialesInvalidasError(); },
+    },
+  },
+  {
+    nombre: 'POST /api/v1/estudiantes/sesion -> 503',
+    metodo: 'post', ruta: '/api/v1/estudiantes/sesion', status: 503,
+    body: { codigoEstudiante: 'demo-001', contrasena: 'clave-de-prueba' },
+    cumpleSolicitud: true,
+  },
+  {
+    nombre: 'POST /api/v1/estudiantes/qr -> 201',
+    metodo: 'post', ruta: '/api/v1/estudiantes/qr', status: 201,
+    body: {}, cumpleSolicitud: true,
+    identidadRepository: {
+      obtenerEstudianteDeSesion: async () => ({
+        codigo_estudiante: 'demo-001',
+        nombre: 'Demo',
+      }),
+      emitirQr: async () => ({
+        token: 'qr-prueba',
+        expiresAt: '2026-11-15T12:00:00.000Z',
+      }),
+    },
+  },
+  {
+    nombre: 'POST /api/v1/estudiantes/qr -> 401',
+    metodo: 'post', ruta: '/api/v1/estudiantes/qr', status: 401,
+    sinToken: true,
+  },
+  {
+    nombre: 'POST /api/v1/estudiantes/qr -> 503',
+    metodo: 'post', ruta: '/api/v1/estudiantes/qr', status: 503,
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso-qr -> 201',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso-qr', status: 201,
+    body: { qr: 'qr-prueba' }, cumpleSolicitud: true,
+    aforoRepository: {
+      obtenerAforoActual: async () => 0,
+      actualizarAforo: async (transicionar) => transicionar(0, {}),
+    },
+    identidadRepository: { consumirQr: async () => 'ENTRADA' },
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso-qr -> 400',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso-qr', status: 400,
+    solicitudes: [
+      { body: {}, cumpleSolicitud: false },
+      { body: { qr: 'qr-prueba' }, cumpleSolicitud: true },
+    ],
+    identidadRepository: {
+      consumirQr: async () => { throw new QrNoValidoError(); },
+    },
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso-qr -> 401',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso-qr', status: 401,
+    body: { qr: 'qr-prueba' }, cumpleSolicitud: true, sinToken: true,
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso-qr -> 503',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso-qr', status: 503,
+    body: { qr: 'qr-prueba' }, cumpleSolicitud: true,
+  },
 ];
 
 const cubiertos = new Set();
@@ -156,6 +249,7 @@ for (const caso of casos) {
     const solicitudes = caso.solicitudes || [{
       body: caso.body,
       cumpleSolicitud: caso.cumpleSolicitud,
+      identidadRepository: caso.identidadRepository,
     }];
 
     await withServer(async (baseUrl) => {
@@ -216,7 +310,8 @@ for (const caso of casos) {
       }
 
       cubiertos.add(`${caso.metodo.toUpperCase()} ${caso.ruta} ${caso.status}`);
-    }, caso.aforoRepository, caso.operadorToken === undefined ? TOKEN : caso.operadorToken);
+    }, caso.aforoRepository, caso.operadorToken === undefined ? TOKEN : caso.operadorToken,
+    caso.identidadRepository);
   });
 }
 

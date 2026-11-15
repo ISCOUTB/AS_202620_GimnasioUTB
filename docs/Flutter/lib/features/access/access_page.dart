@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/api/aforo_api.dart';
 import '../../core/theme/app_theme.dart';
 import '../../widgets/page_header.dart';
 import '../../widgets/status_card.dart';
 import '../dashboard/workspace_mode.dart';
+import 'qr_scanner_page.dart';
 
 class AccessPage extends StatefulWidget {
   const AccessPage({
@@ -26,8 +30,29 @@ class _AccessPageState extends State<AccessPage> {
   bool _enviando = false;
   String? _resultado;
   String? _error;
+  CredencialQr? _credencialQr;
+  bool _cargandoQr = false;
+  Timer? _renovadorQr;
 
   bool get _isOperator => widget.mode == WorkspaceMode.operator;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_isOperator && widget.api.tieneSesionEstudiante) {
+      _solicitarQr();
+      _renovadorQr = Timer.periodic(
+        const Duration(seconds: 45),
+        (_) => _solicitarQr(),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _renovadorQr?.cancel();
+    super.dispose();
+  }
 
   Future<void> _registrar(TipoAcceso tipo) async {
     if (_enviando) return;
@@ -53,52 +78,147 @@ class _AccessPageState extends State<AccessPage> {
     }
   }
 
+  Future<void> _solicitarQr() async {
+    if (_cargandoQr || !widget.api.tieneSesionEstudiante) return;
+    setState(() {
+      _cargandoQr = true;
+      _error = null;
+    });
+    try {
+      final credencial = await widget.api.emitirQrEstudiante();
+      if (!mounted) return;
+      setState(() => _credencialQr = credencial);
+    } on AforoApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } finally {
+      if (mounted) setState(() => _cargandoQr = false);
+    }
+  }
+
+  Future<void> _escanearQr() async {
+    if (_enviando) return;
+    final qr = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(builder: (_) => const QrScannerPage()),
+    );
+    if (qr == null || qr.isEmpty || !mounted) return;
+    setState(() {
+      _enviando = true;
+      _resultado = null;
+      _error = null;
+    });
+    try {
+      final resultado = await widget.api.registrarAccesoQr(qr);
+      if (!mounted) return;
+      final accion =
+          resultado.tipoAcceso == TipoAcceso.entrada ? 'Entrada' : 'Salida';
+      setState(() {
+        _resultado =
+            '$accion registrada. Aforo actual: ${resultado.aforoActual} personas.';
+      });
+      widget.onAccessRegistered?.call();
+    } on AforoApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } finally {
+      if (mounted) setState(() => _enviando = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_isOperator) {
+      if (!widget.api.tieneSesionEstudiante) {
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
+          children: [
+            const PageHeader(
+              title: 'Mi código de acceso',
+              subtitle: 'Inicia sesión para generar tu QR personal.',
+              icon: Icons.qr_code_2_rounded,
+            ),
+            const SizedBox(height: 18),
+            const StatusCard(
+              title: 'Sesión de estudiante requerida',
+              message: 'El QR se vincula a una cuenta sintética de la base de '
+                  'pruebas y vence después de 60 segundos.',
+              icon: Icons.school_outlined,
+            ),
+          ],
+        );
+      }
       return ListView(
         padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
         children: [
           const PageHeader(
             title: 'Mi código de acceso',
-            subtitle: 'Consulta el estado de tu código de acceso.',
+            subtitle: 'Muestra este QR al encargado para registrar tu acceso.',
             icon: Icons.qr_code_2_rounded,
           ),
           const SizedBox(height: 18),
-          const Card(
+          Card(
             child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 22, vertical: 34),
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 24),
               child: Column(
                 children: [
-                  Icon(
-                    Icons.qr_code_2_rounded,
-                    size: 76,
-                    color: AppTheme.textSecondary,
-                  ),
-                  SizedBox(height: 16),
+                  if (_credencialQr != null)
+                    QrImageView(
+                      data: _credencialQr!.token,
+                      size: 240,
+                      backgroundColor: Colors.white,
+                      semanticsLabel: 'QR personal de acceso al gimnasio',
+                    )
+                  else if (_cargandoQr)
+                    const Padding(
+                      padding: EdgeInsets.all(36),
+                      child: CircularProgressIndicator(),
+                    )
+                  else
+                    const Icon(
+                      Icons.qr_code_2_rounded,
+                      size: 76,
+                      color: AppTheme.textSecondary,
+                    ),
+                  const SizedBox(height: 16),
                   Text(
-                    'QR no disponible',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                    _credencialQr == null
+                        ? 'QR no disponible'
+                        : 'Código temporal de un solo uso',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                  SizedBox(height: 8),
-                  Text(
-                    'El backend todavía no emite un identificador o token '
-                    'de acceso. No se genera un QR de prueba que pueda '
-                    'confundirse con uno válido.',
-                    textAlign: TextAlign.center,
+                  if (_credencialQr != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Vence ${_credencialQr!.expiresAt.toLocal().toString().substring(0, 16)}',
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _cargandoQr ? null : _solicitarQr,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Generar un nuevo QR'),
                   ),
                 ],
               ),
             ),
           ),
           const SizedBox(height: 16),
-          const StatusCard(
-            title: 'Integración pendiente',
-            message:
-                'Se necesita identidad de estudiante y un contrato backend '
-                'para emitir y validar credenciales QR.',
-            icon: Icons.qr_code_scanner_rounded,
-          ),
+          if (_error != null)
+            StatusCard(
+              title: 'No se pudo generar el QR',
+              message: _error!,
+              icon: Icons.error_outline_rounded,
+              color: AppTheme.danger,
+            )
+          else
+            const StatusCard(
+              title: 'Uso del código',
+              message: 'El encargado escanea este código. Cada QR se invalida '
+                  'después de un uso o al vencer.',
+              icon: Icons.qr_code_scanner_rounded,
+            ),
         ],
       );
     }
@@ -115,13 +235,18 @@ class _AccessPageState extends State<AccessPage> {
         const StatusCard(
           title: 'Operación con token de operador',
           message:
-              'Cada registro envía tu token de operador. La API recibe solo '
-              'ENTRADA o SALIDA; no recibe cédula ni identifica a la persona. '
-              'Esta pantalla no es un registro individual de estudiantes.',
+              'El registro manual cambia solo el contador. Para asociar el '
+              'acceso a una cuenta sintética, escanea el QR personal del estudiante.',
           icon: Icons.warning_amber_rounded,
           color: AppTheme.warning,
         ),
         const SizedBox(height: 18),
+        ElevatedButton.icon(
+          onPressed: _enviando ? null : _escanearQr,
+          icon: const Icon(Icons.qr_code_scanner_rounded),
+          label: const Text('Escanear QR del estudiante'),
+        ),
+        const SizedBox(height: 10),
         ElevatedButton.icon(
           onPressed: _enviando ? null : () => _registrar(TipoAcceso.entrada),
           icon: _enviando
@@ -162,11 +287,10 @@ class _AccessPageState extends State<AccessPage> {
         ],
         const SizedBox(height: 18),
         const StatusCard(
-          title: 'Registro por cédula y escaneo QR',
+          title: 'Acceso individual de demostración',
           message:
-              'No está habilitado: el backend no ofrece consulta de estudiantes, '
-              'validación de QR ni deduplicación. El contrato actual no define '
-              'cómo interpretar un QR.',
+              'El QR identifica una cuenta sintética de prueba. No se consultan '
+              'cédulas ni se integra la identidad institucional UTB.',
           icon: Icons.qr_code_scanner_rounded,
         ),
       ],

@@ -17,12 +17,20 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final TextEditingController _tokenController = TextEditingController();
+  final TextEditingController _codigoEstudianteController =
+      TextEditingController();
+  final TextEditingController _contrasenaController = TextEditingController();
   bool _ocultarToken = true;
+  bool _ocultarContrasena = true;
+  bool _iniciandoSesion = false;
   String? _errorToken;
+  String? _errorEstudiante;
 
   @override
   void dispose() {
     _tokenController.dispose();
+    _codigoEstudianteController.dispose();
+    _contrasenaController.dispose();
     super.dispose();
   }
 
@@ -46,6 +54,33 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
+  Future<void> _iniciarSesionEstudiante() async {
+    if (_iniciandoSesion) return;
+    setState(() {
+      _iniciandoSesion = true;
+      _errorEstudiante = null;
+    });
+    try {
+      final sesion = await widget.api.iniciarSesionEstudiante(
+        codigoEstudiante: _codigoEstudianteController.text.trim(),
+        contrasena: _contrasenaController.text,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => HomeShell(
+            api: widget.api.conTokenEstudiante(sesion.token),
+            mode: WorkspaceMode.student,
+          ),
+        ),
+      );
+    } on AforoApiException catch (error) {
+      if (mounted) setState(() => _errorEstudiante = error.message);
+    } finally {
+      if (mounted) setState(() => _iniciandoSesion = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -54,7 +89,8 @@ class _LoginPageState extends State<LoginPage> {
           builder: (context, constraints) => SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
             child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight - 52),
+              constraints:
+                  BoxConstraints(minHeight: constraints.maxHeight - 52),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -109,9 +145,10 @@ class _LoginPageState extends State<LoginPage> {
                         const SizedBox(height: 8),
                         Text(
                           'Aforo y acceso al gimnasio, en un solo lugar.',
-                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                color: Colors.white.withValues(alpha: 0.86),
-                              ),
+                          style:
+                              Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                    color: Colors.white.withValues(alpha: 0.86),
+                                  ),
                         ),
                       ],
                     ),
@@ -120,9 +157,9 @@ class _LoginPageState extends State<LoginPage> {
                   const StatusCard(
                     title: 'Acceso por perfil',
                     message:
-                        'Consultar el aforo es público. Registrar entradas '
-                        'y salidas exige el token de operador que entrega '
-                        'el administrador del gimnasio.',
+                        'Los estudiantes usan cuentas sintéticas de '
+                        'demostración. El encargado registra accesos con el '
+                        'token de operador.',
                     icon: Icons.lock_outline_rounded,
                   ),
                   const SizedBox(height: 22),
@@ -141,7 +178,55 @@ class _LoginPageState extends State<LoginPage> {
                       WorkspaceMode.student,
                     ),
                     icon: const Icon(Icons.insights_rounded),
-                    label: const Text('Consultar aforo'),
+                    label: const Text('Continuar como visitante'),
+                  ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: _codigoEstudianteController,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Código de estudiante de prueba',
+                      prefixIcon: Icon(Icons.school_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _contrasenaController,
+                    obscureText: _ocultarContrasena,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: InputDecoration(
+                      labelText: 'Contraseña',
+                      errorText: _errorEstudiante,
+                      prefixIcon: const Icon(Icons.lock_outline_rounded),
+                      suffixIcon: IconButton(
+                        tooltip: _ocultarContrasena ? 'Mostrar' : 'Ocultar',
+                        onPressed: () => setState(
+                          () => _ocultarContrasena = !_ocultarContrasena,
+                        ),
+                        icon: Icon(
+                          _ocultarContrasena
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                        ),
+                      ),
+                    ),
+                    onSubmitted: (_) => _iniciarSesionEstudiante(),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed:
+                        _iniciandoSesion ? null : _iniciarSesionEstudiante,
+                    icon: _iniciandoSesion
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.login_rounded),
+                    label: const Text('Iniciar sesión como estudiante'),
                   ),
                   const SizedBox(height: 20),
                   TextField(

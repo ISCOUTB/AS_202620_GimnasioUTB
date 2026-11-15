@@ -69,7 +69,7 @@ Mantiene la regla de negocio aislada y permite conectar adapters mediante puerto
 
 ## Evolución futura
 
-**FUTURO / OBJETIVO, no implementado:** integración funcional del cliente Flutter, QR, identidad de estudiantes, autenticación, roles, historial, deduplicación por estudiante, operación de apertura/cierre, WebSocket y FCM. El repositorio sí contiene un proyecto Flutter con UI, pero no se ha verificado su integración con el backend. El deployment operativo actual usa Dokploy y Docker Compose; Render no es la plataforma actual, PostgreSQL gestionado no está desplegado y el Compose versionado no constituye IaC completa.
+**IMPLEMENTADO:** el cliente Flutter consulta el backend, estudiantes de demostración pueden iniciar sesión y mostrar un QR temporal, y el operador puede escanearlo. La identidad usa cuentas sintéticas restringidas a bases de prueba; no hay SSO institucional. **FUTURO / OBJETIVO:** roles individuales de operadores, historial completo de eventos, deduplicación de operaciones manuales, apertura/cierre, WebSocket y FCM. El deployment operativo actual usa Dokploy y Docker Compose; Render no es la plataforma actual, PostgreSQL gestionado no está desplegado y el Compose versionado no constituye IaC completa. Ver [ADR-0008](0008-identidad-de-prueba-y-qr-de-acceso.md).
 
 ## Referencias
 

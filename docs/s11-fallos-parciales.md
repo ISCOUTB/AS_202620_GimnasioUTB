@@ -4,7 +4,7 @@ Este documento analiza qué puede fallar **a medias** en las integraciones reale
 
 - **IMPLEMENTADO**: existe en el código y tiene prueba.
 - **DISEÑO**: decisión técnica descrita aquí, todavía no implementada. No se presenta como capacidad existente.
-- **FUTURO**: depende de un módulo que aún no existe (Notificaciones, Identidad).
+- **FUTURO**: depende de un módulo que aún no existe (Notificaciones); Identidad está implementado dentro del monolito para cuentas sintéticas.
 
 La decisión de extraer o no un módulo a servicio está en [ADR-0005](adr/0005-no-extraer-notificaciones.md).
 
@@ -14,10 +14,10 @@ Aunque el backend es un monolito, ya hay límites de red. Un fallo parcial es aq
 
 | ID | Integración | Protocolo | Estado |
 |---|---|---|---|
-| I1 | App móvil / cliente HTTP → proxy de Dokploy → API Express | HTTPS hasta el proxy, HTTP interno puerto 3000 | IMPLEMENTADO (API); la app Flutter no está integrada todavía |
+| I1 | App móvil / cliente HTTP → proxy de Dokploy → API Express | HTTPS hasta el proxy, HTTP interno puerto 3000 | IMPLEMENTADO; la integración contra el deployment no está verificada en dispositivo |
 | I2 | API → PostgreSQL | Driver `pg`, `DATABASE_URL`, red interna de Docker Compose | IMPLEMENTADO |
 | I3 | Aforo → Firebase Cloud Messaging (push) | HTTP/JSON hacia un tercero | FUTURO (contexto Notificaciones) |
-| I4 | Aforo → Identidad (validar QR del estudiante) | Llamada interna del monolito hoy; red si se extrajera | FUTURO |
+| I4 | Aforo → Identidad (validar QR sintético) | Llamada interna del monolito, consumo en transacción PostgreSQL | IMPLEMENTADO |
 
 ## 2. Tabla de modos de fallo y mitigación
 
@@ -33,7 +33,7 @@ Aunque el backend es un monolito, ya hay límites de red. Un fallo parcial es aq
 | F8 | I3 | **Escritura doble**: se confirma el cambio de aforo y luego falla el envío del push (o se envía el push y luego la transacción revierte). | No existe Notificaciones. | Alto cuando exista: notificaciones perdidas o "fantasma" sobre un aforo que no ocurrió. | **Patrón outbox**: el evento se guarda en la misma transacción del aforo y un *relay* lo publica después (sección 4). | FUTURO / DISEÑO |
 | F9 | I3 | **FCM lento o caído**. | No existe Notificaciones. | Alto si se llamara a FCM dentro de la petición: el registro de acceso fallaría por culpa de un tercero (fallo en cascada). | No llamar a FCM en la ruta de la petición (outbox). En el relay: timeout + **circuit breaker** + reintento con retroceso (sección 4.3). | FUTURO / DISEÑO |
 | F10 | I3 | **Entrega duplicada del relay**: el push sale, pero el relay muere antes de marcar el evento como enviado; al reiniciar lo envía otra vez. Una entrega "al menos una vez" puede producir mensajes duplicados. | No existe Notificaciones ni un mecanismo de deduplicación implementado o demostrado. | Bajo-medio: un estudiante podría recibir avisos duplicados. | Diseño futuro: propagar un identificador estable del evento y hacer idempotente su procesamiento en el consumidor. Esto no garantiza por sí solo que FCM o el dispositivo no muestren duplicados; ese comportamiento dependería del proveedor y del consumidor, aún no definidos. | FUTURO / DISEÑO |
-| F11 | I4 | **Identidad no responde** al validar un QR (si fuera un servicio separado). | No existe Identidad. Hoy sería una llamada dentro del mismo proceso, sin red. | Alto si estuviera por red: no se podría registrar ninguna entrada. | Mientras sea módulo del monolito, el modo de fallo no existe. Si se extrajera: timeout, circuit breaker y una **saga** con compensación (sección 5). Este costo es uno de los argumentos de ADR-0005. | FUTURO |
+| F11 | I4 | **Identidad no responde** al validar un QR (si fuera un servicio separado). | Identidad es un módulo interno; una falla de PostgreSQL aborta la misma transacción de aforo y QR. | Alto si se extrajera: no se podría registrar el acceso. | Mantener el módulo en el monolito evita fallo de red y permite atomicidad local. Si se extrajera: timeout y saga con compensación (sección 5). | Implementado en monolito; extracción futura |
 
 ### Por qué no se pone un circuit breaker entre la API y PostgreSQL
 

@@ -2,6 +2,9 @@
 
 **Proyecto:** AS_202620_GimnasioUTB  
 **Fecha:** 14 de noviembre de 2026 (UTC-05:00)  
+**Nota:** este informe conserva los hallazgos de la auditoría en esa fecha. El
+flujo de cuentas sintéticas y QR se implementó después; su validación puntual
+se registra en la actualización al final de este documento.
 **Alcance:** backend/API, persistencia, cliente Flutter/Android, mensajería,
 pruebas, arquitectura/documentación y configuración de seguridad disponible en
 el repositorio.
@@ -20,12 +23,11 @@ incluía permiso de Internet. La prueba Flutter solo afirmaba el literal errado;
 ahora verifica el esquema `Bearer` definido por el backend. Se reconstruyó la
 APK después de ambas correcciones y se confirmó que contiene el permiso.
 
-No se ejecutó la app en un dispositivo Android, no se probó la integración
-Flutter-backend de extremo a extremo y no se ejecutó PostgreSQL: no había
-dispositivo/emulador conectado ni `DATABASE_URL`. Por ello, la compilación no
-se presenta como prueba de instalación o de ejecución móvil. QR/identidad y
-notificaciones reales tampoco están implementados; se documentan como
-limitaciones.
+En la fecha de esta auditoría no se ejecutó la app en un dispositivo Android,
+no se probó la integración Flutter-backend de extremo a extremo y no se
+ejecutó PostgreSQL: no había dispositivo/emulador conectado ni `DATABASE_URL`.
+Por ello, la compilación no se presenta como prueba de instalación o ejecución
+móvil. El flujo QR se implementó posteriormente y se valida en la sección 15.
 
 ## 2. Alcance y método
 
@@ -260,8 +262,8 @@ commit ni push.
   la suite actual.
 - Revisión automatizada de vulnerabilidades de dependencias y secretos:
   no ejecutada.
-- Usuarios/roles, identidad, QR, notificaciones push y alertas evaluadas:
-  no implementados.
+- Usuarios/roles individuales, SSO institucional, notificaciones push y
+  alertas evaluadas: no implementados al momento de la auditoría.
 - Mensajería durable con broker: no implementada ni prometida por el
   prototipo.
 - Firma de publicación e identificador Android propio: pendientes.
@@ -273,9 +275,23 @@ implementado: backend/API de aforo, cliente Flutter compilable y prototipo
 académico de mensajería en memoria. Las pruebas automatizadas disponibles
 pasaron salvo la integración PostgreSQL omitida por falta de infraestructura.
 
-Este estado no significa que estén terminadas funcionalidades futuras como
-usuarios/roles, QR o notificaciones, ni que se haya probado la APK en un
-teléfono. Si esos elementos o la persistencia PostgreSQL forman parte de los
-criterios esenciales de la asignatura, la entrega debe considerarse **no
-completa** hasta implementarlos/verificarlos. Antes de distribución pública
-también deben configurarse firma e identificador Android propios.
+Este estado describe la auditoría del 14 de noviembre de 2026; no incluye los
+cambios posteriores anotados en la sección 15. La APK no se había probado en un
+teléfono. Antes de distribución pública deben configurarse firma e
+identificador Android propios.
+
+## 15. Actualización posterior: sesión sintética y acceso por QR
+
+El flujo de demostración se añadió después de la auditoría inicial:
+
+- Sesiones estudiantiles de ocho horas y QR de un solo uso con vencimiento de
+  60 segundos. Las cuentas son sintéticas y se restringen a bases de prueba;
+  no se integra SSO UTB ni se deben cargar datos personales reales.
+- El operador escanea el QR con la app. Consumo, estado individual y contador
+  se confirman juntos en PostgreSQL; un rechazo de dominio revierte el QR.
+- Verificación local posterior: backend base 22/22, OpenAPI 25/25, mensajería
+  9/9, `npm run arch:check` sin violaciones; Flutter test 9/9 y
+  `flutter analyze` sin problemas. APK release compilada correctamente.
+- La integración PostgreSQL se añadió, pero sus dos pruebas quedaron omitidas
+  por falta de `DATABASE_URL`; no se probó en dispositivo ni contra el
+  deployment. La compilación no sustituye esas verificaciones.

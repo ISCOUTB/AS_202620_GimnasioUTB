@@ -46,7 +46,7 @@ async function transicionarEnTransaccion(client, transicionar) {
       throw new AforoRepositoryError('Estado de aforo no inicializado; ejecute npm run db:init');
     }
 
-    const nuevoAforo = transicionar(rows[0].aforo_actual);
+    const nuevoAforo = await transicionar(rows[0].aforo_actual, client);
     const result = await ejecutar(
       client,
       'UPDATE aforo_estado SET aforo_actual = $1 WHERE id = 1 RETURNING aforo_actual',

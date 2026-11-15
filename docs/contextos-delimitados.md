@@ -6,7 +6,7 @@ Este documento identifica contextos delimitados conceptuales a partir del lengua
 
 ## Mapa conceptual de contextos
 
-Este mapa representa contextos del producto, incluidos algunos todavía no implementados; no describe por completo el runtime actual. Existe un proyecto Flutter con UI, pero no se ha verificado integración funcional con la API. Express sirve HTTP internamente y no configura TLS; el acceso público HTTPS termina en el proxy/ingress de Dokploy. Las relaciones del mapa siguen siendo conceptuales.
+Este mapa representa contextos del producto, incluidos algunos todavía no implementados; no describe por completo el runtime actual. El flujo Flutter/API de aforo y QR está implementado, aunque no se ha verificado en un dispositivo contra el deployment. Express sirve HTTP internamente y el acceso público HTTPS termina en el proxy/ingress de Dokploy.
 
 ```mermaid
 flowchart TD
@@ -57,8 +57,8 @@ flowchart TD
 
 | Contexto / Módulo | Dato del que es **dueño** (único que escribe) | Quién puede **leerlo** (sin escribir) | Estado |
 |---|---|---|---|
-| **Aforo** | Contador de ocupación actual; historial de eventos de entrada/salida | Notificaciones (para decidir si envía push), Gestión Operativa (para mostrar en panel del encargado) | Implementado (solo el contador; el historial de eventos aún no se persiste) |
-| **Identidad / Estudiante** | Perfil del estudiante; código QR asociado; preferencias de horario para notificaciones | Aforo (para validar quién registra el acceso), Notificaciones (para saber a quién y cuándo notificar) | No implementado |
+| **Aforo** | Contador de ocupación actual; historial de eventos de entrada/salida | Notificaciones (para decidir si envía push), Gestión Operativa (para mostrar en panel del encargado) | Implementado (contador; historial completo no persistido) |
+| **Identidad / Estudiante** | Cuentas sintéticas, sesiones, QR temporales y estado individual dentro/fuera | Aforo (valida y consume el QR dentro de la transacción) | Implementado para demostración; sin SSO ni identidad UTB |
 | **Gestión Operativa (Encargado)** | Estado de apertura/cierre del gimnasio; marca de "corrección manual" sobre un evento de acceso | Aforo (para bloquear registros si está cerrado), app del estudiante (solo lectura del estado) | No implementado |
 | **Notificaciones** | Log de notificaciones enviadas; estado de suscripción push del dispositivo | — (nodo terminal, nadie más necesita leer esto) | No implementado |
 
@@ -66,7 +66,7 @@ flowchart TD
 
 ## Estado actual de consistencia y riesgos identificados en S6
 
-El contexto Aforo es el único módulo implementado; no hay escrituras cruzadas entre módulos. El servidor real usa PostgreSQL y `AforoPostgresAdapter`; el adapter de memoria sigue disponible para pruebas/inyección. Las transiciones PostgreSQL usan `BEGIN`, `SELECT ... FOR UPDATE`, la transición del dominio, `UPDATE` y `COMMIT`, con intento de `ROLLBACK` ante errores. El esquema restringe el contador a valores no negativos. Las pruebas PostgreSQL verifican rechazo de salida desde cero, rollback, persistencia entre instancias del adapter y 20 entradas concurrentes con resultado final 20. Esto no demuestra historial, identidad, carga HTTP ni retención tras redeploy.
+Los módulos Aforo e Identidad están implementados. El servidor real usa PostgreSQL y `AforoPostgresAdapter`; el adapter de memoria sigue disponible para pruebas/inyección. El registro QR consume el código, alterna el estado individual y actualiza el contador en la misma transacción; los fallos revierten el consumo. Las pruebas PostgreSQL comprueban persistencia, rollback y concurrencia del contador; no demuestran carga HTTP ni retención tras redeploy.
 
 | # | Problema/riesgo identificado originalmente en S6 | Corrección/evidencia actual | Estado |
 |---|---|---|---|

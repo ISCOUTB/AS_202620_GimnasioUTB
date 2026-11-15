@@ -2,11 +2,11 @@
 
 ## Sistema de Gestión de Aforo para el Gimnasio UTB
 
-Este proyecto académico explora una solución para mejorar la información de disponibilidad del gimnasio de la Universidad Tecnológica de Bolívar. El alcance implementado actualmente es un backend ejecutable para consultar y actualizar un contador de aforo; no representa todavía la solución móvil completa.
+Este proyecto académico implementa un backend para consultar y actualizar el aforo, junto con una aplicación Flutter para estudiantes y encargados. El flujo individual de acceso usa cuentas sintéticas de demostración en una base PostgreSQL de pruebas; no es SSO ni valida identidad institucional UTB.
 
 ## Problema y alcance
 
-La propuesta busca ayudar a los estudiantes a conocer la ocupación del gimnasio antes de desplazarse. La solución completa contempla ideas como aplicación móvil, QR, operación del encargado y notificaciones. Esas capacidades son parte del alcance futuro, no del backend implementado hoy.
+La propuesta busca ayudar a los estudiantes a conocer la ocupación del gimnasio antes de desplazarse y registrar sus accesos.
 
 El corte vertical actual permite:
 
@@ -14,8 +14,10 @@ El corte vertical actual permite:
 - Consultar el contador actual del aforo.
 - Persistir el contador en PostgreSQL cuando se ejecuta el servidor real.
 - Consultar liveness, readiness y un contador operacional de accesos.
+- Iniciar sesión con una cuenta sintética de demostración y mostrar un QR temporal de un solo uso.
+- Escanear el QR desde la cuenta de operador y registrar la entrada o salida junto con la actualización transaccional del aforo.
 
-El backend no identifica estudiantes, valida QR, mantiene historial de accesos ni impide duplicados por identidad. S1 se limita a la validez de las transiciones del contador y a su consistencia transaccional.
+El QR no contiene datos personales legibles, expira en 60 segundos y solo puede consumirse una vez. La carga de estudiantes sintéticos se restringe a bases cuyo nombre incluye `test` y no se permite con `NODE_ENV=production`. El registro manual del operador sigue modificando únicamente el contador.
 
 ## Stack actual
 
@@ -42,8 +44,13 @@ Variables de entorno (ver `.env.example`):
 | `DATABASE_URL` | Sí | Conexión a PostgreSQL. |
 | `OPERADOR_TOKEN` | Para registrar accesos | Secreto de mínimo 32 caracteres que exige `POST /api/v1/aforo/acceso`. Sin él, ese endpoint responde `503`. Generarlo con `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. |
 | `CORS_ORIGINS` | Solo para Flutter web | Orígenes permitidos separados por coma, p. ej. `http://localhost:8080`. |
+| `DEMO_STUDENT_ID` | Para cargar una cuenta de demostración | Código sintético, no institucional. |
+| `DEMO_STUDENT_NAME` | Para cargar una cuenta de demostración | Nombre de muestra. |
+| `DEMO_STUDENT_PASSWORD` | Para cargar una cuenta de demostración | Contraseña de al menos 12 caracteres. |
 
 `db:init` crea la tabla `aforo_estado` e inicializa el contador si aún no existe. El servidor escucha en el puerto 3000 por defecto. Los logs se escriben como JSON en stdout.
+
+Para registrar una cuenta sintética, configure las tres variables `DEMO_STUDENT_*` y ejecute `npm run db:seed-demo-student`. El script exige `DATABASE_URL` apuntando a una base cuyo nombre contenga `test`; no use cuentas ni datos personales reales.
 
 ## Deployment verificado (S8)
 
@@ -62,6 +69,9 @@ Los archivos de deployment son `Dockerfile`, `.dockerignore`, `deploy/compose.la
 | `GET /metrics` | Devuelve `access_operations_total` (`entrada`, `salida`, `total`), en memoria por proceso. Se reinicia con el proceso; no es Prometheus ni una métrica persistente. |
 | `GET /api/v1/aforo` | Devuelve el aforo actual en `data.aforoActual`. |
 | `POST /api/v1/aforo/acceso` | Exige `Authorization: Bearer <OPERADOR_TOKEN>`. Recibe `{"tipoAcceso":"ENTRADA"}` o `{"tipoAcceso":"SALIDA"}`. Responde `201` si se registra, `400` si falla la entrada o regla de dominio, `401` sin token válido, `413` si el cuerpo supera 1 KB, `503` si el repositorio no está disponible o el servidor no tiene token configurado, y `500` ante errores inesperados. |
+| `POST /api/v1/estudiantes/sesion` | Inicia sesión con código y contraseña de una cuenta sintética; devuelve una sesión de 8 horas. |
+| `POST /api/v1/estudiantes/qr` | Requiere la sesión de estudiante; devuelve un QR de un solo uso válido por 60 segundos. |
+| `POST /api/v1/aforo/acceso-qr` | Requiere token de operador; consume el QR y registra la transición individual y el aforo en la misma transacción. |
 
 Ejemplo observado después de una entrada y una salida en una ejecución de producción (no es historial persistente):
 
@@ -137,7 +147,7 @@ El dominio contiene la regla de transición del contador; la aplicación depende
 
 `AforoPostgresAdapter` ejecuta la transición dentro de una transacción y bloquea la fila con `SELECT ... FOR UPDATE` antes de actualizarla. Confirma con `COMMIT`, intenta `ROLLBACK` ante errores y libera el cliente. El servidor real compone la aplicación con PostgreSQL y cierra el adapter tras drenar las solicitudes al recibir `SIGTERM`.
 
-La prueba PostgreSQL incluye persistencia entre instancias, rollback por rechazo del dominio y por error de PostgreSQL, y 20 entradas concurrentes que terminan con aforo 20 sin lost updates. Esta evidencia prueba la consistencia del contador en ese escenario; no prueba deduplicación por estudiante ni carga HTTP general.
+La suite PostgreSQL incluye persistencia entre instancias, rollback, 20 entradas concurrentes y el flujo de sesión/QR: consumo único y reversión del consumo cuando falla la transición. Esta última integración se omite si no hay `DATABASE_URL` segura de pruebas; ninguna de estas pruebas constituye carga HTTP general.
 
 ## Pruebas y CI
 
