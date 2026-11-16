@@ -9,14 +9,15 @@ const { crearRegistrarAccesoQrUseCase } = require('../../src/modules/aforo/appli
 const { AforoPostgresAdapter } = require('../../src/modules/aforo/infrastructure/persistence/aforo-postgres.adapter');
 const {
   IdentidadPostgresAdapter,
-  crearHashContrasena,
-  CredencialesInvalidasError,
   QrNoValidoError,
+  CuentaEstudianteInactivaError,
 } = require('../../src/modules/identidad/infrastructure/persistence/identidad-postgres.adapter');
 
 const databaseUrl = process.env.DATABASE_URL;
+const AUTH_USER_ID = 'e52fef92-e63f-4f66-8865-7de0647c4c08';
+const AUTH_USER_ID_INACTIVO = 'e52fef92-e63f-4f66-8865-7de0647c4c09';
 
-test('PostgreSQL: sesión sintética y consumo transaccional de QR', {
+test('PostgreSQL: perfil vinculado a Supabase Auth y consumo transaccional de QR', {
   skip: !databaseUrl,
 }, async () => {
   const databaseName = decodeURIComponent(new URL(databaseUrl).pathname.slice(1));
@@ -37,17 +38,18 @@ test('PostgreSQL: sesión sintética y consumo transaccional de QR', {
     await adapter.pool.query(schemaSql);
     const identity = new IdentidadPostgresAdapter({ pool: adapter.pool });
     await adapter.pool.query(
-      `INSERT INTO estudiantes (codigo_estudiante, nombre, password_hash)
-       VALUES ($1, $2, $3)`,
-      ['demo-001', 'Estudiante de prueba', await crearHashContrasena('clave-de-prueba')]
+      `INSERT INTO estudiantes (
+         auth_user_id, codigo_estudiante, correo, cedula_sintetica, nombre, activa
+       )
+       VALUES
+         ($1, 'demo-001', 'demo-001@utb.edu.co', '1000000001', 'Estudiante de prueba', TRUE),
+         ($2, 'demo-002', 'demo-002@utb.edu.co', '1000000002', 'Estudiante inactivo', FALSE)`,
+      [AUTH_USER_ID, AUTH_USER_ID_INACTIVO]
     );
 
-    const session = await identity.iniciarSesion('demo-001', 'clave-de-prueba');
-    assert.equal((await identity.obtenerEstudianteDeSesion(session.token)).nombre, 'Estudiante de prueba');
-    await assert.rejects(
-      identity.iniciarSesion('demo-001', 'incorrecta'),
-      CredencialesInvalidasError
-    );
+    const estudiante = await identity.obtenerEstudiantePorAuthId(AUTH_USER_ID);
+    assert.equal(estudiante.codigo_estudiante, 'demo-001');
+    assert.equal(estudiante.activa, true);
 
     const registrarQr = crearRegistrarAccesoQrUseCase(
       adapter,
@@ -67,6 +69,19 @@ test('PostgreSQL: sesión sintética y consumo transaccional de QR', {
 
     await adapter.pool.query('UPDATE aforo_estado SET aforo_actual = 1 WHERE id = 1');
     assert.deepEqual(await registrarQr(segundoQr.token), {
+      tipoAcceso: 'SALIDA',
+      aforoActual: 0,
+    });
+
+    const qrInactivo = await identity.emitirQr('demo-002');
+    await assert.rejects(registrarQr(qrInactivo.token), CuentaEstudianteInactivaError);
+
+    await adapter.pool.query(
+      `INSERT INTO estudiante_estado_acceso (codigo_estudiante, dentro)
+       VALUES ('demo-002', TRUE)`
+    );
+    await adapter.pool.query('UPDATE aforo_estado SET aforo_actual = 1 WHERE id = 1');
+    assert.deepEqual(await registrarQr(qrInactivo.token), {
       tipoAcceso: 'SALIDA',
       aforoActual: 0,
     });

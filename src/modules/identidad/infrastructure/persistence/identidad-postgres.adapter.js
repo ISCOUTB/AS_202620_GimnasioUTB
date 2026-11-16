@@ -1,41 +1,14 @@
 const crypto = require('node:crypto');
-const { promisify } = require('node:util');
 const {
-  CredencialesInvalidasError,
   SesionEstudianteInvalidaError,
+  CuentaEstudianteInactivaError,
   QrNoValidoError,
 } = require('../../application/identidad.errors');
 
-const scrypt = promisify(crypto.scrypt);
-const DURACION_SESION_MS = 8 * 60 * 60 * 1000;
 const DURACION_QR_MS = 60 * 1000;
-const LONGITUD_CLAVE = 64;
-const SALT_SIMULADO = Buffer.alloc(16, 0x5a);
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
-}
-
-async function crearHashContrasena(contrasena) {
-  const salt = crypto.randomBytes(16);
-  const clave = await scrypt(contrasena, salt, LONGITUD_CLAVE);
-  return `scrypt$${salt.toString('hex')}$${clave.toString('hex')}`;
-}
-
-async function verificarContrasena(contrasena, hashAlmacenado) {
-  const [algoritmo, saltHex, claveHex, extra] = String(hashAlmacenado || '').split('$');
-  if (
-    algoritmo !== 'scrypt'
-    || extra !== undefined
-    || !/^[0-9a-f]{32}$/i.test(saltHex || '')
-    || !/^[0-9a-f]{128}$/i.test(claveHex || '')
-  ) {
-    await scrypt(contrasena, SALT_SIMULADO, LONGITUD_CLAVE);
-    return false;
-  }
-
-  const clave = await scrypt(contrasena, Buffer.from(saltHex, 'hex'), LONGITUD_CLAVE);
-  return crypto.timingSafeEqual(clave, Buffer.from(claveHex, 'hex'));
 }
 
 class IdentidadPostgresAdapter {
@@ -46,44 +19,14 @@ class IdentidadPostgresAdapter {
     this.pool = pool;
   }
 
-  async iniciarSesion(codigoEstudiante, contrasena) {
+  async obtenerEstudiantePorAuthId(authUserId) {
     const { rows } = await this.pool.query(
-      `SELECT codigo_estudiante, nombre, password_hash
-       FROM estudiantes
-       WHERE codigo_estudiante = $1`,
-      [codigoEstudiante]
-    );
-    const estudiante = rows[0];
-    const valida = await verificarContrasena(
-      contrasena,
-      estudiante?.password_hash
-    );
-    if (!estudiante || !valida) throw new CredencialesInvalidasError();
-
-    const token = crypto.randomBytes(32).toString('base64url');
-    const expira = new Date(Date.now() + DURACION_SESION_MS);
-    await this.pool.query(
-      `INSERT INTO sesiones_estudiantes (token_hash, codigo_estudiante, expires_at)
-       VALUES ($1, $2, $3)`,
-      [hashToken(token), estudiante.codigo_estudiante, expira]
-    );
-    return {
-      token,
-      expiresAt: expira.toISOString(),
-      estudiante: {
-        codigoEstudiante: estudiante.codigo_estudiante,
-        nombre: estudiante.nombre,
-      },
-    };
-  }
-
-  async obtenerEstudianteDeSesion(token) {
-    const { rows } = await this.pool.query(
-      `SELECT e.codigo_estudiante, e.nombre
-       FROM sesiones_estudiantes s
-       JOIN estudiantes e USING (codigo_estudiante)
-       WHERE s.token_hash = $1 AND s.expires_at > NOW()`,
-      [hashToken(token)]
+      `SELECT e.id, e.auth_user_id, e.codigo_estudiante, e.correo, e.nombre, e.activa,
+              COALESCE(s.dentro, FALSE) AS dentro
+       FROM estudiantes e
+       LEFT JOIN estudiante_estado_acceso s USING (codigo_estudiante)
+       WHERE e.auth_user_id = $1`,
+      [authUserId]
     );
     return rows[0] || null;
   }
@@ -139,26 +82,40 @@ class IdentidadPostgresAdapter {
     if (credencial.rows.length === 0) throw new QrNoValidoError();
 
     const codigoEstudiante = credencial.rows[0].codigo_estudiante;
+    const estudiante = await client.query(
+      `SELECT e.activa, COALESCE(s.dentro, FALSE) AS dentro
+       FROM estudiantes e
+       LEFT JOIN estudiante_estado_acceso s USING (codigo_estudiante)
+       WHERE e.codigo_estudiante = $1
+       FOR UPDATE OF e`,
+      [codigoEstudiante]
+    );
+    if (estudiante.rows.length === 0) throw new QrNoValidoError();
+
+    const dentro = estudiante.rows[0].dentro;
+    const tipoAcceso = dentro ? 'SALIDA' : 'ENTRADA';
+    if (!estudiante.rows[0].activa && tipoAcceso === 'ENTRADA') {
+      throw new CuentaEstudianteInactivaError();
+    }
+
     await client.query(
       'UPDATE qr_credenciales SET consumido_en = NOW() WHERE token_hash = $1',
       [hash]
     );
-    const estado = await client.query(
+    await client.query(
       `INSERT INTO estudiante_estado_acceso (codigo_estudiante, dentro)
-       VALUES ($1, TRUE)
+       VALUES ($1, $2)
        ON CONFLICT (codigo_estudiante)
-       DO UPDATE SET dentro = NOT estudiante_estado_acceso.dentro
-       RETURNING dentro`,
-      [codigoEstudiante]
+       DO UPDATE SET dentro = EXCLUDED.dentro`,
+      [codigoEstudiante, !dentro]
     );
-    return estado.rows[0].dentro ? 'ENTRADA' : 'SALIDA';
+    return tipoAcceso;
   }
 }
 
 module.exports = {
   IdentidadPostgresAdapter,
-  CredencialesInvalidasError,
   SesionEstudianteInvalidaError,
+  CuentaEstudianteInactivaError,
   QrNoValidoError,
-  crearHashContrasena,
 };

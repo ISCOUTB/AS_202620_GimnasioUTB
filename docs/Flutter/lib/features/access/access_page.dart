@@ -15,12 +15,14 @@ class AccessPage extends StatefulWidget {
     required this.api,
     required this.mode,
     this.onAccessRegistered,
+    this.onStudentSessionExpired,
     super.key,
   });
 
   final AforoApi api;
   final WorkspaceMode mode;
   final VoidCallback? onAccessRegistered;
+  final VoidCallback? onStudentSessionExpired;
 
   @override
   State<AccessPage> createState() => _AccessPageState();
@@ -88,6 +90,16 @@ class _AccessPageState extends State<AccessPage> {
       final credencial = await widget.api.emitirQrEstudiante();
       if (!mounted) return;
       setState(() => _credencialQr = credencial);
+    } on SesionEstudianteExpiradaException {
+      _renovadorQr?.cancel();
+      if (mounted) {
+        setState(() {
+          _credencialQr = null;
+          _error =
+              'Tu sesión venció. Inicia sesión nuevamente para generar otro QR.';
+        });
+        widget.onStudentSessionExpired?.call();
+      }
     } on AforoApiException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } finally {

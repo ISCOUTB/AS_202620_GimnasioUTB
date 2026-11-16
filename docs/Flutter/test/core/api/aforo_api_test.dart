@@ -70,15 +70,14 @@ void main() {
       expect(aforo, 1);
     });
 
-    test('inicia sesión estudiantil sin enviar la contraseña en otra ruta',
-        () async {
+    test('inicia sesión estudiantil con correo sintético', () async {
       final client = MockClient((request) async {
         expect(request.method, 'POST');
         expect(request.url.path, '/api/v1/estudiantes/sesion');
         expect(request.headers.containsKey('authorization'), isFalse);
         expect(
           jsonDecode(request.body),
-          {'codigoEstudiante': 'demo-001', 'contrasena': 'clave-sintetica'},
+          {'correo': 'demo-001@utb.edu.co', 'contrasena': 'clave-sintetica'},
         );
         return http.Response(
           jsonEncode({
@@ -98,12 +97,13 @@ void main() {
 
       final sesion = await AforoApi(client: client, baseUrl: 'https://api.test')
           .iniciarSesionEstudiante(
-        codigoEstudiante: 'demo-001',
+        correo: 'demo-001@utb.edu.co',
         contrasena: 'clave-sintetica',
       );
 
       expect(sesion.token, 'sesion-temporal');
       expect(sesion.codigoEstudiante, 'demo-001');
+      expect(sesion.correo, 'demo-001@utb.edu.co');
     });
 
     test('solicita un QR con la sesión del estudiante', () async {
@@ -128,6 +128,45 @@ void main() {
 
       expect(qr.token, 'qr-temporal');
       expect(qr.expiresAt, DateTime.parse('2026-11-15T12:00:00.000Z'));
+    });
+
+    test('clasifica un 401 al solicitar el QR como sesión expirada', () async {
+      final client = MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'status': 'error',
+            'message': 'La sesión de estudiante no es válida o expiró.',
+          }),
+          401,
+        ),
+      );
+
+      await expectLater(
+        AforoApi(client: client, baseUrl: 'https://api.test')
+            .conTokenEstudiante('token-vencido')
+            .emitirQrEstudiante(),
+        throwsA(isA<SesionEstudianteExpiradaException>()),
+      );
+    });
+
+    test('el cierre local descarta el token estudiantil', () async {
+      final client = MockClient((request) async {
+        expect(request.headers.containsKey('authorization'), isFalse);
+        return http.Response(
+          jsonEncode({
+            'status': 'success',
+            'data': {'aforoActual': 2},
+          }),
+          200,
+        );
+      });
+
+      final api = AforoApi(client: client, baseUrl: 'https://api.test')
+          .conTokenEstudiante('token-estudiante')
+          .sinSesiones();
+
+      expect(api.tieneSesionEstudiante, isFalse);
+      expect(await api.consultarAforo(), 2);
     });
 
     test('registra el QR escaneado con el token del operador', () async {

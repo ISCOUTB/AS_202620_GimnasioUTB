@@ -49,15 +49,19 @@ firma de release y un identificador de aplicación propio.
 `--web-port 8080` fija el puerto: sin él Flutter elige uno aleatorio y el
 origen no coincidiría con la lista blanca de CORS.
 
-La consulta del aforo funciona sin credenciales. Para **Estudiante**, usa las
-credenciales sintéticas creadas en una base de pruebas. Para **Operación de
+La consulta del aforo funciona sin credenciales. Para **Estudiante**, usa el
+correo sintético y la contraseña individual creados para Supabase Auth. Para **Operación de
 aforo**, escribe el token de operador (`OPERADOR_TOKEN` del servidor) en la
 pantalla de inicio. Si el token es incorrecto, el registro muestra el mensaje
 `401` del backend. Ninguna sesión se guarda en disco.
 
-Para crear una cuenta local, sigue los pasos de `db:seed-demo-student` en el
-[README del backend](../../README.md); el script no carga datos en producción
-ni en bases cuyo nombre no incluya `test`.
+El token de estudiante es un access token de Supabase Auth que la API valida
+contra el proveedor. Su vigencia depende de la configuración de Supabase; la
+app solo lo mantiene en memoria y no usa refresh tokens. Al recibir `401` al
+solicitar un QR, vuelve al login y pide iniciar sesión nuevamente. Cerrar
+sesión descarta el token local, pero no revoca el access token ya emitido, que
+puede seguir válido hasta vencer. Para provisionar o vincular cuentas
+sintéticas, consulta la [guía de Supabase](../supabase.md).
 
 ## Integración disponible
 
@@ -78,10 +82,11 @@ operaciones de la instancia desde su inicio, no ofrece historial diario.
 
 ## Limitaciones del backend y estado de las pantallas
 
-- **Identidad:** las cuentas estudiantiles son sintéticas y deben cargarse
-  únicamente en bases cuyo nombre contenga `test`. No hay SSO ni validación de
-  identidad institucional. La sesión dura 8 horas; el QR dura 60 segundos y
-  se invalida al consumirse.
+- **Identidad:** las cuentas estudiantiles son sintéticas y se autentican con
+  Supabase Auth. No hay SSO ni validación de identidad institucional. El QR
+  sigue siendo generado por la API, dura 60 segundos y se invalida al
+  consumirse. La integración externa requiere credenciales de un proyecto
+  Supabase y no se valida contra un proyecto real mientras no estén disponibles.
 - **Operación:** el registro exige un token de operador compartido (ADR-0007),
   que se escribe en la pantalla de inicio y se mantiene solo en memoria.
   Cualquiera que conozca ese token puede operar. La consulta del aforo es
@@ -89,9 +94,9 @@ operaciones de la instancia desde su inicio, no ofrece historial diario.
 - **Capacidad:** la API devuelve solo el contador actual. No hay capacidad
   máxima ni forma correcta de calcular porcentaje o cupos; la interfaz lo
   identifica como no disponible.
-- **Carga de prueba:** `npm run db:seed-demo-student` requiere credenciales
-  explícitas y rechaza `NODE_ENV=production` y bases cuyo nombre no incluya
-  `test`. No se deben cargar datos personales reales.
+- **Carga de prueba:** `npm run db:seed-demo-student` requiere confirmaciones
+  explícitas de proyecto/host/base y rechaza `NODE_ENV=production`. No se deben
+  cargar datos personales reales.
 - **Alertas:** días, horario, umbral y activación se guardan en el dispositivo
   mediante `SharedPreferences`. No se sincronizan con el servidor, el umbral no
   se evalúa automáticamente y no se envían notificaciones push. La API tendría
@@ -99,6 +104,8 @@ operaciones de la instancia desde su inicio, no ofrece historial diario.
   para completar ese flujo.
 - **Sesiones:** el token de operador no se persiste (ni en `SharedPreferences`
   ni en disco); se descarta al cerrar la vista de operación.
+  La sesión de estudiante también es local y en memoria; al expirar, la vista
+  de QR regresa al login. No hay revocación ni renovación remota en esta etapa.
 
 El historial completo de eventos, las notificaciones push y el SSO institucional
 siguen fuera del alcance.

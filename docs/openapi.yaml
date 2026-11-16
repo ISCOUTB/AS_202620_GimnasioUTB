@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: API Backend - Gimnasio UTB
-  version: 2.1.0
+  version: 3.0.0
   description: |
     Contrato HTTP del backend actual. El deployment actual utiliza Docker
     Compose en Dokploy. El cliente Flutter (`docs/Flutter/lib/core/api/aforo_api.dart`)
@@ -19,13 +19,22 @@ info:
     una exportación Prometheus. `GET /ready` consulta el repositorio y permite
     comprobar la disponibilidad de PostgreSQL en el servidor real.
 
-    **2.1.0:** se añaden sesiones para cuentas estudiantiles sintéticas de
-    demostración y QR de un solo uso, además del endpoint para que el operador
-    registre el acceso al escanearlos. No hay SSO ni identidad institucional.
+    **3.0.0 (estabilización académica):** el inicio de sesión estudiantil
+    cambió de `codigoEstudiante` a `correo`, que se valida mediante Supabase
+    Auth. El cambio es incompatible: las solicitudes antiguas que solo envían
+    `codigoEstudiante` reciben `400`; no existe compatibilidad retroactiva.
+    Se conserva temporalmente `/api/v1` porque este contrato académico no tiene
+    una versión publicada con consumidores externos que requieran coexistencia,
+    y el único cliente mantenido por el equipo se actualiza junto con la API.
+    No se afirma que el contrato sea compatible con clientes anteriores.
+
+    El QR temporal sigue siendo independiente de Supabase Auth. No hay SSO ni
+    identidad institucional.
 
     Versionado (semver sobre este archivo):
-    - MAJOR: cambio incompatible (renombrar/eliminar un campo, cambiar un código HTTP,
-      volver obligatorio algo opcional). Implica un nuevo prefijo de URL (/api/v2).
+    - MAJOR: cambio incompatible. En un servicio publicado requiere un nuevo
+      prefijo de URL. Antes de publicar GimnasioUTB se debe fijar la estrategia
+      de prefijos y migrar los clientes que deban coexistir.
     - MINOR: se agrega algo compatible (endpoint nuevo, campo opcional nuevo).
     - PATCH: solo cambia la documentación.
 servers:
@@ -146,7 +155,7 @@ paths:
   /api/v1/estudiantes/sesion:
     post:
       operationId: iniciarSesionEstudiante
-      summary: Inicia sesión con una cuenta sintética de demostración
+      summary: Inicia sesión mediante Supabase Auth con una cuenta sintética vinculada a un estudiante
       requestBody:
         required: true
         content:
@@ -155,7 +164,7 @@ paths:
               $ref: '#/components/schemas/SolicitudSesionEstudiante'
       responses:
         '200':
-          description: Sesión temporal creada
+          description: Supabase Auth validó las credenciales y la cuenta está vinculada
           content:
             application/json:
               schema:
@@ -168,6 +177,12 @@ paths:
                 $ref: '#/components/schemas/RespuestaError'
         '401':
           description: Credenciales inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '403':
+          description: La identidad de Supabase Auth no está vinculada a un estudiante
           content:
             application/json:
               schema:
@@ -199,7 +214,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/RespuestaQr'
         '401':
-          description: Sesión ausente, inválida o vencida
+          description: Sesión ausente, inválida o vencida; Flutter debe volver al login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '403':
+          description: Identidad autenticada sin perfil de estudiante asociado
           content:
             application/json:
               schema:
@@ -248,6 +269,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RespuestaError'
+        '403':
+          description: Cuenta estudiantil inactiva que intenta registrar una entrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
         '503':
           description: Persistencia o identidad no disponible
           content:
@@ -266,7 +293,7 @@ components:
     sesionEstudiante:
       type: http
       scheme: bearer
-      description: Token de sesión temporal asociado a una cuenta sintética de demostración.
+      description: Access token emitido y validado por Supabase Auth para una cuenta sintética vinculada a un estudiante.
   schemas:
     SolicitudAcceso:
       type: object
@@ -338,13 +365,14 @@ components:
               minimum: 0
     SolicitudSesionEstudiante:
       type: object
-      required: [codigoEstudiante, contrasena]
+      required: [correo, contrasena]
       additionalProperties: false
       properties:
-        codigoEstudiante:
+        correo:
           type: string
-          minLength: 1
-          maxLength: 64
+          format: email
+          pattern: '^[a-zA-Z0-9._%+-]+@utb\.edu\.co$'
+          maxLength: 254
         contrasena:
           type: string
           minLength: 1

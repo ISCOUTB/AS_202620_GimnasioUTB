@@ -42,6 +42,9 @@ services:
       # Sin OPERADOR_TOKEN la API arranca, pero POST /acceso responde 503 (falla cerrado, ADR-0007).
       OPERADOR_TOKEN: ${OPERADOR_TOKEN:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
       DATABASE_URL: "postgresql://${POSTGRES_USER:?Define POSTGRES_USER en deploy/.env}:${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en deploy/.env}@postgres:5432/${POSTGRES_DB:?Define POSTGRES_DB en deploy/.env}"
     expose:
       - "${PORT:-3000}"

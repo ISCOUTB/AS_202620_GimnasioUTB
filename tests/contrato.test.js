@@ -14,6 +14,7 @@ const { AforoPostgresAdapter } = require('../src/modules/aforo/infrastructure/pe
 const {
   CredencialesInvalidasError,
   QrNoValidoError,
+  CuentaEstudianteInactivaError,
 } = require('../src/modules/identidad/application/identidad.errors');
 
 const TOKEN = 'token-de-prueba-de-al-menos-32-caracteres-xx';
@@ -36,8 +37,19 @@ function validadorSolicitud(ruta, metodo) {
   return ajv.getSchema(`${SPEC_ID}#${ptr}`);
 }
 
-async function withServer(fn, aforoRepository, operadorToken = TOKEN, identidadRepository) {
-  const app = createApp({ aforoRepository, operadorToken, identidadRepository });
+async function withServer(
+  fn,
+  aforoRepository,
+  operadorToken = TOKEN,
+  identidadRepository,
+  supabaseAuth
+) {
+  const app = createApp({
+    aforoRepository,
+    operadorToken,
+    identidadRepository,
+    supabaseAuth,
+  });
   const server = app.listen(0);
   const { port } = server.address();
   try {
@@ -154,35 +166,69 @@ const casos = [
   {
     nombre: 'POST /api/v1/estudiantes/sesion -> 200',
     metodo: 'post', ruta: '/api/v1/estudiantes/sesion', status: 200,
-    body: { codigoEstudiante: 'demo-001', contrasena: 'clave-de-prueba' },
+    body: { correo: 'demo-001@utb.edu.co', contrasena: 'clave-de-prueba' },
     cumpleSolicitud: true,
     identidadRepository: {
+      obtenerEstudiantePorAuthId: async () => ({
+        id: '39a05c8d-b8ea-4fa2-a42a-183f564d8e78',
+        codigo_estudiante: 'demo-001',
+        correo: 'demo-001@utb.edu.co',
+        nombre: 'Demo',
+        activa: true,
+        dentro: false,
+      }),
+    },
+    supabaseAuth: {
       iniciarSesion: async () => ({
-        token: 'sesion-prueba',
-        expiresAt: '2026-11-15T12:00:00.000Z',
-        estudiante: { codigoEstudiante: 'demo-001', nombre: 'Demo' },
+        token: 'supabase-access-token',
+        expiresAt: '2026-11-16T12:00:00.000Z',
+        usuario: { id: 'e52fef92-e63f-4f66-8865-7de0647c4c08' },
       }),
     },
   },
   {
     nombre: 'POST /api/v1/estudiantes/sesion -> 400',
     metodo: 'post', ruta: '/api/v1/estudiantes/sesion', status: 400,
-    body: {}, cumpleSolicitud: false,
+    solicitudes: [
+      { body: {}, cumpleSolicitud: false },
+      {
+        body: { codigoEstudiante: 'demo-001', contrasena: 'clave-anterior' },
+        cumpleSolicitud: false,
+      },
+    ],
     identidadRepository: {},
+    supabaseAuth: {},
   },
   {
     nombre: 'POST /api/v1/estudiantes/sesion -> 401',
     metodo: 'post', ruta: '/api/v1/estudiantes/sesion', status: 401,
-    body: { codigoEstudiante: 'demo-001', contrasena: 'incorrecta' },
+    body: { correo: 'demo-001@utb.edu.co', contrasena: 'incorrecta' },
     cumpleSolicitud: true,
     identidadRepository: {
+      obtenerEstudiantePorAuthId: async () => null,
+    },
+    supabaseAuth: {
       iniciarSesion: async () => { throw new CredencialesInvalidasError(); },
+    },
+  },
+  {
+    nombre: 'POST /api/v1/estudiantes/sesion -> 403',
+    metodo: 'post', ruta: '/api/v1/estudiantes/sesion', status: 403,
+    body: { correo: 'demo-001@utb.edu.co', contrasena: 'clave-de-prueba' },
+    cumpleSolicitud: true,
+    identidadRepository: { obtenerEstudiantePorAuthId: async () => null },
+    supabaseAuth: {
+      iniciarSesion: async () => ({
+        token: 'supabase-access-token',
+        expiresAt: '2026-11-16T12:00:00.000Z',
+        usuario: { id: 'e52fef92-e63f-4f66-8865-7de0647c4c08' },
+      }),
     },
   },
   {
     nombre: 'POST /api/v1/estudiantes/sesion -> 503',
     metodo: 'post', ruta: '/api/v1/estudiantes/sesion', status: 503,
-    body: { codigoEstudiante: 'demo-001', contrasena: 'clave-de-prueba' },
+    body: { correo: 'demo-001@utb.edu.co', contrasena: 'clave-de-prueba' },
     cumpleSolicitud: true,
   },
   {
@@ -190,15 +236,24 @@ const casos = [
     metodo: 'post', ruta: '/api/v1/estudiantes/qr', status: 201,
     body: {}, cumpleSolicitud: true,
     identidadRepository: {
-      obtenerEstudianteDeSesion: async () => ({
+      obtenerEstudiantePorAuthId: async () => ({
+        id: '39a05c8d-b8ea-4fa2-a42a-183f564d8e78',
         codigo_estudiante: 'demo-001',
+        correo: 'demo-001@utb.edu.co',
         nombre: 'Demo',
+        activa: true,
       }),
       emitirQr: async () => ({
         token: 'qr-prueba',
         expiresAt: '2026-11-15T12:00:00.000Z',
       }),
     },
+    supabaseAuth: {
+      obtenerUsuario: async () => ({
+        id: 'e52fef92-e63f-4f66-8865-7de0647c4c08',
+      }),
+    },
+    tokenEstudiante: 'supabase-access-token',
   },
   {
     nombre: 'POST /api/v1/estudiantes/qr -> 401',
@@ -210,6 +265,15 @@ const casos = [
     metodo: 'post', ruta: '/api/v1/estudiantes/qr', status: 503,
   },
   {
+    nombre: 'POST /api/v1/estudiantes/qr -> 403',
+    metodo: 'post', ruta: '/api/v1/estudiantes/qr', status: 403,
+    identidadRepository: { obtenerEstudiantePorAuthId: async () => null },
+    supabaseAuth: {
+      obtenerUsuario: async () => ({ id: 'e52fef92-e63f-4f66-8865-7de0647c4c08' }),
+    },
+    tokenEstudiante: 'supabase-access-token',
+  },
+  {
     nombre: 'POST /api/v1/aforo/acceso-qr -> 201',
     metodo: 'post', ruta: '/api/v1/aforo/acceso-qr', status: 201,
     body: { qr: 'qr-prueba' }, cumpleSolicitud: true,
@@ -218,6 +282,18 @@ const casos = [
       actualizarAforo: async (transicionar) => transicionar(0, {}),
     },
     identidadRepository: { consumirQr: async () => 'ENTRADA' },
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso-qr (cuenta inactiva) -> 403',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso-qr', status: 403,
+    body: { qr: 'qr-prueba' }, cumpleSolicitud: true,
+    identidadRepository: {
+      consumirQr: async () => { throw new CuentaEstudianteInactivaError(); },
+    },
+    respuestaEsperada: {
+      status: 'error',
+      message: 'La cuenta está inactiva y no puede registrar una entrada.',
+    },
   },
   {
     nombre: 'POST /api/v1/aforo/acceso-qr -> 400',
@@ -266,7 +342,9 @@ for (const caso of casos) {
           method: caso.metodo.toUpperCase(),
           headers: {
             'Content-Type': solicitud.contentType || 'application/json',
-            ...(caso.metodo === 'post' && !caso.sinToken ? { Authorization: `Bearer ${TOKEN}` } : {}),
+            ...(caso.metodo === 'post' && !caso.sinToken
+              ? { Authorization: `Bearer ${caso.tokenEstudiante || TOKEN}` }
+              : {}),
           },
           body: solicitud.rawBody ?? (solicitud.body !== undefined
             ? JSON.stringify(solicitud.body)
@@ -311,7 +389,7 @@ for (const caso of casos) {
 
       cubiertos.add(`${caso.metodo.toUpperCase()} ${caso.ruta} ${caso.status}`);
     }, caso.aforoRepository, caso.operadorToken === undefined ? TOKEN : caso.operadorToken,
-    caso.identidadRepository);
+    caso.identidadRepository, caso.supabaseAuth);
   });
 }
 
@@ -325,4 +403,11 @@ test('contrato: toda respuesta documentada en openapi.yaml está verificada por 
     }
   }
   assert.deepEqual([...documentados].sort(), [...cubiertos].sort());
+});
+
+test('contrato: el cambio incompatible de login está versionado y no promete compatibilidad', () => {
+  assert.equal(spec.info.version, '3.0.0');
+  assert.ok(spec.paths['/api/v1/estudiantes/sesion']);
+  assert.equal(spec.paths['/api/v2/estudiantes/sesion'], undefined);
+  assert.match(spec.info.description, /No se afirma que el contrato sea compatible/);
 });

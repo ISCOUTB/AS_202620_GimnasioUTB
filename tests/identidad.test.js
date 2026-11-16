@@ -18,21 +18,17 @@ async function conServidor(app, ejecutar) {
 function crearRepositorios({ qrValido = true } = {}) {
   let aforo = 0;
   const identidadRepository = {
-    async iniciarSesion(codigoEstudiante, contrasena) {
-      assert.equal(codigoEstudiante, 'demo-001');
-      assert.equal(contrasena, 'clave-de-prueba');
-      return {
-        token: 'sesion-de-prueba',
-        expiresAt: '2026-11-15T12:00:00.000Z',
-        estudiante: {
-          codigoEstudiante: 'demo-001',
+    async obtenerEstudiantePorAuthId(authUserId) {
+      return authUserId === 'e52fef92-e63f-4f66-8865-7de0647c4c08'
+        ? {
+          id: '39a05c8d-b8ea-4fa2-a42a-183f564d8e78',
+          auth_user_id: authUserId,
+          codigo_estudiante: 'demo-001',
+          correo: 'demo-001@utb.edu.co',
           nombre: 'Estudiante de prueba',
-        },
-      };
-    },
-    async obtenerEstudianteDeSesion(token) {
-      return token === 'sesion-de-prueba'
-        ? { codigo_estudiante: 'demo-001', nombre: 'Estudiante de prueba' }
+          activa: true,
+          dentro: false,
+        }
         : null;
     },
     async emitirQr(codigoEstudiante) {
@@ -54,7 +50,29 @@ function crearRepositorios({ qrValido = true } = {}) {
       return aforo;
     },
   };
-  return { aforoRepository, identidadRepository };
+  const supabaseAuth = {
+    async iniciarSesion(correo, contrasena) {
+      assert.equal(correo, 'demo-001@utb.edu.co');
+      assert.equal(contrasena, 'clave-de-prueba');
+      return {
+        token: 'supabase-access-token',
+        expiresAt: '2026-11-16T12:00:00.000Z',
+        usuario: {
+          id: 'e52fef92-e63f-4f66-8865-7de0647c4c08',
+          correo,
+        },
+      };
+    },
+    async obtenerUsuario(token) {
+      return token === 'supabase-access-token'
+        ? {
+          id: 'e52fef92-e63f-4f66-8865-7de0647c4c08',
+          correo: 'demo-001@utb.edu.co',
+        }
+        : null;
+    },
+  };
+  return { aforoRepository, identidadRepository, supabaseAuth };
 }
 
 test('estudiante inicia sesión, emite un QR y el encargado registra el acceso', async () => {
@@ -69,18 +87,18 @@ test('estudiante inicia sesión, emite un QR y el encargado registra el acceso',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        codigoEstudiante: 'demo-001',
+        correo: 'demo-001@utb.edu.co',
         contrasena: 'clave-de-prueba',
       }),
     });
     assert.equal(login.status, 200);
-    assert.equal((await login.json()).data.token, 'sesion-de-prueba');
+    assert.equal((await login.json()).data.token, 'supabase-access-token');
 
     const qr = await fetch(`${baseUrl}/api/v1/estudiantes/qr`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: 'Bearer sesion-de-prueba',
+        Authorization: 'Bearer supabase-access-token',
       },
       body: '{}',
     });
@@ -138,7 +156,7 @@ test('no habilita sesiones estudiantiles cuando no hay repositorio de identidad'
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        codigoEstudiante: 'demo-001',
+        correo: 'demo-001@utb.edu.co',
         contrasena: 'clave-de-prueba',
       }),
     });

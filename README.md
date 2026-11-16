@@ -2,7 +2,7 @@
 
 ## Sistema de Gestión de Aforo para el Gimnasio UTB
 
-Este proyecto académico implementa un backend para consultar y actualizar el aforo, junto con una aplicación Flutter para estudiantes y encargados. El flujo individual de acceso usa cuentas sintéticas de demostración en una base PostgreSQL de pruebas; no es SSO ni valida identidad institucional UTB.
+Este proyecto académico implementa un backend para consultar y actualizar el aforo, junto con una aplicación Flutter para estudiantes y encargados. La autenticación estudiantil usa Supabase Auth para cuentas sintéticas; no es SSO ni valida identidad institucional UTB. La integración externa requiere credenciales de Supabase y no se considera verificada hasta probarse contra un proyecto configurado.
 
 ## Problema y alcance
 
@@ -22,14 +22,15 @@ El QR no contiene datos personales legibles, expira en 60 segundos y solo puede 
 ## Stack actual
 
 - **Backend:** Node.js y Express, organizado con Arquitectura Hexagonal / Ports and Adapters. La decisión se describe en [ADR 0001](docs/adr/0001-arquitectura-hexagonal.md).
-- **Persistencia del servidor real:** PostgreSQL mediante `AforoPostgresAdapter`.
+- **Persistencia del servidor real:** PostgreSQL mediante `AforoPostgresAdapter`; admite una instancia local o la URL PostgreSQL de Supabase.
+- **Autenticación estudiantil:** adapter de Supabase Auth; la API valida el access token y lo relaciona con un perfil local. El QR temporal sigue siendo responsabilidad de la API.
 - **Adapter en memoria:** disponible como implementación por defecto de `createApp()`, usada por pruebas que no requieren PostgreSQL.
 - **App Flutter:** proyecto en `docs/Flutter`; consulta el aforo y registra accesos contra esta API (instrucciones en [su README](docs/Flutter/README.md)).
 - **Deployment actual:** Docker Compose en Dokploy, con PostgreSQL como servicio del Compose; no es PostgreSQL gestionado. El estado desplegado se describe más abajo.
 
 ## Ejecución local
 
-Requisitos: Node.js 18 o superior y una instancia PostgreSQL accesible. El servidor real y `npm run db:init` requieren que `DATABASE_URL` esté configurada en el entorno del proceso.
+Requisitos: Node.js 18 o superior y una instancia PostgreSQL accesible. El servidor real requiere `DATABASE_URL`. Al iniciar con `npm start` o `npm run dev`, el backend carga el `.env` de la raíz del proyecto; las variables ya inyectadas por el entorno tienen prioridad. Los scripts administrativos `db:*` siguen usando las variables heredadas del proceso que los ejecuta. La autenticación requiere `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY` o, por compatibilidad, `SUPABASE_ANON_KEY`; sin ellas las rutas de identidad responden `503`, pero el resto de la API puede iniciar.
 
 ```bash
 npm install
@@ -37,24 +38,39 @@ npm run db:init
 npm start
 ```
 
+`npm run db:init` prepara una base nueva. Para una base existente con el esquema anterior, revisa [la guía de Supabase y migraciones](docs/supabase.md). Las migraciones no se ejecutan al iniciar la API y exigen autorización explícita y confirmación del nombre exacto de la base destino.
+
 Variables de entorno (ver `.env.example`):
 
 | Variable | Obligatoria | Para qué |
 |---|---|---|
-| `DATABASE_URL` | Sí | Conexión a PostgreSQL. |
+| `DATABASE_URL` | Sí | Conexión a PostgreSQL local o Supabase. Conserva los parámetros SSL requeridos por el proveedor. |
+| `SUPABASE_URL` | Para identidad | URL del proyecto Supabase, utilizada por el backend. |
+| `SUPABASE_PUBLISHABLE_KEY` | Para identidad (preferida) | Clave de aplicación enviada como `apikey`; la identidad del usuario se valida por separado con su access token. |
+| `SUPABASE_ANON_KEY` | Compatibilidad heredada | Se usa como `apikey` solo cuando no está definida la publishable key. No se envía desde Flutter. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Solo para herramientas administrativas | Clave privilegiada para seed, vinculación y reconciliación; nunca es necesaria para servir la API ni debe exponerse al cliente. |
 | `OPERADOR_TOKEN` | Para registrar accesos | Secreto de mínimo 32 caracteres que exige `POST /api/v1/aforo/acceso`. Sin él, ese endpoint responde `503`. Generarlo con `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. |
 | `CORS_ORIGINS` | Solo para Flutter web | Orígenes permitidos separados por coma, p. ej. `http://localhost:8080`. |
-| `DEMO_STUDENT_ID` | Para cargar una cuenta de demostración | Código sintético, no institucional. |
-| `DEMO_STUDENT_NAME` | Para cargar una cuenta de demostración | Nombre de muestra. |
-| `DEMO_STUDENT_PASSWORD` | Para cargar una cuenta de demostración | Contraseña de al menos 12 caracteres. |
+| `DB_MIGRATIONS_ENABLED`, `DB_MIGRATIONS_HOST`, `DB_MIGRATIONS_TARGET` | Solo para migrar | Autorización explícita y confirmación exacta del host y nombre de la base destino. |
+| `DEMO_SEED_ENABLED`, `DEMO_DATABASE_HOST`, `DEMO_DATABASE_NAME`, `DEMO_SUPABASE_PROJECT_REF` | Solo para seed | Confirmaciones de la base y proyecto de demostración; revisa la guía antes de usarlas. |
+| `DEMO_STUDENT_ID`, `DEMO_STUDENT_EMAIL`, `DEMO_STUDENT_NAME`, `DEMO_STUDENT_CEDULA`, `DEMO_STUDENT_PASSWORD` | Solo para seed | Datos sintéticos individuales. La contraseña se crea en Supabase Auth y no se guarda en la tabla de estudiantes. |
 
-`db:init` crea la tabla `aforo_estado` e inicializa el contador si aún no existe. El servidor escucha en el puerto 3000 por defecto. Los logs se escriben como JSON en stdout.
+`db:init` aplica el esquema base idempotente, incluida la fila inicial de `aforo_estado`. El servidor escucha en el puerto 3000 por defecto. Los logs se escriben como JSON en stdout.
 
-Para registrar una cuenta sintética, configure las tres variables `DEMO_STUDENT_*` y ejecute `npm run db:seed-demo-student`. El script exige `DATABASE_URL` apuntando a una base cuyo nombre contenga `test`; no use cuentas ni datos personales reales.
+Para provisionar una cuenta sintética, sigue la guía de [configuración de Supabase](docs/supabase.md) y ejecuta el seed solo con las confirmaciones de proyecto y base de demostración. El script crea o reutiliza el usuario en Supabase Auth y crea o vincula el perfil. Es idempotente y no elimina cuentas automáticamente ante fallos parciales. Rechaza `NODE_ENV=production`. No uses datos personales reales.
+
+El seed es idempotente y ya no elimina cuentas automáticamente ante fallos parciales. Para revisar estados inconsistentes usa `npm run db:reconcile-identities` (solo lectura); para vincular una cuenta Auth ya existente a un perfil por código, usa `npm run db:link-student-auth -- --student-code CODIGO --email XXXX@utb.edu.co`. Revisa primero las precauciones y el procedimiento de [recuperación y vinculación](docs/supabase.md#diagnóstico-y-recuperación).
 
 ## Deployment verificado (S8)
 
 El backend está desplegado mediante la aplicación Dokploy `gimnasioutb-sistema-kresdf` en [https://gimnasio-utb.iscoutb.dev](https://gimnasio-utb.iscoutb.dev). El deployment usa Docker Compose con tres servicios: `postgres` ejecuta PostgreSQL con un volumen nombrado; `db-init` ejecuta `npm run db:init` cuando PostgreSQL está saludable; y `api` construye la imagen de producción, escucha internamente en el puerto 3000 y espera a que `db-init` termine correctamente. El healthcheck de `api` consulta `/ready`.
+
+La verificación anterior corresponde al estado desplegado en S8; esta etapa no
+se ha desplegado ni se han aplicado migraciones. El entorno remoto no debe
+considerarse actualizado ni autenticando con Supabase hasta una configuración y
+validación explícitas. El Compose permite pasar `SUPABASE_URL` y
+`SUPABASE_PUBLISHABLE_KEY` (o la anon heredada) al backend, pero no recibe la
+clave `service_role`.
 
 El equipo verificó PostgreSQL en estado `Healthy`, la finalización correcta de `db-init`, el arranque de la API y el resultado `Docker Compose Deployed: ✅`. También comprobó los endpoints públicos. En una ejecución concreta, el aforo pasó de 0 a 1 con una entrada y volvió a 0 con una salida. `/metrics` reportó entonces `entrada: 1`, `salida: 1` y `total: 2`. Esos valores son una observación de ese proceso, no métricas históricas persistentes.
 
@@ -69,7 +85,7 @@ Los archivos de deployment son `Dockerfile`, `.dockerignore`, `deploy/compose.la
 | `GET /metrics` | Devuelve `access_operations_total` (`entrada`, `salida`, `total`), en memoria por proceso. Se reinicia con el proceso; no es Prometheus ni una métrica persistente. |
 | `GET /api/v1/aforo` | Devuelve el aforo actual en `data.aforoActual`. |
 | `POST /api/v1/aforo/acceso` | Exige `Authorization: Bearer <OPERADOR_TOKEN>`. Recibe `{"tipoAcceso":"ENTRADA"}` o `{"tipoAcceso":"SALIDA"}`. Responde `201` si se registra, `400` si falla la entrada o regla de dominio, `401` sin token válido, `413` si el cuerpo supera 1 KB, `503` si el repositorio no está disponible o el servidor no tiene token configurado, y `500` ante errores inesperados. |
-| `POST /api/v1/estudiantes/sesion` | Inicia sesión con código y contraseña de una cuenta sintética; devuelve una sesión de 8 horas. |
+| `POST /api/v1/estudiantes/sesion` | Inicia sesión con correo sintético y contraseña mediante Supabase Auth; devuelve el access token del proveedor y su vencimiento. |
 | `POST /api/v1/estudiantes/qr` | Requiere la sesión de estudiante; devuelve un QR de un solo uso válido por 60 segundos. |
 | `POST /api/v1/aforo/acceso-qr` | Requiere token de operador; consume el QR y registra la transición individual y el aforo en la misma transacción. |
 
@@ -207,6 +223,8 @@ tests/
 - [S12: estrategia de datos y eventos (consistencia, caché y log de eventos)](docs/s12-datos-eventos.md).
 - [S13: modelado de amenazas, dependencias y privacidad](docs/s13-seguridad-amenazas.md).
 - [ADR 0007: Token de operador y CORS con lista blanca](docs/adr/0007-autenticacion-operador-y-cors.md).
+- [ADR 0009: Supabase Auth para estudiantes](docs/adr/0009-supabase-auth.md).
+- [Configuración de Supabase, Auth y migraciones](docs/supabase.md).
 - [Taller: prototipo aislado de mensajería asíncrona](docs/taller-mensajeria/README.md).
 
 ## Integrantes

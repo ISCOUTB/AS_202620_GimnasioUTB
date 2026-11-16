@@ -8,7 +8,10 @@ const { crearConsultarAforoUseCase } = require('./modules/aforo/application/cons
 const { AforoDomainError } = require('./modules/aforo/domain/aforo');
 const { crearIdentidadRouter } = require('./modules/identidad/infrastructure/http/identidad.router');
 const { IdentidadPostgresAdapter } = require('./modules/identidad/infrastructure/persistence/identidad-postgres.adapter');
+const { SupabaseAuthAdapter } = require('./modules/identidad/infrastructure/auth/supabase-auth.adapter');
+const { CuentaEstudianteInactivaError } = require('./modules/identidad/application/identidad.errors');
 const { logger } = require('./shared/logger');
+const { cargarEntorno } = require('./shared/environment');
 const {
   cabecerasSeguridad,
   crearCors,
@@ -22,13 +25,15 @@ const LIMITE_CUERPO_JSON = '1kb';
 /**
  * @param {object} [opciones]
  * @param {object} [opciones.aforoRepository] adaptador del puerto de aforo
- * @param {object} [opciones.identidadRepository] adaptador de identidad (solo cuentas sintéticas)
+ * @param {object} [opciones.identidadRepository] repositorio de estudiantes y QR
+ * @param {object} [opciones.supabaseAuth] proveedor de autenticación de estudiantes
  * @param {string} [opciones.operadorToken] secreto que exige POST /acceso (ADR-0007)
  * @param {string[]} [opciones.origenesCors] orígenes web permitidos (ADR-0007)
  */
 function createApp({
   aforoRepository,
   identidadRepository,
+  supabaseAuth,
   operadorToken,
   origenesCors = [],
 } = {}) {
@@ -110,7 +115,7 @@ function createApp({
   const obtenerAforoActual = crearConsultarAforoUseCase(repository);
 
   app.use('/api/v1/aforo', crearAforoRouter(registrarAcceso, obtenerAforoActual));
-  app.use('/api/v1/estudiantes', crearIdentidadRouter(identityRepository));
+  app.use('/api/v1/estudiantes', crearIdentidadRouter(identityRepository, supabaseAuth));
   app.post(
     '/api/v1/aforo/acceso-qr',
     async (req, res) => {
@@ -145,6 +150,9 @@ function createApp({
         if (error?.code === 'QR_NOT_VALID') {
           return res.status(400).json({ status: 'error', message: error.message });
         }
+        if (error instanceof CuentaEstudianteInactivaError) {
+          return res.status(403).json({ status: 'error', message: error.message });
+        }
         if (error instanceof AforoDomainError) {
           return res.status(400).json({ status: 'error', message: error.message });
         }
@@ -161,6 +169,15 @@ function createApp({
 }
 
 if (require.main === module) {
+  cargarEntorno();
+  const tieneConfiguracionSupabase = Boolean(
+    process.env.SUPABASE_URL
+    || process.env.SUPABASE_PUBLISHABLE_KEY
+    || process.env.SUPABASE_ANON_KEY
+  );
+  const supabaseAuth = tieneConfiguracionSupabase
+    ? new SupabaseAuthAdapter()
+    : null;
   const aforoRepository = new AforoPostgresAdapter();
   const identidadRepository = new IdentidadPostgresAdapter({
     pool: aforoRepository.pool,
@@ -168,6 +185,7 @@ if (require.main === module) {
   const app = createApp({
     aforoRepository,
     identidadRepository,
+    supabaseAuth,
     operadorToken: process.env.OPERADOR_TOKEN,
     origenesCors: parsearOrigenes(process.env.CORS_ORIGINS),
   });

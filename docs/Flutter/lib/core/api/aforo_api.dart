@@ -13,23 +13,32 @@ enum TipoAcceso {
 }
 
 class AforoApiException implements Exception {
-  const AforoApiException(this.message);
+  const AforoApiException(this.message, {this.statusCode});
 
   final String message;
+  final int? statusCode;
 
   @override
   String toString() => message;
+}
+
+class SesionEstudianteExpiradaException extends AforoApiException {
+  const SesionEstudianteExpiradaException()
+      : super('Tu sesión venció o ya no es válida. Inicia sesión nuevamente.',
+            statusCode: 401);
 }
 
 class SesionEstudiante {
   const SesionEstudiante({
     required this.token,
     required this.codigoEstudiante,
+    required this.correo,
     required this.nombre,
   });
 
   final String token;
   final String codigoEstudiante;
+  final String correo;
   final String nombre;
 }
 
@@ -112,13 +121,13 @@ class AforoApi {
   }
 
   Future<SesionEstudiante> iniciarSesionEstudiante({
-    required String codigoEstudiante,
+    required String correo,
     required String contrasena,
   }) async {
     final response = await _post(
       '/api/v1/estudiantes/sesion',
       body: {
-        'codigoEstudiante': codigoEstudiante,
+        'correo': correo,
         'contrasena': contrasena,
       },
     );
@@ -135,6 +144,7 @@ class AforoApi {
     return SesionEstudiante(
       token: data['token'] as String,
       codigoEstudiante: estudiante['codigoEstudiante'] as String,
+      correo: correo,
       nombre: estudiante['nombre'] as String,
     );
   }
@@ -145,7 +155,15 @@ class AforoApi {
       body: const {},
       bearerToken: _studentToken,
     );
-    final data = _parseData(response, expectedStatusCode: 201);
+    final Map<String, dynamic> data;
+    try {
+      data = _parseData(response, expectedStatusCode: 201);
+    } on AforoApiException catch (error) {
+      if (error.statusCode == 401) {
+        throw const SesionEstudianteExpiradaException();
+      }
+      rethrow;
+    }
     final expiresAt = data['expiresAt'];
     if (data['token'] is! String || expiresAt is! String) {
       throw const AforoApiException(
@@ -262,7 +280,7 @@ class AforoApi {
       final message =
           decoded is Map<String, dynamic> ? decoded['message'] : null;
       if (message is String && message.isNotEmpty) {
-        throw AforoApiException(message);
+        throw AforoApiException(message, statusCode: response.statusCode);
       }
       throw AforoApiException(
         'El servicio respondió con el código ${response.statusCode}.',

@@ -35,7 +35,21 @@ class _HomeShellState extends State<HomeShell> {
   void _logout() {
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute<void>(
-          builder: (_) => LoginPage(api: widget.api.sinSesiones())),
+        builder: (_) => LoginPage(api: widget.api.sinSesiones()),
+      ),
+      (_) => false,
+    );
+  }
+
+  void _studentSessionExpired() {
+    if (!mounted || _isOperator) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(
+        builder: (_) => LoginPage(
+          api: widget.api.sinSesiones(),
+          notice: 'Tu sesión expiró. Inicia sesión nuevamente.',
+        ),
+      ),
       (_) => false,
     );
   }
@@ -92,7 +106,11 @@ class _HomeShellState extends State<HomeShell> {
               api: widget.api,
               mode: widget.mode,
             ),
-            AccessPage(api: widget.api, mode: widget.mode),
+            AccessPage(
+              api: widget.api,
+              mode: widget.mode,
+              onStudentSessionExpired: _studentSessionExpired,
+            ),
             const SettingsPage(),
           ];
 

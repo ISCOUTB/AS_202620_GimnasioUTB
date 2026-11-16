@@ -4,6 +4,12 @@
 
 Aceptada e implementada para demostración en una base PostgreSQL de pruebas.
 
+> **Actualización:** la autenticación scrypt y las sesiones personalizadas
+> descritas en esta decisión fueron reemplazadas por Supabase Auth según
+> [ADR-0009](0009-supabase-auth.md). Se conserva el flujo QR temporal y su
+> consumo transaccional; las conclusiones de identidad institucional y uso
+> exclusivo de cuentas sintéticas siguen vigentes.
+
 ## Contexto
 
 El producto requiere que el estudiante presente un QR personal y que el

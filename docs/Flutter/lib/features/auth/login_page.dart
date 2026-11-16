@@ -7,9 +7,10 @@ import '../dashboard/home_shell.dart';
 import '../dashboard/workspace_mode.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({required this.api, super.key});
+  const LoginPage({required this.api, this.notice, super.key});
 
   final AforoApi api;
+  final String? notice;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -17,7 +18,7 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final TextEditingController _tokenController = TextEditingController();
-  final TextEditingController _codigoEstudianteController =
+  final TextEditingController _correoEstudianteController =
       TextEditingController();
   final TextEditingController _contrasenaController = TextEditingController();
   bool _ocultarToken = true;
@@ -29,7 +30,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void dispose() {
     _tokenController.dispose();
-    _codigoEstudianteController.dispose();
+    _correoEstudianteController.dispose();
     _contrasenaController.dispose();
     super.dispose();
   }
@@ -62,7 +63,7 @@ class _LoginPageState extends State<LoginPage> {
     });
     try {
       final sesion = await widget.api.iniciarSesionEstudiante(
-        codigoEstudiante: _codigoEstudianteController.text.trim(),
+        correo: _correoEstudianteController.text.trim(),
         contrasena: _contrasenaController.text,
       );
       if (!mounted) return;
@@ -156,12 +157,19 @@ class _LoginPageState extends State<LoginPage> {
                   const SizedBox(height: 24),
                   const StatusCard(
                     title: 'Acceso por perfil',
-                    message:
-                        'Los estudiantes usan cuentas sintéticas de '
+                    message: 'Los estudiantes usan cuentas sintéticas de '
                         'demostración. El encargado registra accesos con el '
                         'token de operador.',
                     icon: Icons.lock_outline_rounded,
                   ),
+                  if (widget.notice != null) ...[
+                    const SizedBox(height: 12),
+                    StatusCard(
+                      title: 'Inicia sesión nuevamente',
+                      message: widget.notice!,
+                      icon: Icons.info_outline_rounded,
+                    ),
+                  ],
                   const SizedBox(height: 22),
                   Text(
                     'ELIGE CÓMO ENTRAR',
@@ -182,13 +190,15 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 20),
                   TextField(
-                    controller: _codigoEstudianteController,
+                    controller: _correoEstudianteController,
                     autocorrect: false,
                     enableSuggestions: false,
+                    keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(
-                      labelText: 'Código de estudiante de prueba',
-                      prefixIcon: Icon(Icons.school_outlined),
+                      labelText: 'Correo sintético de estudiante',
+                      hintText: 'XXXX@utb.edu.co',
+                      prefixIcon: Icon(Icons.email_outlined),
                     ),
                   ),
                   const SizedBox(height: 12),
