@@ -11,7 +11,7 @@ const { IdentidadPostgresAdapter } = require('./modules/identidad/infrastructure
 const { SupabaseAuthAdapter } = require('./modules/identidad/infrastructure/auth/supabase-auth.adapter');
 const { CuentaEstudianteInactivaError } = require('./modules/identidad/application/identidad.errors');
 const { logger } = require('./shared/logger');
-const { cargarEntorno } = require('./shared/environment');
+const { cargarEntornoRuntime } = require('./shared/environment');
 const {
   cabecerasSeguridad,
   crearCors,
@@ -169,7 +169,7 @@ function createApp({
 }
 
 if (require.main === module) {
-  cargarEntorno();
+  cargarEntornoRuntime();
   const tieneConfiguracionSupabase = Boolean(
     process.env.SUPABASE_URL
     || process.env.SUPABASE_PUBLISHABLE_KEY

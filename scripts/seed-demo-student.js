@@ -1,11 +1,16 @@
 const { Pool } = require('pg');
+const { crearOpcionesPoolPostgres } = require('../src/shared/postgres-pool');
+const { cargarEntorno } = require('../src/shared/environment');
 const { SupabaseAuthAdminAdapter } = require('../src/modules/identidad/infrastructure/auth/supabase-auth-admin.adapter');
-const { validarEntornoDemo } = require('./demo-environment');
+const {
+  validarEntornoProvisionamiento,
+  sanitizarMensajeAdministrativo,
+} = require('./demo-environment');
 
 const EMAIL_RE = /^[a-z0-9._%+-]+@utb\.edu\.co$/i;
 
 function validarConfiguracionSeed(env = process.env) {
-  const entorno = validarEntornoDemo(env);
+  const entorno = validarEntornoProvisionamiento(env);
   const requeridas = [
     'DEMO_STUDENT_ID',
     'DEMO_STUDENT_EMAIL',
@@ -226,7 +231,7 @@ async function seedDemoStudent({
     url: config.supabaseUrl,
     serviceRoleKey: config.serviceRoleKey,
   });
-  const pool = new PoolImpl({ connectionString: config.databaseUrl });
+  const pool = new PoolImpl(crearOpcionesPoolPostgres(config.databaseUrl));
   try {
     const resultado = await provisionarEstudiante({ pool, authAdmin, config });
     console.info(
@@ -235,7 +240,7 @@ async function seedDemoStudent({
     return resultado;
   } catch (error) {
     throw new Error(
-      `${error.message}. No se eliminaron cuentas ni perfiles automáticamente; ejecute la reconciliación antes de corregir manualmente.`,
+      `${sanitizarMensajeAdministrativo(error, env)}. No se eliminaron cuentas ni perfiles automáticamente; ejecute la reconciliación antes de corregir manualmente.`,
       { cause: error }
     );
   } finally {
@@ -244,8 +249,11 @@ async function seedDemoStudent({
 }
 
 if (require.main === module) {
-  seedDemoStudent().catch((error) => {
-    console.error(error.message);
+  Promise.resolve().then(() => {
+    cargarEntorno();
+    return seedDemoStudent();
+  }).catch((error) => {
+    console.error(sanitizarMensajeAdministrativo(error));
     process.exitCode = 1;
   });
 }

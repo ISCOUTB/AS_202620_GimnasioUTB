@@ -26,7 +26,12 @@ services:
     restart: "no"
     command: ["npm", "run", "db:init"]
     environment:
-      DATABASE_URL: "postgresql://${POSTGRES_USER:?Define POSTGRES_USER en deploy/.env}:${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en deploy/.env}@postgres:5432/${POSTGRES_DB:?Define POSTGRES_DB en deploy/.env}"
+      DB_MIGRATIONS_URL: "${DB_MIGRATIONS_URL:?Define el rol de migraciones en deploy/.env}"
+      DATABASE_URL: "${DATABASE_URL:?Define el rol runtime en deploy/.env}"
+      DATABASE_SSL: "false"
+      DB_INIT_ENABLED: "true"
+      DB_MIGRATIONS_HOST: postgres
+      DB_MIGRATIONS_TARGET: ${POSTGRES_DB:?Define POSTGRES_DB en deploy/.env}
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,7 +50,8 @@ services:
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:-}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
-      DATABASE_URL: "postgresql://${POSTGRES_USER:?Define POSTGRES_USER en deploy/.env}:${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en deploy/.env}@postgres:5432/${POSTGRES_DB:?Define POSTGRES_DB en deploy/.env}"
+      DATABASE_URL: "${DATABASE_URL:?Define el rol runtime de PostgreSQL en deploy/.env}"
+      DATABASE_SSL: "false"
     expose:
       - "${PORT:-3000}"
     depends_on:

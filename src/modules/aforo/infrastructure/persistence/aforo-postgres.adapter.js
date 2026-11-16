@@ -1,4 +1,5 @@
 const { Pool } = require('pg');
+const { crearOpcionesPoolPostgres } = require('../../../../shared/postgres-pool');
 const {
   AforoRepositoryPort,
   AforoRepositoryError,
@@ -70,10 +71,10 @@ class AforoPostgresAdapter extends AforoRepositoryPort {
       throw new Error('Nombre de esquema PostgreSQL inválido');
     }
 
-    this.pool = pool || new Pool({
+    this.pool = pool || new Pool(crearOpcionesPoolPostgres(
       connectionString,
-      ...(schema ? { options: `-c search_path=${schema}` } : {}),
-    });
+      schema ? { options: `-c search_path=${schema}` } : {}
+    ));
   }
 
   async obtenerAforoActual() {

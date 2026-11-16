@@ -2,6 +2,12 @@ const path = require('node:path');
 const dotenv = require('dotenv');
 
 const ROOT_ENV_PATH = path.resolve(__dirname, '..', '..', '.env');
+const ADMIN_SECRETS = [
+  'DB_MIGRATIONS_URL',
+  'DB_PROVISIONING_URL',
+  'DB_RECONCILIATION_URL',
+  'SUPABASE_SERVICE_ROLE_KEY',
+];
 
 function cargarEntorno({ envPath = ROOT_ENV_PATH, targetEnv = process.env } = {}) {
   const result = dotenv.config({
@@ -18,4 +24,10 @@ function cargarEntorno({ envPath = ROOT_ENV_PATH, targetEnv = process.env } = {}
   }
 }
 
-module.exports = { cargarEntorno };
+function cargarEntornoRuntime(options = {}) {
+  const targetEnv = options.targetEnv || process.env;
+  cargarEntorno({ ...options, targetEnv });
+  for (const name of ADMIN_SECRETS) delete targetEnv[name];
+}
+
+module.exports = { cargarEntorno, cargarEntornoRuntime };

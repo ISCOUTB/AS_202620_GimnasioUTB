@@ -4,6 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { Pool } = require('pg');
+const { crearOpcionesPoolPostgres } = require('../../src/shared/postgres-pool');
 const { aplicarAcceso } = require('../../src/modules/aforo/domain/aforo');
 const { AforoPostgresAdapter } = require('../../src/modules/aforo/infrastructure/persistence/aforo-postgres.adapter');
 
@@ -18,7 +19,7 @@ test('PostgreSQL: persistencia transaccional y concurrencia', { skip: !databaseU
   );
 
   const schema = `aforo_test_${randomUUID().replace(/-/g, '')}`;
-  const adminPool = new Pool({ connectionString: databaseUrl });
+  const adminPool = new Pool(crearOpcionesPoolPostgres(databaseUrl));
   let adapter;
   let schemaCreated = false;
 

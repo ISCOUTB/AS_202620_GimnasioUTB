@@ -1,6 +1,11 @@
 const { Pool } = require('pg');
+const { crearOpcionesPoolPostgres } = require('../src/shared/postgres-pool');
+const { cargarEntorno } = require('../src/shared/environment');
 const { SupabaseAuthAdminAdapter } = require('../src/modules/identidad/infrastructure/auth/supabase-auth-admin.adapter');
-const { validarEntornoDemo } = require('./demo-environment');
+const {
+  validarEntornoReconciliacion,
+  sanitizarMensajeAdministrativo,
+} = require('./demo-environment');
 
 function crearInformeReconciliacion(perfiles, usuariosAuth) {
   const perfilesPorAuthId = new Map();
@@ -92,12 +97,12 @@ async function reconcileStudentIdentities({
   PoolImpl = Pool,
   AuthAdminAdapter = SupabaseAuthAdminAdapter,
 } = {}) {
-  const entorno = validarEntornoDemo(env);
+  const entorno = validarEntornoReconciliacion(env);
   const authAdmin = new AuthAdminAdapter({
     url: entorno.supabaseUrl,
     serviceRoleKey: entorno.serviceRoleKey,
   });
-  const pool = new PoolImpl({ connectionString: entorno.databaseUrl });
+  const pool = new PoolImpl(crearOpcionesPoolPostgres(entorno.databaseUrl));
   try {
     const informe = await reconciliarIdentidades({ pool, authAdmin });
     console.info(JSON.stringify(informe, null, 2));
@@ -108,8 +113,11 @@ async function reconcileStudentIdentities({
 }
 
 if (require.main === module) {
-  reconcileStudentIdentities().catch((error) => {
-    console.error(error.message);
+  Promise.resolve().then(() => {
+    cargarEntorno();
+    return reconcileStudentIdentities();
+  }).catch((error) => {
+    console.error(sanitizarMensajeAdministrativo(error));
     process.exitCode = 1;
   });
 }

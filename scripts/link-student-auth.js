@@ -1,6 +1,11 @@
 const { Pool } = require('pg');
+const { crearOpcionesPoolPostgres } = require('../src/shared/postgres-pool');
+const { cargarEntorno } = require('../src/shared/environment');
 const { SupabaseAuthAdminAdapter } = require('../src/modules/identidad/infrastructure/auth/supabase-auth-admin.adapter');
-const { validarEntornoDemo } = require('./demo-environment');
+const {
+  validarEntornoProvisionamiento,
+  sanitizarMensajeAdministrativo,
+} = require('./demo-environment');
 
 const EMAIL_RE = /^[a-z0-9._%+-]+@utb\.edu\.co$/i;
 
@@ -120,13 +125,13 @@ async function linkStudentAuth({
   PoolImpl = Pool,
   AuthAdminAdapter = SupabaseAuthAdminAdapter,
 } = {}) {
-  const entorno = validarEntornoDemo(env);
+  const entorno = validarEntornoProvisionamiento(env);
   const { codigo, correo } = validarArgumentos(args);
   const authAdmin = new AuthAdminAdapter({
     url: entorno.supabaseUrl,
     serviceRoleKey: entorno.serviceRoleKey,
   });
-  const pool = new PoolImpl({ connectionString: entorno.databaseUrl });
+  const pool = new PoolImpl(crearOpcionesPoolPostgres(entorno.databaseUrl));
   try {
     const resultado = await vincularPerfilExistente({
       pool,
@@ -142,8 +147,11 @@ async function linkStudentAuth({
 }
 
 if (require.main === module) {
-  linkStudentAuth().catch((error) => {
-    console.error(error.message);
+  Promise.resolve().then(() => {
+    cargarEntorno();
+    return linkStudentAuth();
+  }).catch((error) => {
+    console.error(sanitizarMensajeAdministrativo(error));
     process.exitCode = 1;
   });
 }

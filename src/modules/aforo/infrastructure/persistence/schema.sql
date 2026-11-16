@@ -62,3 +62,26 @@ ALTER TABLE estudiantes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sesiones_estudiantes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE qr_credenciales ENABLE ROW LEVEL SECURITY;
 ALTER TABLE estudiante_estado_acceso ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL PRIVILEGES ON TABLE
+  aforo_estado,
+  estudiantes,
+  sesiones_estudiantes,
+  qr_credenciales,
+  estudiante_estado_acceso
+FROM PUBLIC;
+
+DO $$
+DECLARE
+  role_name TEXT;
+BEGIN
+  FOREACH role_name IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
+      EXECUTE format(
+        'REVOKE ALL PRIVILEGES ON TABLE aforo_estado, estudiantes, sesiones_estudiantes, qr_credenciales, estudiante_estado_acceso FROM %I',
+        role_name
+      );
+    END IF;
+  END LOOP;
+END;
+$$;

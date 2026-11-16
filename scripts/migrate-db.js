@@ -1,44 +1,41 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { Pool } = require('pg');
+const { crearOpcionesPoolPostgres } = require('../src/shared/postgres-pool');
+const { cargarEntorno } = require('../src/shared/environment');
+const {
+  validarDestinoPostgres,
+  validarRolEsquema,
+} = require('./postgres-destination');
+const { sanitizarMensajeAdministrativo } = require('./demo-environment');
 
 const MIGRATIONS_DIR = path.join(__dirname, '..', 'db', 'migrations');
-const ADVISORY_LOCK_NAME = 'gimnasio-utb-schema-migrations';
+const ADVISORY_LOCK_NAMESPACE = 0x47594d;
+const ADVISORY_LOCK_ID = 1;
 const MIGRATION_FILE_RE = /^\d{8}_\d{3}_[a-z0-9_]+\.sql$/;
 
 function validarConfiguracion(env = process.env) {
-  if (!env.DATABASE_URL) {
-    throw new Error('Defina DATABASE_URL para ejecutar migraciones');
-  }
   if (env.DB_MIGRATIONS_ENABLED !== 'true') {
     throw new Error('Defina DB_MIGRATIONS_ENABLED=true para autorizar migraciones');
   }
-  if (!env.DB_MIGRATIONS_HOST || !env.DB_MIGRATIONS_TARGET) {
-    throw new Error('Defina DB_MIGRATIONS_HOST y DB_MIGRATIONS_TARGET para confirmar la base destino');
-  }
+  return validarDestinoPostgres(env);
+}
 
-  const databaseUrl = new URL(env.DATABASE_URL);
-  const databaseName = decodeURIComponent(databaseUrl.pathname.slice(1));
-  if (
-    !databaseName
-    || databaseName !== env.DB_MIGRATIONS_TARGET
-    || databaseUrl.hostname !== env.DB_MIGRATIONS_HOST
-  ) {
-    throw new Error('DB_MIGRATIONS_HOST/TARGET no coinciden con DATABASE_URL');
-  }
-  return { databaseName, databaseHost: databaseUrl.hostname };
+function crearPoolMigraciones(env = process.env, PoolImpl = Pool) {
+  validarConfiguracion(env);
+  return new PoolImpl(crearOpcionesPoolPostgres(env.DB_MIGRATIONS_URL));
 }
 
 async function aplicarMigraciones(pool, migrationsDir = MIGRATIONS_DIR) {
+  await validarRolEsquema(pool);
   const client = await pool.connect();
+  let lockAcquired = false;
   try {
-    await client.query('SELECT pg_advisory_lock(hashtext($1))', [ADVISORY_LOCK_NAME]);
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS schema_migrations (
-        version TEXT PRIMARY KEY,
-        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `);
+    await client.query(
+      'SELECT pg_advisory_lock($1, $2)',
+      [ADVISORY_LOCK_NAMESPACE, ADVISORY_LOCK_ID]
+    );
+    lockAcquired = true;
 
     const archivos = (await fs.readdir(migrationsDir))
       .filter((archivo) => MIGRATION_FILE_RE.test(archivo))
@@ -46,18 +43,45 @@ async function aplicarMigraciones(pool, migrationsDir = MIGRATIONS_DIR) {
 
     for (const archivo of archivos) {
       const version = archivo.slice(0, -4);
-      const yaAplicada = await client.query(
-        'SELECT 1 FROM schema_migrations WHERE version = $1',
-        [version]
-      );
-      if (yaAplicada.rowCount > 0) continue;
-
       const sql = await fs.readFile(path.join(migrationsDir, archivo), 'utf8');
       await client.query('BEGIN');
       try {
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS public.schema_migrations (
+            version TEXT PRIMARY KEY,
+            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `);
+        await client.query('REVOKE ALL PRIVILEGES ON TABLE public.schema_migrations FROM PUBLIC');
+        await client.query(`
+          DO $$
+          DECLARE
+            role_name TEXT;
+          BEGIN
+            FOREACH role_name IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
+                EXECUTE format(
+                  'REVOKE ALL PRIVILEGES ON TABLE public.schema_migrations FROM %I',
+                  role_name
+                );
+              END IF;
+            END LOOP;
+          END;
+          $$;
+        `);
+
+        const yaAplicada = await client.query(
+          'SELECT 1 FROM public.schema_migrations WHERE version = $1',
+          [version]
+        );
+        if (yaAplicada.rowCount > 0) {
+          await client.query('COMMIT');
+          continue;
+        }
+
         await client.query(sql);
         await client.query(
-          'INSERT INTO schema_migrations (version) VALUES ($1)',
+          'INSERT INTO public.schema_migrations (version) VALUES ($1)',
           [version]
         );
         await client.query('COMMIT');
@@ -74,7 +98,12 @@ async function aplicarMigraciones(pool, migrationsDir = MIGRATIONS_DIR) {
     return archivos.length;
   } finally {
     try {
-      await client.query('SELECT pg_advisory_unlock(hashtext($1))', [ADVISORY_LOCK_NAME]);
+      if (lockAcquired) {
+        await client.query(
+          'SELECT pg_advisory_unlock($1, $2)',
+          [ADVISORY_LOCK_NAMESPACE, ADVISORY_LOCK_ID]
+        );
+      }
     } finally {
       client.release();
     }
@@ -82,8 +111,7 @@ async function aplicarMigraciones(pool, migrationsDir = MIGRATIONS_DIR) {
 }
 
 async function main() {
-  validarConfiguracion();
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pool = crearPoolMigraciones();
   try {
     const total = await aplicarMigraciones(pool);
     console.info(`Migraciones verificadas (${total} archivo(s) disponible(s)).`);
@@ -93,10 +121,13 @@ async function main() {
 }
 
 if (require.main === module) {
-  main().catch((error) => {
-    console.error(error.message);
+  Promise.resolve().then(() => {
+    cargarEntorno();
+    return main();
+  }).catch((error) => {
+    console.error(sanitizarMensajeAdministrativo(error));
     process.exitCode = 1;
   });
 }
 
-module.exports = { validarConfiguracion, aplicarMigraciones };
+module.exports = { validarConfiguracion, crearPoolMigraciones, aplicarMigraciones };

@@ -5,8 +5,11 @@ const { validarConfiguracionSeed } = require('../scripts/seed-demo-student');
 function configuracion(overrides = {}) {
   return {
     NODE_ENV: 'test',
-    DEMO_SEED_ENABLED: 'true',
+    DB_PROVISIONING_ENABLED: 'true',
+    DB_RECONCILIATION_ENABLED: 'true',
+    DB_PROVISIONING_URL: 'postgresql://provisioner:provisioner-test@localhost:5432/gym_test',
     DATABASE_URL: 'postgresql://user:pass@localhost:5432/gym_test',
+    DB_MIGRATIONS_URL: 'postgresql://migrator:migrator-test@localhost:5432/gym_test',
     DEMO_DATABASE_HOST: 'localhost',
     DEMO_DATABASE_NAME: 'gym_test',
     SUPABASE_URL: 'http://127.0.0.1:54321',
@@ -27,8 +30,8 @@ test('el seed exige autorización explícita y nunca corre en producción', () =
     /deshabilitada en producción/
   );
   assert.throws(
-    () => validarConfiguracionSeed(configuracion({ DEMO_SEED_ENABLED: 'false' })),
-    /DEMO_SEED_ENABLED=true/
+    () => validarConfiguracionSeed(configuracion({ DB_PROVISIONING_ENABLED: 'false' })),
+    /DB_PROVISIONING_ENABLED=true/
   );
 });
 
@@ -41,13 +44,59 @@ test('el seed valida exactamente la base y el proyecto Supabase de demostración
     () => validarConfiguracionSeed(configuracion({
       SUPABASE_URL: 'https://otro-proyecto.supabase.co',
     })),
-    /no coincide con DEMO_SUPABASE_PROJECT_REF/
+    /no coinciden con DEMO_SUPABASE_PROJECT_REF/
   );
   assert.throws(
     () => validarConfiguracionSeed(configuracion({
       DEMO_DATABASE_HOST: 'otro-host',
     })),
     /no coincide/
+  );
+});
+
+test('el seed exige DB_PROVISIONING_URL separada y nunca usa DATABASE_URL como fallback', () => {
+  const config = validarConfiguracionSeed(configuracion());
+  assert.equal(config.databaseUrl, configuracion().DB_PROVISIONING_URL);
+  assert.throws(
+    () => validarConfiguracionSeed(configuracion({ DB_PROVISIONING_URL: '' })),
+    /DB_PROVISIONING_URL/
+  );
+  assert.throws(
+    () => validarConfiguracionSeed(configuracion({
+      DB_PROVISIONING_URL: 'postgresql://user:pass@localhost:5432/gym_test',
+    })),
+    /roles distintos/
+  );
+  assert.throws(
+    () => validarConfiguracionSeed(configuracion({
+      DB_MIGRATIONS_URL: 'postgresql://provisioner:other-password@localhost:5432/gym_test',
+    })),
+    /distinto de DB_MIGRATIONS_URL/
+  );
+});
+
+test('el rol provisioning debe apuntar al proyecto Supabase confirmado', () => {
+  const projectRef = 'abcdefghijklmnopqrst';
+  const remoteConfig = configuracion({
+    SUPABASE_URL: `https://${projectRef}.supabase.co`,
+    DEMO_SUPABASE_PROJECT_REF: projectRef,
+    DEMO_DATABASE_HOST: `db.${projectRef}.supabase.co`,
+    DB_PROVISIONING_URL:
+      `postgresql://provisioner@db.${projectRef}.supabase.co:5432/gym_test`,
+    DATABASE_URL:
+      `postgresql://runtime@db.${projectRef}.supabase.co:5432/gym_test`,
+    DB_MIGRATIONS_URL:
+      `postgresql://migrator@db.${projectRef}.supabase.co:5432/gym_test`,
+  });
+  assert.equal(validarConfiguracionSeed(remoteConfig).databaseUrl, remoteConfig.DB_PROVISIONING_URL);
+  assert.throws(
+    () => validarConfiguracionSeed({
+      ...remoteConfig,
+      DB_PROVISIONING_URL:
+        'postgresql://provisioner@db.otherprojectref00000000.supabase.co:5432/gym_test',
+      DEMO_DATABASE_HOST: 'db.otherprojectref00000000.supabase.co',
+    }),
+    /no coinciden con DEMO_SUPABASE_PROJECT_REF/
   );
 });
 

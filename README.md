@@ -30,40 +30,81 @@ El QR no contiene datos personales legibles, expira en 60 segundos y solo puede 
 
 ## Ejecución local
 
-Requisitos: Node.js 18 o superior y una instancia PostgreSQL accesible. El servidor real requiere `DATABASE_URL`. Al iniciar con `npm start` o `npm run dev`, el backend carga el `.env` de la raíz del proyecto; las variables ya inyectadas por el entorno tienen prioridad. Los scripts administrativos `db:*` siguen usando las variables heredadas del proceso que los ejecuta. La autenticación requiere `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY` o, por compatibilidad, `SUPABASE_ANON_KEY`; sin ellas las rutas de identidad responden `503`, pero el resto de la API puede iniciar.
+Requisitos: Node.js 18 o superior y una instancia PostgreSQL accesible. El servidor real requiere `DATABASE_URL`. Al iniciar con `npm start`, `npm run dev` o ejecutar un comando administrativo `db:*`, se carga el `.env` de la raíz del proyecto; las variables ya inyectadas por el entorno tienen prioridad. Antes de iniciar la API, se eliminan de su entorno las URLs administrativas y la clave `service_role`. Cada comando administrativo utiliza solo la conexión destinada a su función. La autenticación requiere `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY` o, por compatibilidad, `SUPABASE_ANON_KEY`; sin ellas las rutas de identidad responden `503`, pero el resto de la API puede iniciar.
 
 ```bash
 npm install
-npm run db:init
 npm start
 ```
 
-`npm run db:init` prepara una base nueva. Para una base existente con el esquema anterior, revisa [la guía de Supabase y migraciones](docs/supabase.md). Las migraciones no se ejecutan al iniciar la API y exigen autorización explícita y confirmación del nombre exacto de la base destino.
+`npm run db:check-connections` ejecuta un preflight de solo lectura para
+`DATABASE_URL` y `DB_MIGRATIONS_URL` antes de inicializar. `npm run db:init`
+prepara una base nueva, pero es una operación de escritura: requiere
+`DB_INIT_ENABLED=true`, roles separados ya creados y confirmación exacta del
+destino/proyecto. No se ejecuta al iniciar la API. La base queda sin acceso
+runtime hasta aplicar los grants y políticas RLS documentados. Para el
+procedimiento completo y el SQL propuesto revisa [la guía de Supabase y
+migraciones](docs/supabase.md).
+
+```text
+npm run db:check-connections
+# db:init requiere autorización independiente y roles/permisos ya preparados
+npm run db:init
+# solo después de aplicar grants y políticas RLS:
+npm run db:check-security
+```
 
 Variables de entorno (ver `.env.example`):
 
 | Variable | Obligatoria | Para qué |
 |---|---|---|
-| `DATABASE_URL` | Sí | Conexión a PostgreSQL local o Supabase. Conserva los parámetros SSL requeridos por el proveedor. |
+| `DATABASE_URL` | Sí | Conexión runtime a PostgreSQL mediante `gimnasio_runtime`. |
+| `DATABASE_SSL` | No | TLS es obligatorio por defecto; `false` solo para hosts PostgreSQL locales permitidos. |
+| `DB_MIGRATIONS_URL` | Solo para inicializar/migrar | Conexión de `gimnasio_migrator`; no debe usar el rol runtime. |
+| `DB_PROVISIONING_URL` | Futuro seed/vinculación | Rol DML distinto; no requerido para inicializar y nunca usado en la API. |
+| `DB_RECONCILIATION_URL` | Futura reconciliación | Rol de solo lectura separado; no requerido para inicializar. |
 | `SUPABASE_URL` | Para identidad | URL del proyecto Supabase, utilizada por el backend. |
 | `SUPABASE_PUBLISHABLE_KEY` | Para identidad (preferida) | Clave de aplicación enviada como `apikey`; la identidad del usuario se valida por separado con su access token. |
 | `SUPABASE_ANON_KEY` | Compatibilidad heredada | Se usa como `apikey` solo cuando no está definida la publishable key. No se envía desde Flutter. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Solo para herramientas administrativas | Clave privilegiada para seed, vinculación y reconciliación; nunca es necesaria para servir la API ni debe exponerse al cliente. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Solo para herramientas administrativas aisladas | Clave privilegiada para seed, vinculación y reconciliación; la API la elimina de su entorno. Nunca exponer al cliente. |
 | `OPERADOR_TOKEN` | Para registrar accesos | Secreto de mínimo 32 caracteres que exige `POST /api/v1/aforo/acceso`. Sin él, ese endpoint responde `503`. Generarlo con `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. |
 | `CORS_ORIGINS` | Solo para Flutter web | Orígenes permitidos separados por coma, p. ej. `http://localhost:8080`. |
-| `DB_MIGRATIONS_ENABLED`, `DB_MIGRATIONS_HOST`, `DB_MIGRATIONS_TARGET` | Solo para migrar | Autorización explícita y confirmación exacta del host y nombre de la base destino. |
-| `DEMO_SEED_ENABLED`, `DEMO_DATABASE_HOST`, `DEMO_DATABASE_NAME`, `DEMO_SUPABASE_PROJECT_REF` | Solo para seed | Confirmaciones de la base y proyecto de demostración; revisa la guía antes de usarlas. |
+| `DB_INIT_ENABLED`, `DB_MIGRATIONS_ENABLED` | Solo para operaciones de esquema | Autorización explícita separada para inicialización y migraciones. |
+| `DB_MIGRATIONS_HOST`, `DB_MIGRATIONS_TARGET`, `DB_MIGRATIONS_PROJECT_REF` | Solo para operaciones de esquema | Confirmación del host/base y, en Supabase, del proyecto asociado a la URL. |
+| `DB_PROVISIONING_ENABLED`, `DEMO_DATABASE_HOST`, `DEMO_DATABASE_NAME`, `DEMO_SUPABASE_PROJECT_REF` | Solo para seed/vínculo | Habilitación explícita y confirmaciones de la base/proyecto de demostración. |
+| `DB_RECONCILIATION_ENABLED` | Solo para reconciliación | Habilitación explícita de la consulta de solo lectura. |
 | `DEMO_STUDENT_ID`, `DEMO_STUDENT_EMAIL`, `DEMO_STUDENT_NAME`, `DEMO_STUDENT_CEDULA`, `DEMO_STUDENT_PASSWORD` | Solo para seed | Datos sintéticos individuales. La contraseña se crea en Supabase Auth y no se guarda en la tabla de estudiantes. |
 
-`db:init` aplica el esquema base idempotente, incluida la fila inicial de `aforo_estado`. El servidor escucha en el puerto 3000 por defecto. Los logs se escriben como JSON en stdout.
+`db:init` aplica el esquema base idempotente, incluida la fila inicial de
+`aforo_estado`, usando `DB_MIGRATIONS_URL`. En una base nueva se ejecuta después
+de `npm run db:check-connections` y solo con autorización explícita. Luego
+deben aplicarse los grants/políticas RLS de [la guía Supabase](docs/supabase.md)
+antes de iniciar la API. En el Compose de laboratorio,
+`DATABASE_SSL=false` se limita al host local `postgres`; las conexiones Supabase
+mantienen TLS y validación de certificados. El servidor escucha en el puerto
+3000 por defecto. Los logs se escriben como JSON en stdout.
 
-Para provisionar una cuenta sintética, sigue la guía de [configuración de Supabase](docs/supabase.md) y ejecuta el seed solo con las confirmaciones de proyecto y base de demostración. El script crea o reutiliza el usuario en Supabase Auth y crea o vincula el perfil. Es idempotente y no elimina cuentas automáticamente ante fallos parciales. Rechaza `NODE_ENV=production`. No uses datos personales reales.
+`npm run db:check-connections` es una comprobación de solo lectura previa al
+bootstrap, valida ambas conexiones, TLS, separación de roles, permisos de
+esquema y ausencia de objetos preexistentes; no prueba DDL creando objetos.
+`npm run db:check-security` es la comprobación runtime posterior: valida TLS,
+atributos efectivos, privilegios de esquema/base y columnas ACL esperadas;
+las sondas cierran sus pools y no imprimen URLs ni credenciales. Ninguna sonda
+certifica por sí sola las expresiones de las políticas RLS.
 
-El seed es idempotente y ya no elimina cuentas automáticamente ante fallos parciales. Para revisar estados inconsistentes usa `npm run db:reconcile-identities` (solo lectura); para vincular una cuenta Auth ya existente a un perfil por código, usa `npm run db:link-student-auth -- --student-code CODIGO --email XXXX@utb.edu.co`. Revisa primero las precauciones y el procedimiento de [recuperación y vinculación](docs/supabase.md#diagnóstico-y-recuperación).
+Para provisionar una cuenta sintética, sigue la guía de [configuración de Supabase](docs/supabase.md) y ejecuta el seed solo con `DB_PROVISIONING_ENABLED=true`, un `DB_PROVISIONING_URL` de rol separado y las confirmaciones exactas de proyecto/base de demostración. El script crea o reutiliza el usuario en Supabase Auth y crea o vincula el perfil. Es idempotente y no elimina cuentas automáticamente ante fallos parciales. Rechaza `NODE_ENV=production`. No uses datos personales reales.
+
+El seed es idempotente y ya no elimina cuentas automáticamente ante fallos parciales. Para revisar estados inconsistentes, configura un rol `SELECT`-only en `DB_RECONCILIATION_URL`, habilita `DB_RECONCILIATION_ENABLED=true` y usa `npm run db:reconcile-identities`; para vincular una cuenta Auth ya existente a un perfil por código, configura `DB_PROVISIONING_URL` y `DB_PROVISIONING_ENABLED=true` antes de usar `npm run db:link-student-auth -- --student-code CODIGO --email XXXX@utb.edu.co`. Revisa primero las precauciones y el procedimiento de [recuperación y vinculación](docs/supabase.md#diagnóstico-y-recuperación).
 
 ## Deployment verificado (S8)
 
 El backend está desplegado mediante la aplicación Dokploy `gimnasioutb-sistema-kresdf` en [https://gimnasio-utb.iscoutb.dev](https://gimnasio-utb.iscoutb.dev). El deployment usa Docker Compose con tres servicios: `postgres` ejecuta PostgreSQL con un volumen nombrado; `db-init` ejecuta `npm run db:init` cuando PostgreSQL está saludable; y `api` construye la imagen de producción, escucha internamente en el puerto 3000 y espera a que `db-init` termine correctamente. El healthcheck de `api` consulta `/ready`.
+
+El Compose requiere `DB_MIGRATIONS_URL` para `db-init` y `DATABASE_URL` para
+`api`; deben ser roles distintos. `POSTGRES_USER`/`POSTGRES_PASSWORD` solo
+inicializan el contenedor PostgreSQL y ya no se interpolan en las conexiones de
+la API ni de `db-init`. Las URLs deben apuntar al servicio `postgres` y los roles
+deben existir previamente; esta configuración no los crea.
 
 La verificación anterior corresponde al estado desplegado en S8; esta etapa no
 se ha desplegado ni se han aplicado migraciones. El entorno remoto no debe

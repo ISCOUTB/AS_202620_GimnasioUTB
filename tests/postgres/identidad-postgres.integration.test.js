@@ -4,6 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { Pool } = require('pg');
+const { crearOpcionesPoolPostgres } = require('../../src/shared/postgres-pool');
 const { aplicarAcceso } = require('../../src/modules/aforo/domain/aforo');
 const { crearRegistrarAccesoQrUseCase } = require('../../src/modules/aforo/application/registrar-acceso-qr.usecase');
 const { AforoPostgresAdapter } = require('../../src/modules/aforo/infrastructure/persistence/aforo-postgres.adapter');
@@ -24,7 +25,7 @@ test('PostgreSQL: perfil vinculado a Supabase Auth y consumo transaccional de QR
   assert.match(databaseName, /test/i, 'DATABASE_URL debe apuntar a una base de pruebas');
 
   const schema = `identidad_test_${randomUUID().replace(/-/g, '')}`;
-  const adminPool = new Pool({ connectionString: databaseUrl });
+  const adminPool = new Pool(crearOpcionesPoolPostgres(databaseUrl));
   let adapter;
   let schemaCreated = false;
   try {
