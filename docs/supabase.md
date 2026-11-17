@@ -6,10 +6,12 @@ El backend usa el driver PostgreSQL `pg` existente para conectarse a una base
 local o a Supabase PostgreSQL. Supabase Auth es la fuente de autenticación de
 estudiantes. Flutter continúa comunicándose únicamente con la API Express.
 
-La conectividad PostgreSQL se comprobó previamente con una consulta `SELECT 1`;
-esto no valida todavía el esquema, permisos, RLS ni los flujos completos de la
-API. El repositorio no incluye credenciales. Las pruebas locales usan dobles de
-Auth y el adapter de identidad en memoria; no son evidencia de un login real.
+El preflight más reciente completó `SELECT 1` y verificó TLSv1.3 con certificado
+validado para runtime y migrator. Ambos pools se cerraron correctamente. Esto
+confirma conectividad y permisos comprobados por la sonda, no el esquema ni los
+flujos completos de la API. No se ejecutaron escrituras de esquema. Las pruebas
+locales usan dobles de Auth y el adapter de identidad en memoria; no son
+evidencia de un login real.
 
 ## Responsabilidades de las claves
 
@@ -17,6 +19,7 @@ Auth y el adapter de identidad en memoria; no son evidencia de un login real.
 |---|---|
 | `DATABASE_URL` | Conexión del backend al PostgreSQL mediante `pg`, exclusivamente con `gimnasio_runtime`. |
 | `DATABASE_SSL` | TLS PostgreSQL. Es obligatorio por defecto; `false` solo se admite para `localhost`, `127.0.0.1`, `::1` y el servicio local `postgres`. |
+| `DATABASE_SSL_CA_CERT_PATH` | Ruta opcional a un certificado CA PostgreSQL en PEM. Úsala con la CA oficial descargada del Dashboard si el trust store de Node no la reconoce. |
 | `DB_MIGRATIONS_URL` | Conexión de `gimnasio_migrator`, solo para bootstrap/migraciones. No se usa en la API. |
 | `DB_PROVISIONING_URL` | Conexión separada para seed/vinculación; no se necesita para la primera inicialización. Nunca se usa en la API. |
 | `DB_RECONCILIATION_URL` | Conexión de solo lectura para reconciliación; no se necesita para la primera inicialización ni se usa en la API. |
@@ -46,9 +49,24 @@ para el login de estudiantes. Consulta la
 `DATABASE_URL` y `DB_MIGRATIONS_URL` deben ser URI PostgreSQL válidas. Las
 conexiones usan TLS con `rejectUnauthorized: true`; no se desactiva la
 validación del certificado ni se confía en `sslmode=no-verify`. La configuración
-fuerza TLS aunque la URI incluya parámetros SSL que pudieran debilitarlo. El
-modo sin TLS solo se permite explícitamente para hosts locales indicados arriba.
-La API no crea tablas ni inicializa la base al arrancar.
+retira de la URI los parámetros TLS y aplica sus propias opciones. Si se define
+`DATABASE_SSL_CA_CERT_PATH`, el archivo PEM se entrega a `pg` como CA de esa
+conexión, manteniendo la validación de cadena y hostname. No añadas un
+certificado observado en la red sin verificarlo contra la descarga oficial del
+Dashboard. El modo sin TLS solo se permite explícitamente para hosts locales
+indicados arriba. La API no crea tablas ni inicializa la base al arrancar.
+
+El preflight de Windows encontró en el handshake TLS el emisor raíz
+`Supabase Root 2021 CA`; el código no configura una CA y Node no tenía activado
+el trust store del sistema ni `NODE_EXTRA_CA_CERTS`. Esto es compatible con que
+falte la CA de Supabase en el trust store predeterminado; por sí solo no prueba
+ni descarta inspección TLS. Descarga el certificado CA desde **Database
+Settings → SSL Configuration** del proyecto y configura su ruta local en
+`DATABASE_SSL_CA_CERT_PATH`. Supabase documenta su certificado `prod-ca-2021.crt`
+para verificar la cadena con `verify-full` ([SSL Enforcement](https://supabase.com/docs/guides/platform/ssl-enforcement)).
+Si el emisor recibido no coincide con la CA oficial, investiga antivirus/proxy
+de inspección y usa únicamente la raíz aprobada por tu organización; no
+desactives la verificación.
 
 El backend no usa Supabase Auth como sustituto de sus reglas de autorización
 ni permite al cliente escribir directamente en las tablas. El token compartido
@@ -68,25 +86,77 @@ del operador sigue siendo una credencial separada.
    esta guía; no reutilices el rol administrativo actual. Establece sus
    contraseñas en el gestor de secretos, sin incluirlas en el SQL, el
    repositorio o los logs.
-5. Configura `DATABASE_URL` y `DB_MIGRATIONS_URL` con usuarios distintos,
-   dirigidos a la misma base/proyecto y con TLS validado. Para el runner de
-   migraciones usa conexión directa o pooler en modo sesión, porque mantiene
-   un advisory lock de sesión. La configuración de provisionamiento y
-   reconciliación se difiere hasta que esos flujos se autoricen.
-6. Para inicializar, configura además `DB_INIT_ENABLED`,
+5. En el Dashboard abre **Connect** y copia el host exacto del **Session
+   Pooler**. Para el proyecto que solo es accesible por pooler desde Windows,
+   usa el puerto `5432` y la base `postgres` en ambas URI. El formato de usuario
+   documentado por Supabase para el pooler es `<usuario>.<project-ref>`
+   ([conexión Session Pooler](https://supabase.com/docs/guides/database/connecting-to-postgres#pooler-session-mode),
+   [FAQ de Supavisor](https://supabase.com/kb/troubleshooting/supavisor-faq-YyP5tI)):
+   `gimnasio_runtime.<project-ref>` para `DATABASE_URL` y
+   `gimnasio_migrator.<project-ref>` para `DB_MIGRATIONS_URL`. Conserva las
+   contraseñas propias de esos roles, codificadas como URI si contienen
+   caracteres reservados. El pooler usa el usuario como parte de su combinación
+   `usuario/base/modo`; verifica la autenticación real con cada rol antes de
+   continuar. No sustituyas esos roles por `postgres`.
+
+   Plantillas (reemplaza los marcadores con la información copiada del
+   Dashboard y las contraseñas de cada rol codificadas para URI):
+
+   ```text
+   DATABASE_URL=postgresql://gimnasio_runtime.<PROJECT_REF>:<RUNTIME_PASSWORD>@<POOLER_HOST>:5432/postgres
+   DB_MIGRATIONS_URL=postgresql://gimnasio_migrator.<PROJECT_REF>:<MIGRATOR_PASSWORD>@<POOLER_HOST>:5432/postgres
+   ```
+6. El runner de migraciones usa `pg_advisory_lock` en una sesión que permanece
+   abierta. El modo **Session Pooler** (5432) asigna una conexión de backend
+   durante la sesión y es adecuado; no uses **Transaction Pooler** (6543), que
+   no conserva el estado de sesión entre transacciones. La conexión directa
+   sigue siendo preferible cuando el host/IP es accesible; el Session Pooler es
+   la alternativa IPv4 documentada.
+7. Para inicializar, configura además `DB_INIT_ENABLED`,
    `DB_MIGRATIONS_HOST`, `DB_MIGRATIONS_TARGET`,
    `DB_MIGRATIONS_PROJECT_REF` y el `SUPABASE_URL` que confirma el proyecto.
    `DB_MIGRATIONS_ENABLED` solo se necesita para migrar una base legacy.
-7. Configura los endpoints privados en el entorno local solo si se va a probar
+8. Configura los endpoints privados en el entorno local solo si se va a probar
    contra Supabase. No añadas valores reales a `.env.example`.
 
-Para el Compose de Dokploy, configura `SUPABASE_URL`,
-`SUPABASE_PUBLISHABLE_KEY` (o `SUPABASE_ANON_KEY` para instalaciones heredadas)
-y la `DATABASE_URL` del runtime en el servicio API. `DB_MIGRATIONS_URL` solo se
-inyecta en `db-init`; `DB_PROVISIONING_URL`, `DB_RECONCILIATION_URL` y
-`SUPABASE_SERVICE_ROLE_KEY` solo deben existir en el proceso administrativo que
-los necesita. El seed y la vinculación no se ejecutan dentro de la API ni en
-producción.
+### Variables para Dokploy
+
+En el servicio permanente de la API configura:
+
+- `DATABASE_URL`: URI del Session Pooler, usuario
+  `gimnasio_runtime.<project-ref>`, puerto `5432`, base `postgres`.
+- `DATABASE_SSL=true`.
+- `DATABASE_SSL_CA_CERT_PATH=/run/secrets/supabase-prod-ca-2021.crt`, si se
+  monta la CA oficial en esa ruta. Monta el archivo en modo solo lectura y
+  permite que el usuario del contenedor lo lea.
+- `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY` (o `SUPABASE_ANON_KEY` para una
+  clave heredada).
+- `OPERADOR_TOKEN`; `CORS_ORIGINS` solo si se sirve Flutter web; `PORT` puede
+  conservar el valor predeterminado.
+
+No inyectes en la API `DB_MIGRATIONS_URL`, `DB_MIGRATIONS_HOST`,
+`DB_MIGRATIONS_TARGET`, `DB_MIGRATIONS_PROJECT_REF`, `DB_INIT_ENABLED`,
+`DB_MIGRATIONS_ENABLED`, `DB_PROVISIONING_URL`, `DB_RECONCILIATION_URL` ni
+`SUPABASE_SERVICE_ROLE_KEY`.
+
+En el job administrativo aislado para `db:init`/`db:migrate` configura además
+`DB_MIGRATIONS_URL` con el usuario
+`gimnasio_migrator.<project-ref>` en el mismo Session Pooler/puerto/base;
+`DB_MIGRATIONS_HOST` con el hostname exacto copiado de Supabase (sin esquema ni
+puerto); `DB_MIGRATIONS_TARGET=postgres`;
+`DB_MIGRATIONS_PROJECT_REF=<project-ref>`; `SUPABASE_URL`; y
+`DATABASE_SSL=true`. Monta la CA con la misma ruta si se necesita.
+`DB_INIT_ENABLED=true` solo durante la inicialización autorizada y
+`DB_MIGRATIONS_ENABLED=true` solo durante una migración autorizada.
+
+Completa los endpoints desde **Connect** en el Dashboard; no copies un
+hostname de otra región/proyecto ni publiques las contraseñas de los roles.
+
+La validación local actual también requiere `DATABASE_URL` en ese job para
+comprobar que la URL runtime identifica un rol distinto y la misma base/proyecto;
+el pool de `db:init`/`db:migrate` se crea con `DB_MIGRATIONS_URL`. Aísla y
+elimina el job tras ejecutarlo. No configures la URL migrator ni credenciales
+administrativas en el contenedor permanente de la API.
 
 El Compose de PostgreSQL local requiere `DATABASE_URL` y `DB_MIGRATIONS_URL`
 separadas en `deploy/.env`; ambas apuntan al servicio `postgres` pero deben
@@ -337,7 +407,12 @@ requiere inspección y una decisión separada. No se ha ejecutado ningún SQL.
 ### Preflight antes de `db:init`
 
 `npm run db:check-connections` usa `DATABASE_URL` y `DB_MIGRATIONS_URL` para
-ejecutar una consulta de lectura por conexión y cerrar ambos pools. Carga el
+ejecutar `SELECT 1` y una consulta de lectura por conexión, y cerrar ambos
+pools. Comprueba el estado TLS en el socket cliente real de `pg`, incluyendo
+que el certificado esté autorizado y la versión negociada. No usa
+`pg_stat_ssl` para inferir el TLS cliente→pooler: esa vista describe el tramo
+pooler→PostgreSQL y puede ser falso aunque el tramo cliente→pooler esté cifrado.
+Carga el
 `.env` raíz sin imprimir sus valores y valida primero que las URLs representen
 el mismo destino confirmado. Comprueba TLS, roles efectivos
 `gimnasio_runtime`/`gimnasio_migrator`, ausencia de atributos administrativos y
@@ -347,8 +422,8 @@ runtime en base/esquema y que no existan las tablas esperadas ni
 
 La sonda comprueba los grants de esquema sin crear objetos; no ejecuta DDL para
 probar el migrador. Si algún check falla, no ejecutes `db:init`. El resultado
-no contiene host, URLs, contraseñas ni claves. Este comando no se ha ejecutado
-contra Supabase en esta etapa.
+no contiene host, URLs, contraseñas ni claves. La última ejecución completó
+ambos `SELECT 1`, mostró TLS activo/verificado y cerró los dos pools.
 
 ### Comprobación después de aplicar grants y políticas
 
@@ -374,8 +449,8 @@ ORDER BY tablename, policyname;
 La compatibilidad TLS se verificó localmente con `pg@8.23.0` (el manifiesto
 permite `^8.16.3`): acepta `ssl: { rejectUnauthorized: true }`. La URI limpia
 los parámetros SSL que podrían sobrescribir esa opción; no se deshabilita la
-validación del certificado. La conexión real, certificado y TLS del servidor
-se confirman con el preflight.
+validación del certificado. La conexión real, el certificado y el TLS del
+socket cliente se confirman con el preflight.
 
 ## Primera inicialización (pendiente de autorización)
 

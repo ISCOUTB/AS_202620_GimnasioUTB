@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const tls = require('node:tls');
 const {
   validarConfiguracion,
   aplicarMigraciones,
@@ -15,8 +16,8 @@ const PROJECT_REF = 'abcdefghijklmnopqrst';
 
 function env(overrides = {}) {
   return {
-    DB_MIGRATIONS_URL: `postgresql://migrator@db.${PROJECT_REF}.supabase.co:5432/gym_test`,
-    DATABASE_URL: `postgresql://runtime@db.${PROJECT_REF}.supabase.co:5432/gym_test`,
+    DB_MIGRATIONS_URL: `postgresql://gimnasio_migrator@db.${PROJECT_REF}.supabase.co:5432/gym_test`,
+    DATABASE_URL: `postgresql://gimnasio_runtime@db.${PROJECT_REF}.supabase.co:5432/gym_test`,
     SUPABASE_URL: `https://${PROJECT_REF}.supabase.co`,
     DB_MIGRATIONS_ENABLED: 'true',
     DB_MIGRATIONS_HOST: `db.${PROJECT_REF}.supabase.co`,
@@ -53,7 +54,9 @@ test('el runner requiere habilitación explícita y destino Supabase confirmado'
 test('el runner acepta pooler solo si el usuario identifica el proyecto confirmado', () => {
   const poolerEnv = env({
     DB_MIGRATIONS_URL:
-      `postgresql://postgres.${PROJECT_REF}@aws-0-us-east-1.pooler.supabase.com:5432/gym_test`,
+      `postgresql://gimnasio_migrator.${PROJECT_REF}@aws-0-us-east-1.pooler.supabase.com:5432/gym_test`,
+    DATABASE_URL:
+      `postgresql://gimnasio_runtime.${PROJECT_REF}@aws-0-us-east-1.pooler.supabase.com:5432/gym_test`,
     DB_MIGRATIONS_HOST: 'aws-0-us-east-1.pooler.supabase.com',
   });
   assert.equal(validarConfiguracion(poolerEnv).projectRef, PROJECT_REF);
@@ -61,18 +64,34 @@ test('el runner acepta pooler solo si el usuario identifica el proyecto confirma
     () => validarConfiguracion({
       ...poolerEnv,
       DB_MIGRATIONS_URL:
-        'postgresql://postgres.otherproject@aws-0-us-east-1.pooler.supabase.com:5432/gym_test',
+        'postgresql://gimnasio_migrator.otherproject@aws-0-us-east-1.pooler.supabase.com:5432/gym_test',
     }),
     /proyecto Supabase confirmado/
+  );
+  assert.throws(
+    () => validarConfiguracion({
+      ...poolerEnv,
+      DATABASE_URL:
+        `postgresql://postgres.${PROJECT_REF}@aws-0-us-east-1.pooler.supabase.com:5432/gym_test`,
+    }),
+    { code: 'DATABASE_URL_ROLE_MISMATCH' }
+  );
+  assert.throws(
+    () => validarConfiguracion({
+      ...poolerEnv,
+      DB_MIGRATIONS_URL:
+        `postgresql://gimnasio_migrator.${PROJECT_REF}@aws-0-us-east-1.pooler.supabase.com:6543/gym_test`,
+    }),
+    { code: 'DB_MIGRATIONS_URL_PORT_INVALID' }
   );
 });
 
 test('el runner exige credenciales runtime y de esquema separadas para Supabase', () => {
   assert.throws(
     () => validarConfiguracion(env({
-      DATABASE_URL: `postgresql://migrator@db.${PROJECT_REF}.supabase.co:5432/gym_test`,
+      DATABASE_URL: `postgresql://gimnasio_migrator@db.${PROJECT_REF}.supabase.co:5432/gym_test`,
     })),
-    /roles distintos/
+    /gimnasio_runtime/
   );
   assert.throws(
     () => validarConfiguracion(env({ DATABASE_URL: undefined })),
@@ -147,6 +166,25 @@ test('TLS solo puede desactivarse explícitamente para PostgreSQL local', () => 
     ),
     /DATABASE_SSL debe ser true o false/
   );
+});
+
+test('el CA Supabase opcional se carga sin desactivar la validación TLS', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'gimnasio-postgres-ca-'));
+  const caPath = path.join(directory, 'ca.crt');
+  const ca = tls.rootCertificates[0];
+  await fs.writeFile(caPath, ca, 'utf8');
+
+  try {
+    const options = crearOpcionesPoolPostgres(
+      `postgresql://user@db.${PROJECT_REF}.supabase.co:5432/postgres`,
+      {},
+      { DATABASE_SSL: 'true', DATABASE_SSL_CA_CERT_PATH: caPath }
+    );
+    assert.equal(options.ssl.rejectUnauthorized, true);
+    assert.equal(options.ssl.ca, ca);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
 });
 
 function crearPoolFalso({ errorEnMigracion = false, yaAplicada = false } = {}) {

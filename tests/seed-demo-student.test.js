@@ -84,9 +84,9 @@ test('el rol provisioning debe apuntar al proyecto Supabase confirmado', () => {
     DB_PROVISIONING_URL:
       `postgresql://provisioner@db.${projectRef}.supabase.co:5432/gym_test`,
     DATABASE_URL:
-      `postgresql://runtime@db.${projectRef}.supabase.co:5432/gym_test`,
+      `postgresql://gimnasio_runtime@db.${projectRef}.supabase.co:5432/gym_test`,
     DB_MIGRATIONS_URL:
-      `postgresql://migrator@db.${projectRef}.supabase.co:5432/gym_test`,
+      `postgresql://gimnasio_migrator@db.${projectRef}.supabase.co:5432/gym_test`,
   });
   assert.equal(validarConfiguracionSeed(remoteConfig).databaseUrl, remoteConfig.DB_PROVISIONING_URL);
   assert.throws(

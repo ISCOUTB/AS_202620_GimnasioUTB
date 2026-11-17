@@ -37,8 +37,6 @@ const CONNECTION_QUERY = `
   )
   SELECT
     role_state.*,
-    COALESCE(tls.ssl, FALSE) AS tls_active,
-    tls.version AS tls_version,
     ARRAY(
       SELECT relation.relname::TEXT
       FROM pg_catalog.pg_class relation
@@ -57,8 +55,6 @@ const CONNECTION_QUERY = `
       ORDER BY relation.relname
     ) AS existing_application_objects
   FROM role_state
-  LEFT JOIN pg_catalog.pg_stat_ssl tls
-    ON tls.pid = pg_backend_pid()
 `;
 
 const ROLE_ADMIN_ATTRIBUTES = [
@@ -68,6 +64,36 @@ const ROLE_ADMIN_ATTRIBUTES = [
   'rolreplication',
   'rolbypassrls',
 ];
+
+const CONFIGURATION_ERROR_CODES = new Set([
+  'DB_MIGRATIONS_URL_MISSING',
+  'DESTINATION_CONFIRMATION_MISSING',
+  'DB_MIGRATIONS_URL_INVALID',
+  'DB_MIGRATIONS_URL_PROTOCOL_INVALID',
+  'DB_MIGRATIONS_URL_PORT_INVALID',
+  'DB_MIGRATIONS_URL_DATABASE_INVALID',
+  'DB_MIGRATIONS_TARGET_MISMATCH',
+  'DB_MIGRATIONS_HOST_MISMATCH',
+  'SUPABASE_URL_INVALID',
+  'DB_MIGRATIONS_PROJECT_REF_MISMATCH',
+  'DB_MIGRATIONS_URL_USERNAME_INVALID',
+  'DB_MIGRATIONS_URL_PROJECT_MISMATCH',
+  'DB_MIGRATIONS_URL_ROLE_MISMATCH',
+  'DATABASE_URL_MISSING',
+  'DATABASE_URL_INVALID',
+  'DATABASE_URL_PROTOCOL_INVALID',
+  'DATABASE_URL_PORT_INVALID',
+  'DATABASE_URL_USERNAME_INVALID',
+  'DATABASE_URL_COMPONENT_INVALID',
+  'DATABASE_URL_ROLE_MISMATCH',
+  'DATABASE_URL_DESTINATION_OR_ROLE_MISMATCH',
+  'POSTGRES_URL_INVALID',
+  'POSTGRES_URL_PROTOCOL_INVALID',
+  'DATABASE_SSL_INVALID',
+  'DATABASE_SSL_CA_CERT_READ_FAILURE',
+  'DATABASE_SSL_CA_CERT_INVALID',
+  'TLS_DISABLED_FOR_REMOTE_DATABASE',
+]);
 
 function rolRestringido(role) {
   return Boolean(role)
@@ -87,7 +113,13 @@ function crearInforme(runtime, migrator, destination) {
     sameDatabase: runtime.database_name === migrator.database_name
       && runtime.database_name === destination.databaseName,
     runtimeTlsActive: runtime.tls_active === true,
+    runtimeTlsVerified: runtime.tls_verified === true,
+    runtimeTlsVersionKnown: typeof runtime.tls_version === 'string'
+      && runtime.tls_version.length > 0,
     migratorTlsActive: migrator.tls_active === true,
+    migratorTlsVerified: migrator.tls_verified === true,
+    migratorTlsVersionKnown: typeof migrator.tls_version === 'string'
+      && migrator.tls_version.length > 0,
     runtimeRoleRestricted: rolRestringido(runtime),
     migratorRoleRestricted: rolRestringido(migrator),
     runtimeCanConnect: runtime.database_connect === true,
@@ -112,7 +144,11 @@ function crearInforme(runtime, migrator, destination) {
     runtime: {
       role: runtime.effective_role,
       sessionRole: runtime.session_role,
-      tls: { active: runtime.tls_active, version: runtime.tls_version || null },
+      tls: {
+        active: runtime.tls_active,
+        verified: runtime.tls_verified,
+        version: runtime.tls_version || null,
+      },
       databaseCreate: runtime.database_create,
       publicSchema: {
         usage: runtime.public_usage,
@@ -122,7 +158,11 @@ function crearInforme(runtime, migrator, destination) {
     migrator: {
       role: migrator.effective_role,
       sessionRole: migrator.session_role,
-      tls: { active: migrator.tls_active, version: migrator.tls_version || null },
+      tls: {
+        active: migrator.tls_active,
+        verified: migrator.tls_verified,
+        version: migrator.tls_version || null,
+      },
       databaseCreate: migrator.database_create,
       publicSchema: {
         usage: migrator.public_usage,
@@ -135,7 +175,12 @@ function crearInforme(runtime, migrator, destination) {
 }
 
 function categorizarError(error) {
-  const code = typeof error?.code === 'string' ? error.code : '';
+  const code = typeof error?.code === 'string'
+    ? error.code
+    : typeof error?.cause?.code === 'string'
+      ? error.cause.code
+      : '';
+  if (CONFIGURATION_ERROR_CODES.has(code)) return code;
   if (['ENOTFOUND', 'EAI_AGAIN'].includes(code)) return 'DNS_FAILURE';
   if (['28P01', '28000'].includes(code)) return 'DATABASE_AUTH_FAILURE';
   if (
@@ -154,6 +199,27 @@ function categorizarError(error) {
   }
   if (/^[0-9A-Z]{5}$/.test(code)) return `POSTGRES_${code}`;
   return 'CONFIGURATION_OR_UNKNOWN_FAILURE';
+}
+
+async function consultarEstadoConexion(pool) {
+  const client = await pool.connect();
+  try {
+    await client.query('SELECT 1');
+    const result = await client.query(CONNECTION_QUERY);
+    const stream = client.connection?.stream;
+    const tlsActive = stream?.encrypted === true;
+    const tlsVerified = tlsActive && stream.authorized === true;
+    return {
+      ...result.rows[0],
+      tls_active: tlsActive,
+      tls_verified: tlsVerified,
+      tls_version: tlsVerified && typeof stream.getProtocol === 'function'
+        ? stream.getProtocol()
+        : null,
+    };
+  } finally {
+    client.release();
+  }
 }
 
 async function verificarConexiones(env = process.env, PoolImpl = Pool) {
@@ -176,8 +242,8 @@ async function verificarConexiones(env = process.env, PoolImpl = Pool) {
     poolStates.migrator = { opened: true, closed: false };
 
     const [runtimeResult, migratorResult] = await Promise.allSettled([
-      runtimePool.query(CONNECTION_QUERY),
-      migratorPool.query(CONNECTION_QUERY),
+      consultarEstadoConexion(runtimePool),
+      consultarEstadoConexion(migratorPool),
     ]);
     if (runtimeResult.status === 'rejected') {
       queryFailures.runtime = categorizarError(runtimeResult.reason);
@@ -187,8 +253,8 @@ async function verificarConexiones(env = process.env, PoolImpl = Pool) {
     }
     if (runtimeResult.status === 'fulfilled' && migratorResult.status === 'fulfilled') {
       report = crearInforme(
-        runtimeResult.value.rows[0],
-        migratorResult.value.rows[0],
+        runtimeResult.value,
+        migratorResult.value,
         destination
       );
     }
