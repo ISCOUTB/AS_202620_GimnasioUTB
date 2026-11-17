@@ -3,3 +3,4 @@ node_modules/
 *.log
 .dart_tool/
 build/
+prod-ca-2021.crt
