@@ -181,32 +181,38 @@ function validarEntornoReconciliacion(env = process.env) {
   return validarRolSoloLecturaSeparado(config, env, 'DB_RECONCILIATION_URL');
 }
 
-function sanitizarMensajeAdministrativo(error, env = process.env) {
-  let message = error instanceof Error ? error.message : 'Error administrativo no especificado';
+/** Agrega el usuario y la contraseña de una URL (codificados y decodificados). */
+function agregarCredencialesDeUrl(value, secrets) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return; // Valor inválido: ya se redacta completo.
+  }
+  for (const credential of [url.username, url.password].filter(Boolean)) {
+    secrets.add(credential);
+    try {
+      secrets.add(decodeURIComponent(credential));
+    } catch {
+      // Se conserva solo la credencial codificada en el conjunto de redacción.
+    }
+  }
+}
+
+function recolectarSecretos(env) {
   const secrets = new Set();
   for (const name of SECRET_ENVIRONMENT_VARIABLES) {
     const value = env[name];
     if (!value) continue;
     secrets.add(value);
-    if (name.endsWith('_URL')) {
-      try {
-        const url = new URL(value);
-        for (const credential of [url.username, url.password]) {
-          if (credential) {
-            secrets.add(credential);
-            try {
-              secrets.add(decodeURIComponent(credential));
-            } catch {
-              // Keep the encoded credential in the redaction set.
-            }
-          }
-        }
-      } catch {
-        // The configured value may be invalid; redact it as-is.
-      }
-    }
+    if (name.endsWith('_URL')) agregarCredencialesDeUrl(value, secrets);
   }
-  for (const secret of secrets) {
+  return secrets;
+}
+
+function sanitizarMensajeAdministrativo(error, env = process.env) {
+  let message = error instanceof Error ? error.message : 'Error administrativo no especificado';
+  for (const secret of recolectarSecretos(env)) {
     message = message.split(secret).join('[redactado]');
   }
   return message;

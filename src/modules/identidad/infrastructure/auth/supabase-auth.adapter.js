@@ -12,6 +12,15 @@ function esUuid(valor) {
     && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(valor);
 }
 
+// Supabase puede devolver el vencimiento absoluto (expires_at, en segundos
+// Unix) o solo la duración (expires_in, en segundos). Sin ninguno, la sesión
+// se considera vencida.
+function calcularVencimientoMs(expiresAt, expiresIn) {
+  if (Number.isFinite(expiresAt)) return expiresAt * 1000;
+  const duracionMs = Number.isFinite(expiresIn) ? expiresIn * 1000 : 0;
+  return Date.now() + duracionMs;
+}
+
 class SupabaseAuthAdapter extends SupabaseAuthPort {
   constructor({
     url = process.env.SUPABASE_URL,
@@ -64,9 +73,7 @@ class SupabaseAuthAdapter extends SupabaseAuthPort {
       throw new IdentidadProveedorError('Supabase Auth devolvió una respuesta de sesión inválida.');
     }
 
-    const expiresAtMs = Number.isFinite(expiresAt)
-      ? expiresAt * 1000
-      : Date.now() + (Number.isFinite(expiresIn) ? expiresIn * 1000 : 0);
+    const expiresAtMs = calcularVencimientoMs(expiresAt, expiresIn);
     if (expiresAtMs <= Date.now()) {
       throw new IdentidadProveedorError('Supabase Auth devolvió una sesión vencida.');
     }

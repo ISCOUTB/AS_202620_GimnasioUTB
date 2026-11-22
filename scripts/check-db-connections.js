@@ -174,12 +174,14 @@ function crearInforme(runtime, migrator, destination) {
   };
 }
 
+function obtenerCodigoError(error) {
+  if (typeof error?.code === 'string') return error.code;
+  if (typeof error?.cause?.code === 'string') return error.cause.code;
+  return '';
+}
+
 function categorizarError(error) {
-  const code = typeof error?.code === 'string'
-    ? error.code
-    : typeof error?.cause?.code === 'string'
-      ? error.cause.code
-      : '';
+  const code = obtenerCodigoError(error);
   if (CONFIGURATION_ERROR_CODES.has(code)) return code;
   if (['ENOTFOUND', 'EAI_AGAIN'].includes(code)) return 'DNS_FAILURE';
   if (['28P01', '28000'].includes(code)) return 'DATABASE_AUTH_FAILURE';
@@ -261,15 +263,18 @@ async function verificarConexiones(env = process.env, PoolImpl = Pool) {
   } catch (error) {
     queryFailures.configuration = categorizarError(error);
   } finally {
-    for (const [name, pool] of [['runtime', runtimePool], ['migrator', migratorPool]]) {
-      if (!pool) continue;
+    // Los dos pools son independientes: se cierran en paralelo y el fallo de
+    // uno no impide intentar cerrar el otro.
+    const pools = [['runtime', runtimePool], ['migrator', migratorPool]]
+      .filter(([, pool]) => pool);
+    await Promise.all(pools.map(async ([name, pool]) => {
       try {
         await pool.end();
         poolStates[name].closed = true;
       } catch (error) {
         closeFailures[name] = categorizarError(error);
       }
-    }
+    }));
   }
 
   const checksPassed = report && Object.values(report.checks).every(Boolean);

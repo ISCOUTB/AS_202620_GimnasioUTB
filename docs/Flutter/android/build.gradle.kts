@@ -20,5 +20,7 @@ subprojects {
 }
 
 tasks.register<Delete>("clean") {
+    group = "build"
+    description = "Elimina la carpeta build compartida de la app Flutter."
     delete(rootProject.layout.buildDirectory)
 }

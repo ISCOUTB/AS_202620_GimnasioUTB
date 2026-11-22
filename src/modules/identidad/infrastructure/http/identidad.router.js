@@ -48,7 +48,12 @@ function crearAutenticacionEstudiante(supabaseAuth, repository) {
       req.estudiante = estudiante;
       return next();
     } catch (error) {
-      logger.error('identity.session_lookup_failed', 'Failed to validate student session');
+      // Se registra solo el tipo de error: el mensaje podría incluir datos del
+      // proveedor o del token. El cliente recibe un 503 genérico.
+      logger.error(
+        'identity.session_lookup_failed',
+        `Failed to validate student session (${error?.name || 'Error'})`
+      );
       return res.status(503).json({
         status: 'error',
         message: MENSAJE_IDENTIDAD_NO_DISPONIBLE,
