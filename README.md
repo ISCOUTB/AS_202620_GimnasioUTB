@@ -184,7 +184,7 @@ GET /metrics
 
 ## Arquitectura y consistencia
 
-El dominio contiene la regla de transición del contador; la aplicación depende de `AforoRepositoryPort`, cuyo contrato actual incluye `obtenerAforoActual()` y `actualizarAforo(transicionar)`. La infraestructura ofrece el adapter PostgreSQL y el adapter en memoria.
+El dominio contiene las reglas del aforo: la transición del contador, el bloqueo de entradas con el gimnasio cerrado y la confirmación al superar la capacidad (ADR-0012). La aplicación depende de `AforoRepositoryPort`, cuyo contrato incluye `obtenerAforoActual()`, `obtenerEstado()`, `actualizarAforo(transicionar)` y `modificarEstado(transformar)`. La infraestructura ofrece el adapter PostgreSQL y el adapter en memoria.
 
 `AforoPostgresAdapter` ejecuta la transición dentro de una transacción y bloquea la fila con `SELECT ... FOR UPDATE` antes de actualizarla. Confirma con `COMMIT`, intenta `ROLLBACK` ante errores y libera el cliente. El servidor real compone la aplicación con PostgreSQL y cierra el adapter tras drenar las solicitudes al recibir `SIGTERM`.
 

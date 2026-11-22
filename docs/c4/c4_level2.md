@@ -5,13 +5,13 @@ C4Container
     System_Ext(cliente, "App Flutter / cliente HTTP", "Consulta el aforo; usa sesión sintética estudiantil o token compartido de operador.")
 
     Container_Boundary(sistema, "Gimnasio UTB") {
-        Container(api, "Backend / API", "Node.js / Express", "Expone API de aforo, login de estudiantes (scrypt y sesiones propias), QR y endpoints operativos.")
+        Container(api, "Backend / API", "Node.js / Express", "Expone el estado del gimnasio (aforo, capacidad, apertura), login de estudiantes (scrypt y sesiones propias), QR, registro por cédula y endpoints operativos.")
         Container(init, "Preparación de base", "Node.js, misma imagen (db-bootstrap y db-init)", "En cada deploy crea los roles, aplica esquema, permisos y cuentas de prueba, y verifica la seguridad. Termina antes de que arranque la API.")
         ContainerDb(db, "Base de datos", "PostgreSQL 16 en el Compose de Dokploy (ADR-0011)", "Persiste aforo, cuentas sintéticas con hash de contraseña, sesiones, QR y estado individual.")
     }
 
     Rel(cliente, api, "Consulta aforo (público) y endpoints operativos", "HTTPS / JSON")
-    Rel(cliente, api, "Registra entradas/salidas", "HTTPS / JSON + Authorization: Bearer (ADR-0007)")
+    Rel(cliente, api, "Registra entradas/salidas, abre/cierra y cambia la capacidad", "HTTPS / JSON + Authorization: Bearer (ADR-0007)")
     Rel(cliente, api, "Inicia sesión y muestra/escanea QR temporal", "HTTPS / JSON + Bearer según endpoint")
     Rel(api, db, "Lee y actualiza aforo e identidad transaccional", "SQL / pg, red interna del Compose, rol gimnasio_runtime")
     Rel(init, db, "Crea roles; esquema, permisos y cuentas; verificación", "SQL / pg, superusuario solo en db-bootstrap, luego gimnasio_migrator")

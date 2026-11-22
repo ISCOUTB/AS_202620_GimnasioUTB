@@ -32,10 +32,16 @@ flutter run --dart-define=GYM_API_BASE_URL=https://servidor-configurado
 Desde este directorio:
 
 ```bash
-flutter build apk --release
+flutter clean
+flutter pub get
+flutter analyze
+flutter test
+flutter build apk --release --split-per-abi
 ```
 
-El archivo se genera en `build/app/outputs/flutter-apk/app-release.apk`. La
+Genera una APK por tipo de procesador en `build/app/outputs/flutter-apk/`:
+`app-arm64-v8a-release.apk` sirve para casi todos los celulares actuales y
+`app-armeabi-v7a-release.apk` para los de 32 bits. La
 configuración actual firma el APK con la clave de depuración; sirve para
 instalación y pruebas, pero antes de publicarlo hay que configurar una clave de
 firma de release y un identificador de aplicación propio.

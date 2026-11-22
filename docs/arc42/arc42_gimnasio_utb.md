@@ -96,10 +96,9 @@ Los contratos y cuerpos de respuesta están descritos en `docs/openapi.yaml`; la
 
 El backend es un monolito organizado con Arquitectura Hexagonal / Ports and Adapters:
 
-- **Dominio:** `src/modules/aforo/domain/aforo.js` valida y calcula la transición del contador, sin depender de Express ni PostgreSQL.
-- **Aplicación:** `registrar-acceso.usecase.js` recibe el repositorio y delega una transición.
-- **Consulta:** `consultar-aforo.usecase.js` encapsula la lectura actual del contador mediante el repositorio.
-- **Puerto:** `AforoRepositoryPort` define `obtenerAforoActual()` y `actualizarAforo(transicionar)`.
+- **Dominio:** `src/modules/aforo/domain/aforo.js` valida y calcula la transición del contador y aplica las reglas del estado del gimnasio (cerrado bloquea entradas; superar la capacidad exige confirmación), sin depender de Express ni PostgreSQL.
+- **Aplicación:** `registrar-acceso.usecase.js` (registro sin identificación), `registrar-acceso-estudiante.usecase.js` (QR y cédula, en la transacción del aforo), `configurar-gimnasio.usecase.js` (apertura y capacidad) y `consultar-aforo.usecase.js` (estado y porcentaje de ocupación).
+- **Puerto:** `AforoRepositoryPort` define `obtenerAforoActual()`, `obtenerEstado()`, `actualizarAforo(transicionar)` y `modificarEstado(transformar)`.
 - **Infraestructura:** Express implementa el adapter HTTP; `AforoPostgresAdapter` y `AforoMemoriaAdapter` implementan el contrato de persistencia.
 - **Composición:** `src/server.js` usa PostgreSQL al ejecutar el servidor real y permite inyectar otro repositorio en `createApp()`.
 
@@ -121,32 +120,41 @@ La observabilidad implementada es básica: logs JSON en stdout, `/health`, `/rea
 flowchart LR
     SERVER[server.js<br/>composition root] --> ROUTER[Router HTTP de aforo]
     ROUTER --> WRITE[crearRegistrarAccesoUseCase]
+    ROUTER --> EST[crearRegistrarAccesoEstudianteUseCase<br/>QR y cédula]
+    ROUTER --> CONF[crearConfigurarGimnasioUseCases<br/>apertura y capacidad]
     ROUTER --> READ[crearConsultarAforoUseCase]
-    WRITE --> PORT[AforoRepositoryPort<br/>actualizarAforo transicionar]
+    WRITE --> PORT[AforoRepositoryPort]
+    EST --> PORT
+    CONF --> PORT
     READ --> PORT
+    EST -. función inyectada .-> ID[IdentidadPostgresAdapter<br/>consumirQr / registrarPorCedula]
     PORT --> PG[AforoPostgresAdapter]
     PG --> DB[(PostgreSQL<br/>aforo_estado)]
-    WRITE -. callback de transición .-> DOMAIN[domain/aforo.js<br/>aplicarAcceso]
+    WRITE -. reglas .-> DOMAIN[domain/aforo.js<br/>aplicarAccesoConEstado]
+    EST -. reglas .-> DOMAIN
+    CONF -. reglas .-> DOMAIN
     PORT -. implementación alternativa en pruebas .-> MEM[AforoMemoriaAdapter]
 ```
 
-El composition root inyecta el repositorio. El adapter de memoria es una implementación alternativa del puerto y se usa por defecto en las pruebas de `createApp()` que no requieren PostgreSQL.
+El composition root inyecta el repositorio y la función de identidad que resuelve al estudiante; el módulo de aforo no importa el de identidad. El adapter de memoria es una implementación alternativa del puerto y se usa por defecto en las pruebas de `createApp()` que no requieren PostgreSQL.
 
 ## 5.2 Bloques existentes y responsabilidades
 
 | Bloque | Responsabilidad | Evidencia |
 |---|---|---|
 | Composition root | Construye Express, selecciona/injecta repositorio, registra health, readiness y métricas. | `src/server.js` |
-| Adapter HTTP | `POST /acceso` invoca el caso de uso de registro; `GET /` invoca el caso de uso de consulta inyectado desde el composition root. | `src/modules/aforo/infrastructure/http/aforo.router.js`, `src/server.js` |
-| Caso de uso | Pide al repositorio una actualización atómica usando una función de transición. | `src/modules/aforo/application/registrar-acceso.usecase.js` |
-| Caso de uso de consulta | Obtiene el aforo actual mediante el puerto del repositorio. | `src/modules/aforo/application/consultar-aforo.usecase.js` |
-| Dominio | Acepta `ENTRADA`/`SALIDA` y rechaza tipos inválidos o salida desde cero. | `src/modules/aforo/domain/aforo.js` |
-| Puerto | Contrato de lectura y transición atómica. | `src/modules/aforo/application/ports/aforo-repository.port.js` |
+| Adapter HTTP | `GET /`, `POST /acceso`, `/acceso-qr` y `/acceso-cedula`, `PUT /estado` y `/capacidad`; traduce los errores de dominio a `400` y `409` (con `code`). | `src/modules/aforo/infrastructure/http/aforo.router.js`, `src/server.js` |
+| Casos de uso de registro | Sin identificación, o de un estudiante identificado por QR o cédula, siempre dentro de una actualización atómica del aforo. | `src/modules/aforo/application/registrar-acceso.usecase.js`, `registrar-acceso-estudiante.usecase.js`, `registrar-acceso-qr.usecase.js` |
+| Casos de uso del encargado | Abrir o cerrar con motivo y cambiar la capacidad. | `src/modules/aforo/application/configurar-gimnasio.usecase.js` |
+| Caso de uso de consulta | Estado del gimnasio con porcentaje de ocupación. | `src/modules/aforo/application/consultar-aforo.usecase.js` |
+| Dominio | Acepta `ENTRADA`/`SALIDA`, rechaza salidas desde cero, entradas con el gimnasio cerrado y entradas sin confirmar que superan la capacidad; valida motivo y capacidad. | `src/modules/aforo/domain/aforo.js` |
+| Puerto | Contrato de lectura, transición atómica del aforo y cambio atómico del estado. | `src/modules/aforo/application/ports/aforo-repository.port.js` |
 | Adapter PostgreSQL | Ejecuta transacción, bloqueo de fila, actualización y rollback. | `src/modules/aforo/infrastructure/persistence/aforo-postgres.adapter.js` |
 | Adapter en memoria | Implementación en RAM del mismo puerto. | `src/modules/aforo/infrastructure/persistence/aforo-memoria.adapter.js` |
-| Esquema | Una fila para `aforo_actual`, restringida a `id = 1` y valor no negativo. No guarda estudiantes ni eventos. | `src/modules/aforo/infrastructure/persistence/schema.sql` |
+| Identidad | Login propio, sesiones, QR, búsqueda y registro por cédula y estado individual dentro/fuera. | `src/modules/identidad/` |
+| Esquema | Fila única `aforo_estado` (aforo, capacidad, apertura y motivo, con `CHECK`), cuentas sintéticas, sesiones, QR y estado individual. | `src/modules/aforo/infrastructure/persistence/schema.sql`, `db/migrations/` |
 
-No existen en los bloques implementados entidades `RegistroAcceso` o `EstadoGimnasio`, usuarios, estudiantes, historial, notificaciones, WebSocket o Firebase.
+No existen en los bloques implementados usuarios por encargado, historial de eventos, notificaciones, WebSocket ni Firebase.
 
 # 6. Vista de ejecución
 
@@ -161,20 +169,22 @@ POST /api/v1/aforo/acceso
   -> AforoRepositoryPort.actualizarAforo(transicionar)
   -> AforoPostgresAdapter
   -> BEGIN
-  -> SELECT aforo_actual ... FOR UPDATE
-  -> ejecutar transición de dominio aplicarAcceso(...)
+  -> SELECT aforo_actual, capacidad_maxima, abierto, motivo_cierre ... FOR UPDATE
+  -> ejecutar transición de dominio aplicarAccesoConEstado(...)
   -> UPDATE aforo_estado
   -> COMMIT
   -> HTTP 201 { status: "success", data: { aforoActual } }
 ```
 
-Si la transición o una sentencia PostgreSQL falla después de iniciar la transacción, el adapter intenta `ROLLBACK` y vuelve a propagar el error. Para `POST /acceso`, los errores de dominio responden `400`; los fallos clasificados del repositorio responden `503` con un mensaje genérico; y los errores inesperados responden `500` con un mensaje genérico. El JSON malformado se normaliza a `400` JSON en la composición Express. Los logs de entrada/dominio usan `warn`; los de infraestructura o errores inesperados usan `error` sin exponer el mensaje interno en la respuesta.
+Con el gimnasio cerrado, una entrada responde `409 GIMNASIO_CERRADO` y las salidas siguen permitidas. Si la entrada supera la capacidad, responde `409 CAPACIDAD_SUPERADA` con el aforo y la capacidad; la app pregunta al encargado y, si confirma, repite la misma solicitud con `confirmarExcesoCapacidad: true`. Como la regla se evalúa con la fila bloqueada, dos encargados no pueden pasar la capacidad sin confirmar. El registro por QR o por cédula sigue el mismo flujo: la función de identidad se ejecuta dentro de la transacción, de modo que un rechazo revierte también el consumo del QR (ADR-0012).
+
+Si la transición o una sentencia PostgreSQL falla después de iniciar la transacción, el adapter intenta `ROLLBACK` y vuelve a propagar el error. Para `POST /acceso`, los errores de dominio responden `400` (o `409` en los dos casos anteriores); los fallos clasificados del repositorio responden `503` con un mensaje genérico; y los errores inesperados responden `500` con un mensaje genérico. El JSON malformado se normaliza a `400` JSON en la composición Express. Los logs de entrada/dominio usan `warn`; los de infraestructura o errores inesperados usan `error` sin exponer el mensaje interno en la respuesta.
 
 La prueba de integración PostgreSQL comprueba rechazo de salida desde cero y rollback cuando PostgreSQL rechaza una actualización mediante un trigger.
 
 ## 6.2 Consultar el contador
 
-`GET /api/v1/aforo` pasa por `crearConsultarAforoUseCase`, que consulta el repositorio; si la lectura termina correctamente, la ruta responde `200` con `{ status: "success", data: { aforoActual } }`. La lectura no ejecuta una transición.
+`GET /api/v1/aforo` pasa por `crearConsultarAforoUseCase`, que consulta el repositorio; si la lectura termina correctamente, la ruta responde `200` con `{ status: "success", data: { aforoActual, capacidadMaxima, abierto, motivoCierre, porcentajeOcupacion } }`. La lectura no ejecuta una transición. La app la repite cada 15 segundos y después de cada registro o cambio del encargado.
 
 ## 6.3 Flujos fuera del alcance
 
@@ -285,7 +295,7 @@ Cuando PostgreSQL no responde, las escrituras fallan con `503`: se prefiere no r
 
 **DISEÑO, no implementado.** Hoy cada `GET /api/v1/aforo` consulta PostgreSQL. Detalle completo en la [evidencia S12 §4](../s12-datos-eventos.md).
 
-- **Qué se cachea:** solo el aforo actual (y, en el futuro, el estado abierto/cerrado). **No** se cachean la lectura dentro de una escritura, `/ready`, las respuestas del `POST`, ni identidad/QR/roles.
+- **Qué se cachea:** solo el estado público del gimnasio (aforo, capacidad y apertura). **No** se cachean la lectura dentro de una escritura, `/ready`, las respuestas del `POST`, ni identidad/QR/roles.
 - **Dónde:** en el proceso de la API, como decorador de `AforoRepositoryPort` (`AforoRepositoryCacheado`). Se descartaron la caché HTTP (el servidor no puede invalidarla y los atrasos se suman) y Redis (con una sola instancia no mejora la garantía y agrega un modo de fallo).
 - **Política de invalidación:**
   - Escritura confirmada en la instancia → **reemplaza** la entrada con el valor y la `version` del `COMMIT` (*write-through*).
