@@ -8,7 +8,7 @@ const { crearConsultarAforoUseCase } = require('./modules/aforo/application/cons
 const { AforoDomainError } = require('./modules/aforo/domain/aforo');
 const { crearIdentidadRouter } = require('./modules/identidad/infrastructure/http/identidad.router');
 const { IdentidadPostgresAdapter } = require('./modules/identidad/infrastructure/persistence/identidad-postgres.adapter');
-const { SupabaseAuthAdapter } = require('./modules/identidad/infrastructure/auth/supabase-auth.adapter');
+const { AutenticacionLocalAdapter } = require('./modules/identidad/infrastructure/auth/autenticacion-local.adapter');
 const { CuentaEstudianteInactivaError } = require('./modules/identidad/application/identidad.errors');
 const { logger } = require('./shared/logger');
 const { cargarEntornoRuntime } = require('./shared/environment');
@@ -26,14 +26,16 @@ const LIMITE_CUERPO_JSON = '1kb';
  * @param {object} [opciones]
  * @param {object} [opciones.aforoRepository] adaptador del puerto de aforo
  * @param {object} [opciones.identidadRepository] repositorio de estudiantes y QR
- * @param {object} [opciones.supabaseAuth] proveedor de autenticación de estudiantes
+ * @param {object} [opciones.autenticacion] adaptador del puerto de autenticación de estudiantes
  * @param {string} [opciones.operadorToken] secreto que exige POST /acceso (ADR-0007)
  * @param {string[]} [opciones.origenesCors] orígenes web permitidos (ADR-0007)
  */
+const NOMBRE_SERVICIO = 'gimnasio-utb-backend';
+
 function createApp({
   aforoRepository,
   identidadRepository,
-  supabaseAuth,
+  autenticacion,
   operadorToken,
   origenesCors = [],
 } = {}) {
@@ -76,22 +78,22 @@ function createApp({
   app.get('/', (req, res) => {
     res.status(200).json({
       status: 'ok',
-      service: 'gimnasio-utb-backend',
+      service: NOMBRE_SERVICIO,
       descripcion: 'API del sistema de aforo del Gimnasio UTB. El cliente es la app Flutter.',
       endpoints: ['/health', '/ready', '/metrics', '/api/v1/aforo'],
     });
   });
 
   app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'ok', service: 'gimnasio-utb-backend' });
+    res.status(200).json({ status: 'ok', service: NOMBRE_SERVICIO });
   });
 
   app.get('/ready', async (req, res) => {
     try {
       await repository.obtenerAforoActual();
-      res.status(200).json({ status: 'ok', service: 'gimnasio-utb-backend' });
+      res.status(200).json({ status: 'ok', service: NOMBRE_SERVICIO });
     } catch {
-      res.status(503).json({ status: 'error', service: 'gimnasio-utb-backend' });
+      res.status(503).json({ status: 'error', service: NOMBRE_SERVICIO });
     }
   });
 
@@ -126,7 +128,7 @@ function createApp({
   const obtenerAforoActual = crearConsultarAforoUseCase(repository);
 
   app.use('/api/v1/aforo', crearAforoRouter(registrarAcceso, obtenerAforoActual));
-  app.use('/api/v1/estudiantes', crearIdentidadRouter(identityRepository, supabaseAuth));
+  app.use('/api/v1/estudiantes', crearIdentidadRouter(identityRepository, autenticacion));
   app.post(
     '/api/v1/aforo/acceso-qr',
     async (req, res) => {
@@ -181,22 +183,19 @@ function createApp({
 
 if (require.main === module) {
   cargarEntornoRuntime();
-  const tieneConfiguracionSupabase = Boolean(
-    process.env.SUPABASE_URL
-    || process.env.SUPABASE_PUBLISHABLE_KEY
-    || process.env.SUPABASE_ANON_KEY
-  );
-  const supabaseAuth = tieneConfiguracionSupabase
-    ? new SupabaseAuthAdapter()
-    : null;
   const aforoRepository = new AforoPostgresAdapter();
+  // Los tres adaptadores PostgreSQL comparten un pool: el consumo del QR y la
+  // actualización del aforo deben ir en la misma transacción (ADR-0008).
   const identidadRepository = new IdentidadPostgresAdapter({
+    pool: aforoRepository.pool,
+  });
+  const autenticacion = new AutenticacionLocalAdapter({
     pool: aforoRepository.pool,
   });
   const app = createApp({
     aforoRepository,
     identidadRepository,
-    supabaseAuth,
+    autenticacion,
     operadorToken: process.env.OPERADOR_TOKEN,
     origenesCors: parsearOrigenes(process.env.CORS_ORIGINS),
   });

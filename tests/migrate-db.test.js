@@ -12,22 +12,20 @@ const { validarConfiguracionInit } = require('../scripts/init-db');
 const { validarRolEsquema } = require('../scripts/postgres-destination');
 const { crearOpcionesPoolPostgres } = require('../src/shared/postgres-pool');
 
-const PROJECT_REF = 'abcdefghijklmnopqrst';
+const REMOTE_HOST = 'db.example.test';
 
 function env(overrides = {}) {
   return {
-    DB_MIGRATIONS_URL: `postgresql://gimnasio_migrator@db.${PROJECT_REF}.supabase.co:5432/gym_test`,
-    DATABASE_URL: `postgresql://gimnasio_runtime@db.${PROJECT_REF}.supabase.co:5432/gym_test`,
-    SUPABASE_URL: `https://${PROJECT_REF}.supabase.co`,
+    DB_MIGRATIONS_URL: 'postgresql://gimnasio_migrator@postgres:5432/gym_test',
+    DATABASE_URL: 'postgresql://gimnasio_runtime@postgres:5432/gym_test',
     DB_MIGRATIONS_ENABLED: 'true',
-    DB_MIGRATIONS_HOST: `db.${PROJECT_REF}.supabase.co`,
+    DB_MIGRATIONS_HOST: 'postgres',
     DB_MIGRATIONS_TARGET: 'gym_test',
-    DB_MIGRATIONS_PROJECT_REF: PROJECT_REF,
     ...overrides,
   };
 }
 
-test('el runner requiere habilitación explícita y destino Supabase confirmado', () => {
+test('el runner requiere habilitación explícita y destino confirmado', () => {
   assert.throws(
     () => validarConfiguracion(env({ DB_MIGRATIONS_ENABLED: 'false' })),
     /DB_MIGRATIONS_ENABLED=true/
@@ -41,57 +39,27 @@ test('el runner requiere habilitación explícita y destino Supabase confirmado'
     /host\/base/
   );
   assert.throws(
-    () => validarConfiguracion(env({ DB_MIGRATIONS_PROJECT_REF: 'another-project-ref' })),
-    /proyecto Supabase/
+    () => validarConfiguracion(env({ DB_MIGRATIONS_HOST: undefined })),
+    { code: 'DESTINATION_CONFIRMATION_MISSING' }
   );
   assert.deepEqual(validarConfiguracion(env()), {
     databaseName: 'gym_test',
-    databaseHost: `db.${PROJECT_REF}.supabase.co`,
-    projectRef: PROJECT_REF,
+    databaseHost: 'postgres',
   });
 });
 
-test('el runner acepta pooler solo si el usuario identifica el proyecto confirmado', () => {
-  const poolerEnv = env({
-    DB_MIGRATIONS_URL:
-      `postgresql://gimnasio_migrator.${PROJECT_REF}@aws-0-us-east-1.pooler.supabase.com:5432/gym_test`,
-    DATABASE_URL:
-      `postgresql://gimnasio_runtime.${PROJECT_REF}@aws-0-us-east-1.pooler.supabase.com:5432/gym_test`,
-    DB_MIGRATIONS_HOST: 'aws-0-us-east-1.pooler.supabase.com',
-  });
-  assert.equal(validarConfiguracion(poolerEnv).projectRef, PROJECT_REF);
+test('el runner exige el rol correcto en cada URL y el puerto 5432', () => {
   assert.throws(
-    () => validarConfiguracion({
-      ...poolerEnv,
-      DB_MIGRATIONS_URL:
-        'postgresql://gimnasio_migrator.otherproject@aws-0-us-east-1.pooler.supabase.com:5432/gym_test',
-    }),
-    /proyecto Supabase confirmado/
+    () => validarConfiguracion(env({ DB_MIGRATIONS_URL: 'postgresql://postgres@postgres:5432/gym_test' })),
+    { code: 'DB_MIGRATIONS_URL_ROLE_MISMATCH' }
   );
   assert.throws(
-    () => validarConfiguracion({
-      ...poolerEnv,
-      DATABASE_URL:
-        `postgresql://postgres.${PROJECT_REF}@aws-0-us-east-1.pooler.supabase.com:5432/gym_test`,
-    }),
+    () => validarConfiguracion(env({ DATABASE_URL: 'postgresql://gimnasio_migrator@postgres:5432/gym_test' })),
     { code: 'DATABASE_URL_ROLE_MISMATCH' }
   );
   assert.throws(
-    () => validarConfiguracion({
-      ...poolerEnv,
-      DB_MIGRATIONS_URL:
-        `postgresql://gimnasio_migrator.${PROJECT_REF}@aws-0-us-east-1.pooler.supabase.com:6543/gym_test`,
-    }),
+    () => validarConfiguracion(env({ DB_MIGRATIONS_URL: 'postgresql://gimnasio_migrator@postgres:6543/gym_test' })),
     { code: 'DB_MIGRATIONS_URL_PORT_INVALID' }
-  );
-});
-
-test('el runner exige credenciales runtime y de esquema separadas para Supabase', () => {
-  assert.throws(
-    () => validarConfiguracion(env({
-      DATABASE_URL: `postgresql://gimnasio_migrator@db.${PROJECT_REF}.supabase.co:5432/gym_test`,
-    })),
-    /gimnasio_runtime/
   );
   assert.throws(
     () => validarConfiguracion(env({ DATABASE_URL: undefined })),
@@ -99,33 +67,19 @@ test('el runner exige credenciales runtime y de esquema separadas para Supabase'
   );
 });
 
-test('el runner permite bases locales solo con confirmación de host y nombre', () => {
-  const localEnv = env({
-    DB_MIGRATIONS_URL: 'postgresql://migrator@localhost:5432/gym_test',
-    DATABASE_URL: 'postgresql://runtime@localhost:5432/gym_test',
-    DB_MIGRATIONS_HOST: 'localhost',
-    SUPABASE_URL: '',
-    DB_MIGRATIONS_PROJECT_REF: '',
-  });
-  assert.equal(validarConfiguracion(localEnv).projectRef, null);
+test('runtime y esquema deben apuntar al mismo host y base', () => {
   assert.throws(
-    () => validarConfiguracion({
-      ...localEnv,
-      DATABASE_URL: 'postgresql://migrator@localhost:5432/gym_test',
-    }),
-    /roles distintos/
+    () => validarConfiguracion(env({ DATABASE_URL: 'postgresql://gimnasio_runtime@otro-host:5432/gym_test' })),
+    { code: 'DATABASE_URL_DESTINATION_OR_ROLE_MISMATCH' }
+  );
+  assert.throws(
+    () => validarConfiguracion(env({ DATABASE_URL: 'postgresql://gimnasio_runtime@postgres:5432/otra' })),
+    { code: 'DATABASE_URL_DESTINATION_OR_ROLE_MISMATCH' }
   );
 });
 
 test('la inicialización base tiene una autorización separada y valida el destino', () => {
-  const localEnv = env({
-    DB_MIGRATIONS_URL: 'postgresql://migrator@localhost:5432/gym_test',
-    DATABASE_URL: 'postgresql://runtime@localhost:5432/gym_test',
-    DB_MIGRATIONS_HOST: 'localhost',
-    SUPABASE_URL: '',
-    DB_MIGRATIONS_PROJECT_REF: '',
-    DB_INIT_ENABLED: 'true',
-  });
+  const localEnv = env({ DB_INIT_ENABLED: 'true' });
   assert.equal(validarConfiguracionInit(localEnv).databaseName, 'gym_test');
   assert.throws(
     () => validarConfiguracionInit({ ...localEnv, DB_INIT_ENABLED: 'false' }),
@@ -135,7 +89,7 @@ test('la inicialización base tiene una autorización separada y valida el desti
 
 test('las conexiones PostgreSQL remotas exigen TLS con validación de certificados', () => {
   const options = crearOpcionesPoolPostgres(
-    `postgresql://user@db.${PROJECT_REF}.supabase.co:5432/postgres?sslmode=no-verify`,
+    `postgresql://user@${REMOTE_HOST}:5432/postgres?sslmode=no-verify`,
     {},
     { DATABASE_SSL: 'true' }
   );
@@ -143,7 +97,7 @@ test('las conexiones PostgreSQL remotas exigen TLS con validación de certificad
   assert.equal(new URL(options.connectionString).searchParams.has('sslmode'), false);
   assert.throws(
     () => crearOpcionesPoolPostgres(
-      `postgresql://user@db.${PROJECT_REF}.supabase.co:5432/postgres`,
+      `postgresql://user@${REMOTE_HOST}:5432/postgres`,
       {},
       { DATABASE_SSL: 'false' }
     ),
@@ -168,7 +122,7 @@ test('TLS solo puede desactivarse explícitamente para PostgreSQL local', () => 
   );
 });
 
-test('el CA Supabase opcional se carga sin desactivar la validación TLS', async () => {
+test('el CA opcional se carga sin desactivar la validación TLS', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'gimnasio-postgres-ca-'));
   const caPath = path.join(directory, 'ca.crt');
   const ca = tls.rootCertificates[0];
@@ -176,7 +130,7 @@ test('el CA Supabase opcional se carga sin desactivar la validación TLS', async
 
   try {
     const options = crearOpcionesPoolPostgres(
-      `postgresql://user@db.${PROJECT_REF}.supabase.co:5432/postgres`,
+      `postgresql://user@${REMOTE_HOST}:5432/postgres`,
       {},
       { DATABASE_SSL: 'true', DATABASE_SSL_CA_CERT_PATH: caPath }
     );
@@ -187,10 +141,10 @@ test('el CA Supabase opcional se carga sin desactivar la validación TLS', async
   }
 });
 
-test('el CA Supabase también se acepta como PEM en base64 (deployment)', () => {
+test('el CA también se acepta como PEM en base64 (deployment)', () => {
   const ca = tls.rootCertificates[0];
   const options = crearOpcionesPoolPostgres(
-    `postgresql://user@db.${PROJECT_REF}.supabase.co:5432/postgres`,
+    `postgresql://user@${REMOTE_HOST}:5432/postgres`,
     {},
     { DATABASE_SSL: 'true', DATABASE_SSL_CA_CERT_BASE64: Buffer.from(ca).toString('base64') }
   );
@@ -199,7 +153,7 @@ test('el CA Supabase también se acepta como PEM en base64 (deployment)', () => 
 });
 
 test('el CA en base64 rechaza contenido que no es un certificado o configuración ambigua', () => {
-  const url = `postgresql://user@db.${PROJECT_REF}.supabase.co:5432/postgres`;
+  const url = `postgresql://user@${REMOTE_HOST}:5432/postgres`;
   assert.throws(
     () => crearOpcionesPoolPostgres(url, {}, {
       DATABASE_SSL_CA_CERT_BASE64: Buffer.from('no es un certificado').toString('base64'),

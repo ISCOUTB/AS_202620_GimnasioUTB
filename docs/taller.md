@@ -5,7 +5,7 @@
 
 ---
 
-> **Nota (entrega final):** este informe es el análisis comparativo de S8 (Render vs. Vercel vs. servidor del laboratorio). La alternativa que finalmente se desplegó fue Dokploy: primero con PostgreSQL en el Compose y, desde la entrega final, con PostgreSQL y Auth en Supabase ([ADR-0010](adr/0010-postgresql-gestionado-en-supabase.md)). Los números de este documento no describen el deployment actual.
+> **Nota (entrega final):** este informe es el análisis comparativo de S8 (Render vs. Vercel vs. servidor del laboratorio). La alternativa que finalmente se desplegó fue Dokploy: con PostgreSQL dentro del mismo Docker Compose. Durante unos días de noviembre se intentó mover la base y el login a Supabase (ADR-0010), pero para la entrega final se volvió a PostgreSQL en el Compose con roles separados y login propio ([ADR-0011](adr/0011-volver-a-postgresql-propio-y-login-local.md)). Los números de este documento no describen el deployment actual.
 
 ## 1. Mapeo Global de las Seis Piezas Operativas
 

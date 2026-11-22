@@ -9,21 +9,18 @@ ON CONFLICT (id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS estudiantes (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
-  auth_user_id UUID,
   codigo_estudiante TEXT PRIMARY KEY,
   correo TEXT,
   cedula_sintetica TEXT,
   nombre TEXT NOT NULL,
+  -- Hash scrypt de la contraseña (ADR-0011); NULL = la cuenta no puede iniciar sesión.
+  password_hash TEXT,
   activa BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS estudiantes_id_uidx
   ON estudiantes (id);
-
-CREATE UNIQUE INDEX IF NOT EXISTS estudiantes_auth_user_id_uidx
-  ON estudiantes (auth_user_id)
-  WHERE auth_user_id IS NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS estudiantes_correo_ci_uidx
   ON estudiantes (LOWER(correo))
@@ -70,18 +67,3 @@ REVOKE ALL PRIVILEGES ON TABLE
   qr_credenciales,
   estudiante_estado_acceso
 FROM PUBLIC;
-
-DO $$
-DECLARE
-  role_name TEXT;
-BEGIN
-  FOREACH role_name IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
-      EXECUTE format(
-        'REVOKE ALL PRIVILEGES ON TABLE aforo_estado, estudiantes, sesiones_estudiantes, qr_credenciales, estudiante_estado_acceso FROM %I',
-        role_name
-      );
-    END IF;
-  END LOOP;
-END;
-$$;

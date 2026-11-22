@@ -2,11 +2,11 @@ const path = require('node:path');
 const dotenv = require('dotenv');
 
 const ROOT_ENV_PATH = path.resolve(__dirname, '..', '..', '.env');
+// Credenciales administrativas que la API en ejecución nunca debe tener.
 const ADMIN_SECRETS = [
   'DB_MIGRATIONS_URL',
-  'DB_PROVISIONING_URL',
-  'DB_RECONCILIATION_URL',
-  'SUPABASE_SERVICE_ROLE_KEY',
+  'DB_ADMIN_URL',
+  'DEMO_STUDENTS',
 ];
 
 function cargarEntorno({ envPath = ROOT_ENV_PATH, targetEnv = process.env } = {}) {

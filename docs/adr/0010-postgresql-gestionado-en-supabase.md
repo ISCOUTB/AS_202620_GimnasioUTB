@@ -2,7 +2,12 @@
 
 ## Estado
 
-Aceptada para la entrega final (noviembre de 2026). Formaliza el cambio de
+**Reemplazada por [ADR-0011](0011-volver-a-postgresql-propio-y-login-local.md)**
+(22 de noviembre de 2026): el deployment no llegó a funcionar con Supabase y
+PostgreSQL volvió al Compose de Dokploy, con roles separados creados
+automáticamente. Se conserva este documento como historial.
+
+Estado anterior: aceptada para la entrega final (noviembre de 2026). Formaliza el cambio de
 `deploy/compose.lab.yaml` del commit `3e8d1c3` (22 de noviembre de 2026), que
 retiró el PostgreSQL en contenedor de S8, y completa lo que faltaba para que
 ese deployment funcione: la CA de Supabase y los permisos del rol runtime.

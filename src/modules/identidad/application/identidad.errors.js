@@ -14,7 +14,7 @@ class SesionEstudianteInvalidaError extends Error {
 
 class EstudianteNoVinculadoError extends Error {
   constructor() {
-    super('La cuenta autenticada no está vinculada a un estudiante.');
+    super('La sesión no corresponde a un estudiante registrado.');
     this.name = 'EstudianteNoVinculadoError';
   }
 }

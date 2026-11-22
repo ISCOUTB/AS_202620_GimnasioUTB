@@ -15,7 +15,7 @@ function extraerBearer(req) {
   return coincidencia ? coincidencia[1] : null;
 }
 
-function crearAutenticacionEstudiante(supabaseAuth, repository) {
+function crearAutenticacionEstudiante(autenticacion, repository) {
   return async function autenticarEstudiante(req, res, next) {
     const token = extraerBearer(req);
     if (!token) {
@@ -24,32 +24,32 @@ function crearAutenticacionEstudiante(supabaseAuth, repository) {
         message: 'Se requiere una sesión de estudiante válida.',
       });
     }
-    if (!supabaseAuth || !repository) {
+    if (!autenticacion || !repository) {
       return res.status(503).json({
         status: 'error',
         message: MENSAJE_IDENTIDAD_NO_DISPONIBLE,
       });
     }
     try {
-      const usuario = await supabaseAuth.obtenerUsuario(token);
+      const usuario = await autenticacion.obtenerUsuario(token);
       if (!usuario) {
         return res.status(401).json({
           status: 'error',
           message: 'La sesión de estudiante no es válida o expiró.',
         });
       }
-      const estudiante = await repository.obtenerEstudiantePorAuthId(usuario.id);
+      const estudiante = await repository.obtenerEstudiantePorCodigo(usuario.id);
       if (!estudiante) {
         return res.status(403).json({
           status: 'error',
-          message: 'La cuenta autenticada no está vinculada a un estudiante.',
+          message: 'La sesión no corresponde a un estudiante registrado.',
         });
       }
       req.estudiante = estudiante;
       return next();
     } catch (error) {
       // Se registra solo el tipo de error: el mensaje podría incluir datos del
-      // proveedor o del token. El cliente recibe un 503 genérico.
+      // token o de la base de datos. El cliente recibe un 503 genérico.
       logger.error(
         'identity.session_lookup_failed',
         `Failed to validate student session (${error?.name || 'Error'})`
@@ -62,11 +62,11 @@ function crearAutenticacionEstudiante(supabaseAuth, repository) {
   };
 }
 
-function crearIdentidadRouter(repository, supabaseAuth) {
+function crearIdentidadRouter(repository, autenticacion) {
   const router = express.Router();
 
   router.post('/sesion', async (req, res) => {
-    if (!repository || !supabaseAuth) {
+    if (!repository || !autenticacion) {
       return res.status(503).json({
         status: 'error',
         message: MENSAJE_IDENTIDAD_NO_DISPONIBLE,
@@ -87,8 +87,8 @@ function crearIdentidadRouter(repository, supabaseAuth) {
     }
 
     try {
-      const sesion = await supabaseAuth.iniciarSesion(correo.trim().toLowerCase(), contrasena);
-      const estudiante = await repository.obtenerEstudiantePorAuthId(sesion.usuario.id);
+      const sesion = await autenticacion.iniciarSesion(correo.trim().toLowerCase(), contrasena);
+      const estudiante = await repository.obtenerEstudiantePorCodigo(sesion.usuario.id);
       if (!estudiante) throw new EstudianteNoVinculadoError();
       return res.status(200).json({
         status: 'success',
@@ -111,10 +111,10 @@ function crearIdentidadRouter(repository, supabaseAuth) {
       if (error instanceof EstudianteNoVinculadoError) {
         return res.status(403).json({
           status: 'error',
-          message: 'La cuenta autenticada no está vinculada a un estudiante.',
+          message: 'La sesión no corresponde a un estudiante registrado.',
         });
       }
-      logger.error('identity.login_failed', 'Failed to authenticate student with Supabase Auth');
+      logger.error('identity.login_failed', 'Failed to authenticate student');
       return res.status(503).json({
         status: 'error',
         message: MENSAJE_IDENTIDAD_NO_DISPONIBLE,
@@ -122,7 +122,7 @@ function crearIdentidadRouter(repository, supabaseAuth) {
     }
   });
 
-  router.post('/qr', crearAutenticacionEstudiante(supabaseAuth, repository), async (req, res) => {
+  router.post('/qr', crearAutenticacionEstudiante(autenticacion, repository), async (req, res) => {
     try {
       const qr = await repository.emitirQr(req.estudiante.codigo_estudiante);
       return res.status(201).json({ status: 'success', data: qr });

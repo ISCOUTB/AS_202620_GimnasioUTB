@@ -15,41 +15,44 @@ function archivosDart(dir) {
   });
 }
 
-test('la API runtime no inyecta la clave privilegiada de Supabase', () => {
+test('la API runtime no lee credenciales administrativas', () => {
   const source = fs.readFileSync(path.join(ROOT, 'src/server.js'), 'utf8');
-  assert.equal(source.includes('SUPABASE_SERVICE_ROLE_KEY'), false);
+  for (const secreto of ['DB_MIGRATIONS_URL', 'DB_ADMIN_URL', 'POSTGRES_PASSWORD', 'DEMO_STUDENTS']) {
+    assert.equal(source.includes(secreto), false, `server.js no debe leer ${secreto}`);
+  }
 });
 
-test('el código Flutter no contiene claves privilegiadas ni su configuración', () => {
+test('el código Flutter no contiene credenciales de base de datos ni contraseñas', () => {
   const flutterLib = path.join(ROOT, 'docs', 'Flutter', 'lib');
   for (const file of archivosDart(flutterLib)) {
     const source = fs.readFileSync(file, 'utf8');
     assert.equal(
-      source.includes('SUPABASE_SERVICE_ROLE_KEY') || source.includes('service_role'),
+      /DB_MIGRATIONS_URL|DB_ADMIN_URL|POSTGRES_PASSWORD|postgresql:\/\//.test(source),
       false,
-      `${path.relative(ROOT, file)} no debe contener claves de servicio`
+      `${path.relative(ROOT, file)} no debe contener credenciales de base de datos`
     );
   }
 });
 
-test('la respuesta de login solo expone el token Auth y datos del perfil', async () => {
-  const serviceKeyMarker = 'service-role-never-return-this';
+test('la respuesta de login solo expone el token de sesión y datos del perfil', async () => {
+  const marcador = 'password-hash-never-return-this';
   const app = createApp({
     identidadRepository: {
-      async obtenerEstudiantePorAuthId() {
+      async obtenerEstudiantePorCodigo() {
         return {
           codigo_estudiante: 'demo-001',
           nombre: 'Estudiante de prueba',
+          password_hash: marcador,
         };
       },
     },
-    supabaseAuth: {
+    autenticacion: {
       async iniciarSesion() {
         return {
-          token: 'access-token',
+          token: 'session-token',
           expiresAt: '2026-11-16T12:00:00.000Z',
-          serviceRoleKey: serviceKeyMarker,
-          usuario: { id: 'e52fef92-e63f-4f66-8865-7de0647c4c08' },
+          passwordHash: marcador,
+          usuario: { id: 'demo-001' },
         };
       },
     },
@@ -69,14 +72,14 @@ test('la respuesta de login solo expone el token Auth y datos del perfil', async
     );
     const body = await response.text();
     assert.equal(response.status, 200);
-    assert.equal(body.includes(serviceKeyMarker), false);
-    assert.equal(body.includes('serviceRoleKey'), false);
+    assert.equal(body.includes(marcador), false);
+    assert.equal(/password/i.test(body), false);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
 });
 
-test('errores de PostgreSQL y Auth no filtran configuración en logs ni respuestas', async () => {
+test('errores de PostgreSQL y de autenticación no filtran configuración en logs ni respuestas', async () => {
   const marker = 'CONFIGURATION_SECRET_MARKER_DO_NOT_LEAK';
   const app = createApp({
     aforoRepository: {
@@ -85,7 +88,7 @@ test('errores de PostgreSQL y Auth no filtran configuración en logs ni respuest
       },
     },
     identidadRepository: {},
-    supabaseAuth: {
+    autenticacion: {
       async iniciarSesion() {
         throw new Error(marker);
       },

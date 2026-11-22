@@ -20,7 +20,7 @@ El propósito del producto es ofrecer información confiable sobre la disponibil
 
 **IMPLEMENTADO:** backend Node.js/Express con Arquitectura Hexagonal / Ports and Adapters; consulta y registro de aforo; cuentas estudiantiles sintéticas; sesión temporal; QR de un solo uso; escaneo desde Flutter; transacción PostgreSQL; readiness, liveness, métricas locales, logs estructurados y cierre ordenado ante `SIGTERM`.
 
-**IMPLEMENTADO:** la app Flutter consulta el aforo, permite iniciar sesión con una cuenta estudiantil sintética y muestra un QR temporal; el operador puede escanearlo o registrar una transición manual. El QR se consume y el aforo se actualiza en una transacción PostgreSQL. **OBJETIVO / FUTURO:** SSO institucional; roles individuales; historial completo de eventos y deduplicación de operaciones manuales; apertura/cierre; WebSocket; FCM; IaC completa y definición final de costos. La API se despliega en Dokploy y usa PostgreSQL y Auth gestionados en Supabase (ADR-0010); Render fue una alternativa.
+**IMPLEMENTADO:** la app Flutter consulta el aforo, permite iniciar sesión con una cuenta estudiantil sintética y muestra un QR temporal; el operador puede escanearlo o registrar una transición manual. El QR se consume y el aforo se actualiza en una transacción PostgreSQL. **OBJETIVO / FUTURO:** SSO institucional; roles individuales; historial completo de eventos y deduplicación de operaciones manuales; apertura/cierre; WebSocket; FCM; IaC completa y definición final de costos. La API y PostgreSQL se despliegan juntos en Dokploy con Docker Compose y login propio (ADR-0011); Render y Supabase fueron alternativas que no se mantuvieron.
 
 La identidad usada es sintética y no representa cuentas UTB reales. La tabla de estado individual no constituye un historial de eventos.
 
@@ -198,24 +198,31 @@ El proceso real inicia `AforoPostgresAdapter` y necesita `DATABASE_URL`. Antes d
 
 Esta vista describe ejecución local; no representa el deployment público.
 
-## 7.2 Deployment final: Dokploy + Supabase (ADR-0010)
+## 7.2 Deployment final: Dokploy + PostgreSQL en el Compose (ADR-0011)
 
-La API se despliega en Dokploy con `deploy/compose.lab.yaml`: el servicio `api` y un servicio `db-migrate` de mantenimiento (perfil `maintenance`, no arranca en el deploy normal). PostgreSQL y Auth están en el mismo proyecto Supabase.
+La API se despliega en Dokploy con `deploy/compose.lab.yaml`, que define cuatro servicios: `postgres`, `db-bootstrap`, `db-init` y `api`. PostgreSQL usa el mismo volumen `postgres_data` de S8. No hay servicios externos: el login de estudiantes también es propio.
 
 ```mermaid
 flowchart LR
     App[App Flutter] -->|HTTPS REST/JSON| Proxy[Proxy/ingress HTTPS de Dokploy]
     Proxy -->|HTTP interno, puerto 3000| API[Servicio api]
-    API -->|SQL sobre TLS, Session Pooler 5432, rol gimnasio_runtime| DB[(PostgreSQL de Supabase)]
-    API -->|HTTPS, publishable key + access token| Auth[Supabase Auth]
-    Equipo[Equipo de un integrante] -->|db:init, db:grant-runtime, seed| DB
+    Boot[db-bootstrap] -->|superusuario: crea roles| DB[(Servicio postgres + volumen postgres_data)]
+    Init[db-init] -->|gimnasio_migrator: esquema, permisos, cuentas, verificación| DB
+    API -->|gimnasio_runtime: permisos mínimos| DB
 ```
 
-El esquema, los permisos (`scripts/sql/runtime-grants.sql`) y la cuenta sintética se aplican una vez desde un equipo del equipo con roles separados; el contenedor solo recibe la URL runtime y la CA de Supabase en base64. **Estado:** configuración implementada en el repositorio; la verificación pública (`/`, `/health`, `/ready`, flujo QR con dos celulares) se registra al desplegar.
+En cada deploy:
+
+1. `postgres` arranca y su healthcheck (`pg_isready`) pasa.
+2. `db-bootstrap` usa el superusuario solo para crear o actualizar `gimnasio_migrator` y `gimnasio_runtime` (sin privilegios administrativos) y transferir al migrador las tablas de versiones anteriores.
+3. `db-init`, con el rol migrador, aplica esquema y migraciones, los permisos de `runtime-grants.sql` y las cuentas de `DEMO_STUDENTS`; termina con `db:check-security` usando el rol runtime. Si algo falla, la API no arranca.
+4. `api` arranca con la URL del rol runtime; su healthcheck consulta `/ready`.
+
+La API nunca recibe la URL del superusuario ni la del migrador (`src/shared/environment.js` las elimina y `tests/postgres-connection-boundaries.test.js` lo comprueba). La conexión entre contenedores no sale de la red interna del Compose, por eso usa `DATABASE_SSL=false`. Detalle de roles y permisos en [la guía de base de datos](../base-de-datos.md). **Estado:** implementado y probado contra PostgreSQL 16 (base nueva, volumen de S8 y volumen con la versión de QR anterior); la verificación pública (`/`, `/ready`, login y flujo QR con dos celulares) se registra al desplegar.
 
 ## 7.3 Deployment de S8 (histórico)
 
-> Esta sección describe el deployment verificado en S8. El PostgreSQL en contenedor y `db-init` se retiraron en noviembre de 2026 (ADR-0010).
+> Esta sección describe el deployment verificado en S8. En noviembre de 2026 PostgreSQL salió temporalmente del Compose (ADR-0010) y volvió con ADR-0011, ahora con roles separados y `db-bootstrap`.
 
 El backend está desplegado mediante la aplicación Dokploy `gimnasioutb-sistema-kresdf` en `https://gimnasio-utb.iscoutb.dev`. El flujo operativo es GitHub → Dokploy → Docker Compose → servicios `api`, `postgres` y `db-init`.
 
@@ -331,7 +338,8 @@ Modelo de amenazas completo, análisis de dependencias y privacidad en la [evide
 | Arquitectura Hexagonal / Ports and Adapters en un backend monolítico. | **IMPLEMENTADO:** dominio puro, caso de uso, puerto y adapters. | [ADR-0001](../adr/0001-arquitectura-hexagonal.md). |
 | Comandos y consultas HTTP síncronos; persistencia completada antes de responder. | **IMPLEMENTADO** para las rutas actuales de aforo. | [ADR-0003](../adr/0003-comunicacion-sincrona-asincrona.md) respalda el enfoque síncrono. Su decisión FCM permanece futura. |
 | PostgreSQL como persistencia del contador con transacción y bloqueo de fila. | **IMPLEMENTADO:** `AforoPostgresAdapter`, `schema.sql` y pruebas de persistencia, rollback y concurrencia. | [ADR-0004](../adr/0004-concurrencia-postgresql.md) documenta el bloqueo pesimista con `SELECT ... FOR UPDATE`, la transacción y la evidencia del escenario probado. |
-| Deployment de la API en Dokploy con PostgreSQL y Auth en Supabase. | **IMPLEMENTADO (configuración):** `deploy/compose.lab.yaml` sin PostgreSQL propio, `db:grant-runtime` y CA de Supabase en base64. El PostgreSQL en contenedor de S8 se retiró. | [ADR-0010](../adr/0010-postgresql-gestionado-en-supabase.md). |
+| Deployment en Dokploy con PostgreSQL en el Compose, roles separados creados automáticamente y login propio. | **IMPLEMENTADO:** `deploy/compose.lab.yaml` (`postgres`, `db-bootstrap`, `db-init`, `api`), `AutenticacionLocalAdapter`, `db:check-security` en cada deploy. | [ADR-0011](../adr/0011-volver-a-postgresql-propio-y-login-local.md), que reemplaza a [ADR-0009](../adr/0009-supabase-auth.md) y [ADR-0010](../adr/0010-postgresql-gestionado-en-supabase.md). |
+| Identidad sintética, sesión temporal y QR de un solo uso consumido en la transacción del aforo. | **IMPLEMENTADO:** módulo `identidad`, `qr_credenciales`, `estudiante_estado_acceso`. | [ADR-0008](../adr/0008-identidad-de-prueba-y-qr-de-acceso.md). |
 | Métricas en memoria, logs JSON y cierre ante SIGTERM. | **IMPLEMENTADO** en la composición del servidor y `src/shared/logger.js`. | No hay ADR independiente para estas decisiones operativas básicas. |
 | No extraer Notificaciones a un servicio. | **DECIDIDO, NO IMPLEMENTADO:** Notificaciones, su puerto, outbox y relay aún no existen; son parte del diseño futuro evaluado, no componentes actuales. Se compararon "no extraer", "servicio + broker" y "servicio + HTTP". | [ADR-0005](../adr/0005-no-extraer-notificaciones.md). Modos de fallo en la [evidencia S11](../s11-fallos-parciales.md). |
 | Proteger el registro de accesos con token de operador y limitar CORS a una lista blanca. | **IMPLEMENTADO:** `src/shared/http/seguridad.js`, `server.js`, cliente Flutter; pruebas en `tests/seguridad.test.js` y contrato. Excepción documentada a la regla de versionado (`2.0.0` en `/api/v1`). | [ADR-0007](../adr/0007-autenticacion-operador-y-cors.md). Amenazas en la [evidencia S13](../s13-seguridad-amenazas.md). |
@@ -406,7 +414,8 @@ Los siguientes puntos son límites actuales, no mitigaciones implementadas:
 - La identidad de estudiantes usa cuentas sintéticas; no hay SSO ni identidad institucional. Los encargados comparten el token de operador (ADR-0007).
 - El QR tiene un solo uso y cambia el estado individual, pero no existe historial de eventos ni deduplicación del registro manual.
 - `/metrics` es local a cada instancia, se pierde al reiniciar y no agrega datos entre procesos.
-- El deployment depende de Supabase (PostgreSQL y Auth); el plan gratuito pausa proyectos inactivos y hay que confirmar que el proyecto está activo antes de una demostración. No hay IaC completa fuera del Compose versionado.
+- PostgreSQL corre en un solo contenedor con un volumen local del servidor de Dokploy: no hay réplica ni respaldo automático. `POSTGRES_USER` y `POSTGRES_PASSWORD` deben coincidir con los del volumen existente. No hay IaC completa fuera del Compose versionado.
+- Las sesiones vencidas no se limpian de `sesiones_estudiantes` y no hay recuperación de contraseña: las cuentas sintéticas se administran con `DEMO_STUDENTS`.
 - CI todavía no aprovisiona PostgreSQL ni ejecuta `test:postgres`.
 - La estrategia final de costos cloud no está definida.
 - Las pruebas automatizadas cubren cliente y backend por separado; no se ha ejecutado una prueba extremo a extremo contra el deployment. WebSocket, FCM y estado operativo permanecen pendientes.

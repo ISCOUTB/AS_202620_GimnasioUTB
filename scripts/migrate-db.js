@@ -7,7 +7,7 @@ const {
   validarDestinoPostgres,
   validarRolEsquema,
 } = require('./postgres-destination');
-const { sanitizarMensajeAdministrativo } = require('./demo-environment');
+const { sanitizarMensajeAdministrativo } = require('./admin-messages');
 
 const MIGRATIONS_DIR = path.join(__dirname, '..', 'db', 'migrations');
 const ADVISORY_LOCK_NAMESPACE = 0x47594d;
@@ -33,23 +33,6 @@ const SQL_CREAR_TABLA_MIGRACIONES = `
   )
 `;
 
-const SQL_REVOCAR_ROLES_SUPABASE = `
-  DO $$
-  DECLARE
-    role_name TEXT;
-  BEGIN
-    FOREACH role_name IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
-      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
-        EXECUTE format(
-          'REVOKE ALL PRIVILEGES ON TABLE public.schema_migrations FROM %I',
-          role_name
-        );
-      END IF;
-    END LOOP;
-  END;
-  $$;
-`;
-
 // Orden por código de carácter (igual que el sort() por defecto) para que la
 // fecha AAAAMMDD_NNN del nombre defina el orden de aplicación.
 function compararPorCodigo(a, b) {
@@ -60,7 +43,6 @@ function compararPorCodigo(a, b) {
 async function prepararTablaMigraciones(client) {
   await client.query(SQL_CREAR_TABLA_MIGRACIONES);
   await client.query('REVOKE ALL PRIVILEGES ON TABLE public.schema_migrations FROM PUBLIC');
-  await client.query(SQL_REVOCAR_ROLES_SUPABASE);
 }
 
 async function revertir(client, error) {

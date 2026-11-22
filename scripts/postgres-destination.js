@@ -1,9 +1,5 @@
-const LOCAL_DATABASE_HOSTS = new Set([
-  'localhost',
-  '127.0.0.1',
-  '[::1]',
-  'postgres',
-]);
+const ROL_ESQUEMA = 'gimnasio_migrator';
+const ROL_RUNTIME = 'gimnasio_runtime';
 
 function crearErrorConfiguracion(code, message) {
   const error = new Error(message);
@@ -11,47 +7,29 @@ function crearErrorConfiguracion(code, message) {
   return error;
 }
 
-function parsearUrl(value, variable) {
-  try {
-    return new URL(value);
-  } catch {
-    throw crearErrorConfiguracion(
-      `${variable}_INVALID`,
-      'La URL PostgreSQL/Supabase configurada no es válida'
-    );
-  }
-}
-
-function obtenerReferenciaSupabase(value) {
-  const supabaseUrl = parsearUrl(value, 'SUPABASE_URL');
-  const match = /^([a-z0-9]{20})\.supabase\.co$/i.exec(supabaseUrl.hostname);
-  return match ? match[1] : null;
-}
-
-function usuarioPerteneceAlProyecto(databaseUrl, projectRef, variable) {
-  const directHost = databaseUrl.hostname === `db.${projectRef}.supabase.co`;
-  if (directHost) return true;
-  if (!databaseUrl.hostname.endsWith('.pooler.supabase.com')) return false;
-
-  let username = '';
-  try {
-    username = decodeURIComponent(databaseUrl.username);
-  } catch {
-    throw crearErrorConfiguracion(
-      `${variable}_USERNAME_INVALID`,
-      'El usuario de la URL PostgreSQL no es válido'
-    );
-  }
-  return username.endsWith(`.${projectRef}`);
-}
-
 function exigir(condicion, code, message) {
   if (!condicion) throw crearErrorConfiguracion(code, message);
 }
 
+function decodificar(valor, code, message) {
+  try {
+    return decodeURIComponent(valor);
+  } catch {
+    throw crearErrorConfiguracion(code, message);
+  }
+}
+
 /** Parsea una URL PostgreSQL y exige protocolo postgres(ql) y puerto 5432. */
 function leerUrlPostgres(value, variable) {
-  const url = parsearUrl(value, variable);
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw crearErrorConfiguracion(
+      `${variable}_INVALID`,
+      'La URL PostgreSQL configurada no es válida'
+    );
+  }
   exigir(
     ['postgres:', 'postgresql:'].includes(url.protocol),
     `${variable}_PROTOCOL_INVALID`,
@@ -65,16 +43,24 @@ function leerUrlPostgres(value, variable) {
   return url;
 }
 
-function decodificar(valor, code, message) {
-  try {
-    return decodeURIComponent(valor);
-  } catch {
-    throw crearErrorConfiguracion(code, message);
-  }
+/** Usuario y base de una URL ya parseada. */
+function componentes(url, variable) {
+  const mensaje = 'El usuario o nombre de base de una URL PostgreSQL no es válido';
+  return {
+    usuario: decodificar(url.username, `${variable}_COMPONENT_INVALID`, mensaje),
+    base: decodificar(url.pathname.slice(1), `${variable}_COMPONENT_INVALID`, mensaje),
+  };
 }
 
-/** Paso 1: la URL de esquema existe y coincide con el host/base confirmados. */
-function validarUrlEsquema(env) {
+/**
+ * Antes de tocar el esquema se confirma el destino:
+ * 1. DB_MIGRATIONS_URL coincide con el host y la base confirmados a mano
+ *    (DB_MIGRATIONS_HOST, DB_MIGRATIONS_TARGET), para no migrar otra base.
+ * 2. Cada URL usa su rol: gimnasio_migrator para el esquema y
+ *    gimnasio_runtime para la API (mínimo privilegio, S13).
+ * 3. Ambas apuntan al mismo host y base.
+ */
+function validarDestinoPostgres(env = process.env) {
   exigir(
     env.DB_MIGRATIONS_URL,
     'DB_MIGRATIONS_URL_MISSING',
@@ -86,100 +72,43 @@ function validarUrlEsquema(env) {
     'Defina DB_MIGRATIONS_HOST y DB_MIGRATIONS_TARGET para confirmar la base destino'
   );
 
-  const databaseUrl = leerUrlPostgres(env.DB_MIGRATIONS_URL, 'DB_MIGRATIONS_URL');
-  const databaseName = decodificar(
-    databaseUrl.pathname.slice(1),
-    'DB_MIGRATIONS_URL_DATABASE_INVALID',
-    'El nombre de base de la URL PostgreSQL no es válido'
-  );
-  const databaseHost = databaseUrl.hostname;
+  const esquemaUrl = leerUrlPostgres(env.DB_MIGRATIONS_URL, 'DB_MIGRATIONS_URL');
+  const esquema = componentes(esquemaUrl, 'DB_MIGRATIONS_URL');
   exigir(
-    databaseName && databaseName === env.DB_MIGRATIONS_TARGET,
+    esquema.base && esquema.base === env.DB_MIGRATIONS_TARGET,
     'DB_MIGRATIONS_TARGET_MISMATCH',
     'La confirmación de host/base no coincide con DB_MIGRATIONS_URL'
   );
   exigir(
-    databaseHost === env.DB_MIGRATIONS_HOST,
+    esquemaUrl.hostname === env.DB_MIGRATIONS_HOST,
     'DB_MIGRATIONS_HOST_MISMATCH',
     'La confirmación de host/base no coincide con DB_MIGRATIONS_URL'
   );
-  return { databaseUrl, databaseName, databaseHost };
-}
-
-/** Paso 2 (solo Supabase): el proyecto confirmado es el de SUPABASE_URL y el de la URL. */
-function validarProyectoSupabase(env, databaseUrl) {
-  const projectRef = obtenerReferenciaSupabase(env.SUPABASE_URL || '');
   exigir(
-    projectRef && env.DB_MIGRATIONS_PROJECT_REF === projectRef,
-    'DB_MIGRATIONS_PROJECT_REF_MISMATCH',
-    'Confirme el proyecto Supabase destino con DB_MIGRATIONS_PROJECT_REF'
-  );
-  exigir(
-    usuarioPerteneceAlProyecto(databaseUrl, projectRef, 'DB_MIGRATIONS_URL'),
-    'DB_MIGRATIONS_URL_PROJECT_MISMATCH',
-    'DB_MIGRATIONS_URL no identifica el proyecto Supabase confirmado'
-  );
-  return projectRef;
-}
-
-/** En el pooler el usuario lleva el sufijo .<project-ref>; en conexión directa no. */
-function usuarioEsperado(url, rol, projectRef) {
-  return url.hostname.endsWith('.pooler.supabase.com') ? `${rol}.${projectRef}` : rol;
-}
-
-/** Paso 4 (solo Supabase): cada URL usa el rol que le corresponde. */
-function validarRolesSupabase(databaseUrl, runtimeUrl, usuarios, projectRef) {
-  exigir(
-    usuarios.migrationUser === usuarioEsperado(databaseUrl, 'gimnasio_migrator', projectRef),
+    esquema.usuario === ROL_ESQUEMA,
     'DB_MIGRATIONS_URL_ROLE_MISMATCH',
-    'DB_MIGRATIONS_URL debe usar el rol gimnasio_migrator'
+    `DB_MIGRATIONS_URL debe usar el rol ${ROL_ESQUEMA}`
   );
-  exigir(
-    usuarios.runtimeUser === usuarioEsperado(runtimeUrl, 'gimnasio_runtime', projectRef),
-    'DATABASE_URL_ROLE_MISMATCH',
-    'DATABASE_URL debe usar el rol gimnasio_runtime'
-  );
-}
 
-function validarDestinoPostgres(env = process.env) {
-  const { databaseUrl, databaseName, databaseHost } = validarUrlEsquema(env);
-
-  const isLocalDatabase = LOCAL_DATABASE_HOSTS.has(databaseHost);
-  const projectRef = isLocalDatabase ? null : validarProyectoSupabase(env, databaseUrl);
-
-  // Paso 3: la URL runtime existe y es PostgreSQL.
   exigir(
     env.DATABASE_URL,
     'DATABASE_URL_MISSING',
     'Defina DATABASE_URL con el rol runtime separado del rol de esquema'
   );
   const runtimeUrl = leerUrlPostgres(env.DATABASE_URL, 'DATABASE_URL');
-  const mensajeComponente = 'El usuario o nombre de base de una URL PostgreSQL no es válido';
-  const runtimeName = decodificar(runtimeUrl.pathname.slice(1), 'DATABASE_URL_COMPONENT_INVALID', mensajeComponente);
-  const usuarios = {
-    runtimeUser: decodificar(runtimeUrl.username, 'DATABASE_URL_COMPONENT_INVALID', mensajeComponente),
-    migrationUser: decodificar(databaseUrl.username, 'DATABASE_URL_COMPONENT_INVALID', mensajeComponente),
-  };
-
-  if (!isLocalDatabase) {
-    validarRolesSupabase(databaseUrl, runtimeUrl, usuarios, projectRef);
-  }
-
-  // Paso 5: ambas URLs apuntan al mismo destino con roles distintos.
-  const runtimeDestinationMatches = isLocalDatabase
-    ? runtimeUrl.hostname === databaseHost
-    : usuarioPerteneceAlProyecto(runtimeUrl, projectRef, 'DATABASE_URL');
+  const runtime = componentes(runtimeUrl, 'DATABASE_URL');
   exigir(
-    runtimeName === databaseName
-      && runtimeDestinationMatches
-      && usuarios.runtimeUser
-      && usuarios.migrationUser
-      && usuarios.runtimeUser !== usuarios.migrationUser,
+    runtime.usuario === ROL_RUNTIME,
+    'DATABASE_URL_ROLE_MISMATCH',
+    `DATABASE_URL debe usar el rol ${ROL_RUNTIME}`
+  );
+  exigir(
+    runtimeUrl.hostname === esquemaUrl.hostname && runtime.base === esquema.base,
     'DATABASE_URL_DESTINATION_OR_ROLE_MISMATCH',
     'DATABASE_URL y DB_MIGRATIONS_URL deben identificar roles distintos del mismo destino'
   );
 
-  return { databaseName, databaseHost, projectRef };
+  return { databaseName: esquema.base, databaseHost: esquemaUrl.hostname };
 }
 
 async function validarRolEsquema(queryable) {
@@ -203,4 +132,10 @@ async function validarRolEsquema(queryable) {
   }
 }
 
-module.exports = { validarDestinoPostgres, validarRolEsquema };
+module.exports = {
+  validarDestinoPostgres,
+  validarRolEsquema,
+  leerUrlPostgres,
+  ROL_ESQUEMA,
+  ROL_RUNTIME,
+};

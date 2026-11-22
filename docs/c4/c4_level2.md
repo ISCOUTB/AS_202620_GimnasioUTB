@@ -5,23 +5,23 @@ C4Container
     System_Ext(cliente, "App Flutter / cliente HTTP", "Consulta el aforo; usa sesión sintética estudiantil o token compartido de operador.")
 
     Container_Boundary(sistema, "Gimnasio UTB") {
-        Container(api, "Backend / API", "Node.js / Express", "Expone API de aforo, sesiones sintéticas, QR y endpoints operativos.")
-        ContainerDb(db, "Base de datos", "PostgreSQL gestionado en Supabase (ADR-0010)", "Persiste aforo, cuentas sintéticas, sesiones, QR y estado individual.")
+        Container(api, "Backend / API", "Node.js / Express", "Expone API de aforo, login de estudiantes (scrypt y sesiones propias), QR y endpoints operativos.")
+        Container(init, "Preparación de base", "Node.js, misma imagen (db-bootstrap y db-init)", "En cada deploy crea los roles, aplica esquema, permisos y cuentas de prueba, y verifica la seguridad. Termina antes de que arranque la API.")
+        ContainerDb(db, "Base de datos", "PostgreSQL 16 en el Compose de Dokploy (ADR-0011)", "Persiste aforo, cuentas sintéticas con hash de contraseña, sesiones, QR y estado individual.")
     }
-
-    System_Ext(auth, "Supabase Auth", "Credenciales y access tokens de estudiantes (ADR-0009).")
 
     Rel(cliente, api, "Consulta aforo (público) y endpoints operativos", "HTTPS / JSON")
     Rel(cliente, api, "Registra entradas/salidas", "HTTPS / JSON + Authorization: Bearer (ADR-0007)")
     Rel(cliente, api, "Inicia sesión y muestra/escanea QR temporal", "HTTPS / JSON + Bearer según endpoint")
-    Rel(api, db, "Lee y actualiza aforo e identidad transaccional", "SQL sobre TLS, Session Pooler 5432, rol gimnasio_runtime")
-    Rel(api, auth, "Inicia sesión y valida access tokens", "HTTPS / JSON + apikey publishable")
+    Rel(api, db, "Lee y actualiza aforo e identidad transaccional", "SQL / pg, red interna del Compose, rol gimnasio_runtime")
+    Rel(init, db, "Crea roles; esquema, permisos y cuentas; verificación", "SQL / pg, superusuario solo en db-bootstrap, luego gimnasio_migrator")
 ```
 
 ## Contenedores y evidencia
 
 - **Backend / API:** el proceso real se inicia desde `src/server.js`; usa Express y compone `AforoPostgresAdapter`. La aplicación expone las rutas del módulo de aforo y `/health`, `/ready` y `/metrics`.
-- **PostgreSQL:** `schema.sql` crea el contador, cuentas sintéticas, sesiones, credenciales QR y estado individual.
+- **PostgreSQL:** contenedor `postgres` del Compose con el volumen `postgres_data`. `schema.sql` crea el contador, cuentas sintéticas, sesiones, credenciales QR y estado individual.
+- **Preparación de base:** `db-bootstrap` y `db-init` usan la misma imagen que la API, se ejecutan una vez por deploy y terminan. Separan los tres niveles de privilegio: superusuario, migrador y runtime ([guía de base de datos](../base-de-datos.md)).
 - **Adapters internos:** `AforoPostgresAdapter` es la implementación usada por el servidor real. `AforoMemoriaAdapter` es una alternativa inyectable y se usa por defecto en `createApp()` para pruebas sin PostgreSQL. Ninguno es un contenedor separado.
 - El adapter PostgreSQL realiza transacciones con bloqueo de fila; el detalle pertenece a la vista de componentes/ejecución, no representa un servicio adicional.
 
@@ -40,7 +40,7 @@ C4Container
         Container(app, "App móvil", "Flutter", "UI existente; integración con la API pendiente.")
         Container(api, "Backend / API", "Node.js / Express", "Registra transiciones con consistencia fuerte. Incluye caché en proceso del aforo (TTL 2 s, write-through por versión); no es un contenedor aparte.")
         Container(worker, "Worker de eventos", "Node.js, misma imagen que la API", "Lee el log por consumidor con checkpoint: notificaciones, difusión y reporte nocturno.")
-        ContainerDb(db, "Base de datos", "PostgreSQL gestionado en Supabase", "aforo_estado (estado + version), acceso_evento (log append-only), consumidor_checkpoint, aforo_por_hora.")
+        ContainerDb(db, "Base de datos", "PostgreSQL en el Compose", "aforo_estado (estado + version), acceso_evento (log append-only), consumidor_checkpoint, aforo_por_hora.")
     }
 
     Rel(estudiante, app, "Usa")
@@ -55,7 +55,7 @@ C4Container
 
 | Almacén | Tipo | ¿Contenedor propio? | Estado |
 |---|---|---|---|
-| PostgreSQL (`aforo_estado`) | Base relacional, fuente de verdad del invariante | **Sí** (PostgreSQL gestionado de Supabase, ADR-0010) | IMPLEMENTADO |
+| PostgreSQL (`aforo_estado`) | Base relacional, fuente de verdad del invariante | **Sí** (servicio `postgres` del Compose, ADR-0011) | IMPLEMENTADO |
 | Log `acceso_evento` + `consumidor_checkpoint` | Log append-only dentro de PostgreSQL | No: son tablas del mismo contenedor. Se nombran en su descripción para que sean visibles. | DISEÑO (ADR-0006) |
 | `aforo_por_hora` | Datos derivados para reportes | No: tabla del mismo contenedor | FUTURO |
 | Caché del aforo | Memoria del proceso `api` | No: componente interno de la API | DISEÑO |

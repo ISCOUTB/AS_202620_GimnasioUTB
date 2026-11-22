@@ -13,7 +13,7 @@ test('carga variables del archivo sin sobrescribir el entorno existente', () => 
   const envPath = path.join(directory, '.env');
   const targetEnv = {
     EXISTING_SETTING: 'injected-value',
-    SUPABASE_PUBLISHABLE_KEY: 'injected-publishable-test-key',
+    OPERADOR_TOKEN: 'injected-operator-test-token',
   };
   const loggedMessages = [];
   const originalConsoleError = console.error;
@@ -23,9 +23,9 @@ test('carga variables del archivo sin sobrescribir el entorno existente', () => 
       envPath,
       [
         'EXISTING_SETTING=file-value',
-        'SUPABASE_URL=https://test-project.supabase.co',
+        'CORS_ORIGINS=http://localhost:8080',
         'DATABASE_URL=postgresql://test:test@localhost:5432/gym_test',
-        'SUPABASE_PUBLISHABLE_KEY=file-publishable-test-key',
+        'OPERADOR_TOKEN=file-operator-test-token',
       ].join('\n')
     );
 
@@ -37,10 +37,10 @@ test('carga variables del archivo sin sobrescribir el entorno existente', () => 
     }
 
     assert.equal(targetEnv.EXISTING_SETTING, 'injected-value');
-    assert.equal(targetEnv.SUPABASE_URL, 'https://test-project.supabase.co');
+    assert.equal(targetEnv.CORS_ORIGINS, 'http://localhost:8080');
     assert.equal(
-      targetEnv.SUPABASE_PUBLISHABLE_KEY,
-      'injected-publishable-test-key'
+      targetEnv.OPERADOR_TOKEN,
+      'injected-operator-test-token'
     );
     assert.equal(
       targetEnv.DATABASE_URL,
@@ -85,24 +85,17 @@ test('el entorno runtime elimina credenciales administrativas tras cargar config
   const targetEnv = {
     DATABASE_URL: 'postgresql://runtime:test@localhost:5432/gym_test',
     DB_MIGRATIONS_URL: 'postgresql://migrator:test@localhost:5432/gym_test',
-    DB_PROVISIONING_URL: 'postgresql://provisioner:test@localhost:5432/gym_test',
-    DB_RECONCILIATION_URL: 'postgresql://auditor:test@localhost:5432/gym_test',
-    SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-secret',
+    DB_ADMIN_URL: 'postgresql://admin:test@localhost:5432/gym_test',
   };
 
   try {
-    fs.writeFileSync(
-      envPath,
-      'SUPABASE_URL=http://127.0.0.1:54321\nSUPABASE_PUBLISHABLE_KEY=test-publishable-key\n'
-    );
+    fs.writeFileSync(envPath, 'OPERADOR_TOKEN=token-de-prueba\nDEMO_STUDENTS=T1|a@utb.edu.co|A|clave-larga-123\n');
     cargarEntornoRuntime({ envPath, targetEnv });
     assert.equal(targetEnv.DATABASE_URL, 'postgresql://runtime:test@localhost:5432/gym_test');
-    assert.equal(targetEnv.SUPABASE_URL, 'http://127.0.0.1:54321');
-    assert.equal(targetEnv.SUPABASE_PUBLISHABLE_KEY, 'test-publishable-key');
-    assert.equal('DB_MIGRATIONS_URL' in targetEnv, false);
-    assert.equal('DB_PROVISIONING_URL' in targetEnv, false);
-    assert.equal('DB_RECONCILIATION_URL' in targetEnv, false);
-    assert.equal('SUPABASE_SERVICE_ROLE_KEY' in targetEnv, false);
+    assert.equal(targetEnv.OPERADOR_TOKEN, 'token-de-prueba');
+    for (const secreto of ['DB_MIGRATIONS_URL', 'DB_ADMIN_URL', 'DEMO_STUDENTS']) {
+      assert.equal(secreto in targetEnv, false, `${secreto} no debe llegar a la API`);
+    }
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

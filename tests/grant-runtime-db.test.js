@@ -7,18 +7,13 @@ const {
   RUTA_SQL,
 } = require('../scripts/grant-runtime-db');
 
-const PROJECT_REF = 'abcdefghijklmnopqrst';
-const POOLER = 'aws-0-us-east-1.pooler.supabase.com';
-
 function env(overrides = {}) {
   return {
     DB_GRANTS_ENABLED: 'true',
-    DB_MIGRATIONS_URL: `postgresql://gimnasio_migrator.${PROJECT_REF}:x@${POOLER}:5432/postgres`,
-    DATABASE_URL: `postgresql://gimnasio_runtime.${PROJECT_REF}:y@${POOLER}:5432/postgres`,
-    SUPABASE_URL: `https://${PROJECT_REF}.supabase.co`,
-    DB_MIGRATIONS_HOST: POOLER,
-    DB_MIGRATIONS_TARGET: 'postgres',
-    DB_MIGRATIONS_PROJECT_REF: PROJECT_REF,
+    DB_MIGRATIONS_URL: 'postgresql://gimnasio_migrator:x@postgres:5432/gimnasio_utb',
+    DATABASE_URL: 'postgresql://gimnasio_runtime:y@postgres:5432/gimnasio_utb',
+    DB_MIGRATIONS_HOST: 'postgres',
+    DB_MIGRATIONS_TARGET: 'gimnasio_utb',
     ...overrides,
   };
 }
@@ -33,12 +28,12 @@ test('db:grant-runtime exige habilitación explícita', () => {
 test('db:grant-runtime reutiliza la confirmación de destino de db:init', () => {
   assert.doesNotThrow(() => validarConfiguracionGrants(env()));
   assert.throws(
-    () => validarConfiguracionGrants(env({ DB_MIGRATIONS_PROJECT_REF: 'otroproyectootroproy' })),
-    /DB_MIGRATIONS_PROJECT_REF/
+    () => validarConfiguracionGrants(env({ DB_MIGRATIONS_TARGET: 'otra_base' })),
+    /host\/base/
   );
   assert.throws(
     () => validarConfiguracionGrants(env({
-      DATABASE_URL: `postgresql://gimnasio_migrator.${PROJECT_REF}:x@${POOLER}:5432/postgres`,
+      DATABASE_URL: 'postgresql://gimnasio_migrator:x@postgres:5432/gimnasio_utb',
     })),
     /gimnasio_runtime/
   );
@@ -96,10 +91,12 @@ test('el SQL de permisos no concede DELETE, TRUNCATE ni BYPASSRLS y es idempoten
   const sinComentarios = sql.replace(/--.*$/gm, '');
   assert.doesNotMatch(sinComentarios, /\bDELETE\b|\bTRUNCATE\b|BYPASSRLS|GRANT ALL/i);
   assert.match(sinComentarios, /NOT EXISTS[\s\S]*pg_policies/);
-  for (const tabla of ['aforo_estado', 'estudiantes', 'qr_credenciales', 'estudiante_estado_acceso']) {
+  for (const tabla of ['aforo_estado', 'estudiantes', 'sesiones_estudiantes', 'qr_credenciales', 'estudiante_estado_acceso']) {
     assert.match(sinComentarios, new RegExp(`ON TABLE public\\.${tabla} TO gimnasio_runtime`));
   }
-  assert.doesNotMatch(sinComentarios, /sesiones_estudiantes/);
+  // Sesiones: el runtime crea y lee sesiones, pero no las modifica.
+  assert.doesNotMatch(sinComentarios, /UPDATE[^;]*ON TABLE public\.sesiones_estudiantes/);
+  assert.doesNotMatch(sinComentarios, /gimnasio_provisioner/);
 });
 
 test('runtime puede bloquear estudiantes (FOR UPDATE) pero no modificarlos', () => {

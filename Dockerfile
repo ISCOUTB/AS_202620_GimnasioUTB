@@ -5,9 +5,6 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Certificados raíz para validar conexiones TLS.
-RUN apk add --no-cache ca-certificates && update-ca-certificates
-
 COPY --chown=node:node package.json package-lock.json ./
 
 RUN chown -R node:node /app

@@ -2,7 +2,7 @@
 
 ## Sistema de Gestión de Aforo para el Gimnasio UTB
 
-Este proyecto académico implementa un backend para consultar y actualizar el aforo, junto con una aplicación Flutter para estudiantes y encargados. La autenticación estudiantil usa Supabase Auth para cuentas sintéticas; no es SSO ni valida identidad institucional UTB. La integración externa requiere credenciales de Supabase y no se considera verificada hasta probarse contra un proyecto configurado.
+Este proyecto académico implementa un backend para consultar y actualizar el aforo, junto con una aplicación Flutter para estudiantes y encargados. Los estudiantes inician sesión con cuentas sintéticas cuyo hash de contraseña vive en el PostgreSQL del propio sistema ([ADR 0011](docs/adr/0011-volver-a-postgresql-propio-y-login-local.md)); no es SSO ni valida identidad institucional UTB.
 
 ## Problema y alcance
 
@@ -17,92 +17,57 @@ El corte vertical actual permite:
 - Iniciar sesión con una cuenta sintética de demostración y mostrar un QR temporal de un solo uso.
 - Escanear el QR desde la cuenta de operador y registrar la entrada o salida junto con la actualización transaccional del aforo.
 
-El QR no contiene datos personales legibles, expira en 60 segundos y solo puede consumirse una vez. La carga de estudiantes sintéticos se restringe a bases cuyo nombre incluye `test` y no se permite con `NODE_ENV=production`. El registro manual del operador sigue modificando únicamente el contador.
+El QR no contiene datos personales legibles, expira en 60 segundos y solo puede consumirse una vez. Las cuentas de prueba se cargan desde la variable `DEMO_STUDENTS` en cada deploy. El registro manual del operador sigue modificando únicamente el contador.
 
 ## Stack actual
 
 - **Backend:** Node.js y Express, organizado con Arquitectura Hexagonal / Ports and Adapters. La decisión se describe en [ADR 0001](docs/adr/0001-arquitectura-hexagonal.md).
-- **Persistencia del servidor real:** PostgreSQL mediante `AforoPostgresAdapter`; admite una instancia local o la URL PostgreSQL de Supabase.
-- **Autenticación estudiantil:** adapter de Supabase Auth; la API valida el access token y lo relaciona con un perfil local. El QR temporal sigue siendo responsabilidad de la API.
+- **Persistencia del servidor real:** PostgreSQL 16 mediante `AforoPostgresAdapter`. En el deployment corre dentro del mismo Docker Compose.
+- **Autenticación estudiantil:** `AutenticacionLocalAdapter`, detrás del puerto `AutenticacionEstudiantePort`. Verifica la contraseña con scrypt y crea sesiones de 8 horas; en la base se guarda solo el hash del token. El QR temporal sigue siendo responsabilidad de la API.
 - **Adapter en memoria:** disponible como implementación por defecto de `createApp()`, usada por pruebas que no requieren PostgreSQL.
 - **App Flutter:** proyecto en `docs/Flutter`; consulta el aforo y registra accesos contra esta API (instrucciones en [su README](docs/Flutter/README.md)).
-- **Deployment actual:** la API corre en Dokploy con `deploy/compose.lab.yaml` y usa el PostgreSQL y Auth del mismo proyecto Supabase ([ADR 0010](docs/adr/0010-postgresql-gestionado-en-supabase.md)). El Compose ya no incluye un PostgreSQL propio.
+- **Deployment actual:** Dokploy con `deploy/compose.lab.yaml`: PostgreSQL propio, creación automática de roles, esquema, permisos y estudiantes de prueba, y la API ([ADR 0011](docs/adr/0011-volver-a-postgresql-propio-y-login-local.md)).
 
 ## Ejecución local
 
-Requisitos: Node.js 18 o superior y una instancia PostgreSQL accesible. El servidor real requiere `DATABASE_URL`. Al iniciar con `npm start`, `npm run dev` o ejecutar un comando administrativo `db:*`, se carga el `.env` de la raíz del proyecto; las variables ya inyectadas por el entorno tienen prioridad. Antes de iniciar la API, se eliminan de su entorno las URLs administrativas y la clave `service_role`. Cada comando administrativo utiliza solo la conexión destinada a su función. La autenticación requiere `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY` o, por compatibilidad, `SUPABASE_ANON_KEY`; sin ellas las rutas de identidad responden `503`, pero el resto de la API puede iniciar.
+Requisitos: Node.js 18 o superior y un PostgreSQL accesible. Al iniciar con `npm start`, `npm run dev` o un comando `db:*`, se carga el `.env` de la raíz (plantilla en `.env.example`); las variables ya inyectadas por el entorno tienen prioridad. Antes de iniciar la API se eliminan de su entorno `DB_MIGRATIONS_URL`, `DB_ADMIN_URL` y `DEMO_STUDENTS`. Cada comando administrativo usa solo la conexión de su función.
+
+Con un PostgreSQL local y el `.env` completo, la base se prepara con la misma cadena que ejecuta el Compose:
 
 ```bash
 npm install
+npm run db:bootstrap          # superusuario: crea gimnasio_migrator y gimnasio_runtime
+npm run db:prepare            # gimnasio_migrator: esquema + migraciones
+npm run db:grant-runtime      # permisos por columna y políticas RLS del runtime
+npm run db:seed-demo-students # cuentas de DEMO_STUDENTS
+npm run db:check-security     # verifica la matriz de permisos del runtime
 npm start
 ```
 
-`npm run db:check-connections` ejecuta un preflight de solo lectura para
-`DATABASE_URL` y `DB_MIGRATIONS_URL` antes de inicializar. `npm run db:init`
-prepara una base nueva, pero es una operación de escritura: requiere
-`DB_INIT_ENABLED=true`, roles separados ya creados y confirmación exacta del
-destino/proyecto. No se ejecuta al iniciar la API. La base queda sin acceso
-runtime hasta aplicar los grants y políticas RLS documentados. Para el
-procedimiento completo y el SQL propuesto revisa [la guía de Supabase y
-migraciones](docs/supabase.md).
+Cada paso exige su propia variable de autorización (`DB_BOOTSTRAP_ENABLED`, `DB_INIT_ENABLED` + `DB_MIGRATIONS_ENABLED`, `DB_GRANTS_ENABLED`, `DB_SEED_ENABLED`) y la confirmación del destino (`DB_MIGRATIONS_HOST`, `DB_MIGRATIONS_TARGET`). El detalle está en [la guía de base de datos](docs/base-de-datos.md).
 
-```text
-npm run db:check-connections
-# db:init requiere autorización independiente y roles/permisos ya preparados
-npm run db:init
-# solo después de aplicar grants y políticas RLS:
-npm run db:check-security
-```
-
-Variables de entorno (ver `.env.example`):
-
-| Variable | Obligatoria | Para qué |
+| Variable | Requerida | Uso |
 |---|---|---|
-| `DATABASE_URL` | Sí | Conexión runtime a PostgreSQL mediante `gimnasio_runtime`. |
-| `DATABASE_SSL` | No | TLS es obligatorio por defecto; `false` solo para hosts PostgreSQL locales permitidos. |
-| `DATABASE_SSL_CA_CERT_PATH` / `DATABASE_SSL_CA_CERT_BASE64` | Para Supabase | CA oficial de Supabase como ruta a archivo (local) o PEM en base64 (Dokploy). Solo una de las dos. |
-| `DB_MIGRATIONS_URL` | Solo para inicializar/migrar | Conexión de `gimnasio_migrator`; no debe usar el rol runtime. |
-| `DB_PROVISIONING_URL` | Futuro seed/vinculación | Rol DML distinto; no requerido para inicializar y nunca usado en la API. |
-| `DB_RECONCILIATION_URL` | Futura reconciliación | Rol de solo lectura separado; no requerido para inicializar. |
-| `SUPABASE_URL` | Para identidad | URL del proyecto Supabase, utilizada por el backend. |
-| `SUPABASE_PUBLISHABLE_KEY` | Para identidad (preferida) | Clave de aplicación enviada como `apikey`; la identidad del usuario se valida por separado con su access token. |
-| `SUPABASE_ANON_KEY` | Compatibilidad heredada | Se usa como `apikey` solo cuando no está definida la publishable key. No se envía desde Flutter. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Solo para herramientas administrativas aisladas | Clave privilegiada para seed, vinculación y reconciliación; la API la elimina de su entorno. Nunca exponer al cliente. |
-| `OPERADOR_TOKEN` | Para registrar accesos | Secreto de mínimo 32 caracteres que exige `POST /api/v1/aforo/acceso`. Sin él, ese endpoint responde `503`. Generarlo con `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. |
-| `CORS_ORIGINS` | Solo para Flutter web | Orígenes permitidos separados por coma, p. ej. `http://localhost:8080`. |
-| `DB_INIT_ENABLED`, `DB_MIGRATIONS_ENABLED` | Solo para operaciones de esquema | Autorización explícita separada para inicialización y migraciones. |
-| `DB_GRANTS_ENABLED` | Solo para `db:grant-runtime` | Autoriza aplicar los permisos por columna y las políticas RLS de los roles runtime y provisioning. |
-| `DB_MIGRATIONS_HOST`, `DB_MIGRATIONS_TARGET`, `DB_MIGRATIONS_PROJECT_REF` | Solo para operaciones de esquema | Confirmación del host/base y, en Supabase, del proyecto asociado a la URL. |
-| `DB_PROVISIONING_ENABLED`, `DEMO_DATABASE_HOST`, `DEMO_DATABASE_NAME`, `DEMO_SUPABASE_PROJECT_REF` | Solo para seed/vínculo | Habilitación explícita y confirmaciones de la base/proyecto de demostración. |
-| `DB_RECONCILIATION_ENABLED` | Solo para reconciliación | Habilitación explícita de la consulta de solo lectura. |
-| `DEMO_STUDENT_ID`, `DEMO_STUDENT_EMAIL`, `DEMO_STUDENT_NAME`, `DEMO_STUDENT_CEDULA`, `DEMO_STUDENT_PASSWORD` | Solo para seed | Datos sintéticos individuales. La contraseña se crea en Supabase Auth y no se guarda en la tabla de estudiantes. |
+| `DATABASE_URL` | Sí | Rol `gimnasio_runtime`, el único que usa la API. |
+| `DATABASE_SSL` | No | TLS obligatorio por defecto; `false` solo para hosts locales (`localhost`, `127.0.0.1`, `::1` y `postgres` dentro del Compose). |
+| `DATABASE_SSL_CA_CERT_PATH` / `DATABASE_SSL_CA_CERT_BASE64` | No | CA en PEM para un PostgreSQL remoto con certificado propio. Solo una de las dos. |
+| `OPERADOR_TOKEN` | Para registrar accesos | Secreto de mínimo 32 caracteres; sin él los registros responden `503` (ADR-0007). |
+| `CORS_ORIGINS` | No | Orígenes web permitidos, separados por coma. |
+| `DB_ADMIN_URL` | Solo `db:bootstrap` | Superusuario del PostgreSQL local; nunca llega a la API. |
+| `DB_MIGRATIONS_URL` | Solo comandos de esquema y seed | Rol `gimnasio_migrator`, dueño de las tablas. |
+| `DB_MIGRATIONS_HOST`, `DB_MIGRATIONS_TARGET` | Con `DB_MIGRATIONS_URL` | Confirmación explícita del host y la base. |
+| `DEMO_STUDENTS` | No | `codigo|correo|nombre|contraseña` separados por `;`. Correo `@utb.edu.co`, contraseña de 12 caracteres o más. |
 
-`db:init` aplica el esquema base idempotente, incluida la fila inicial de
-`aforo_estado`, usando `DB_MIGRATIONS_URL`. En una base nueva se ejecuta después
-de `npm run db:check-connections` y solo con autorización explícita. Luego
-deben aplicarse los permisos y políticas RLS con `npm run db:grant-runtime`
-antes de iniciar la API. `DATABASE_SSL=false` solo se acepta para hosts
-PostgreSQL locales (desarrollo); las conexiones Supabase mantienen TLS y
-validación de certificados. El servidor escucha en el puerto 3000 por defecto.
-Los logs se escriben como JSON en stdout.
+## Deployment en Dokploy (ADR-0011)
 
-`npm run db:check-connections` es una comprobación de solo lectura previa al
-bootstrap, valida ambas conexiones, TLS, separación de roles, permisos de
-esquema y ausencia de objetos preexistentes; no prueba DDL creando objetos.
-`npm run db:check-security` es la comprobación runtime posterior: valida TLS,
-atributos efectivos, privilegios de esquema/base y columnas ACL esperadas;
-las sondas cierran sus pools y no imprimen URLs ni credenciales. Ninguna sonda
-certifica por sí sola las expresiones de las políticas RLS.
+`deploy/compose.lab.yaml` define cuatro servicios que arrancan en orden, cada uno esperando al anterior:
 
-Para provisionar una cuenta sintética, sigue la guía de [configuración de Supabase](docs/supabase.md) y ejecuta el seed solo con `DB_PROVISIONING_ENABLED=true`, un `DB_PROVISIONING_URL` de rol separado y las confirmaciones exactas de proyecto/base de demostración. El script crea o reutiliza el usuario en Supabase Auth y crea o vincula el perfil. Es idempotente y no elimina cuentas automáticamente ante fallos parciales. Rechaza `NODE_ENV=production`. No uses datos personales reales.
+1. `postgres`: PostgreSQL 16 con el volumen `postgres_data`.
+2. `db-bootstrap` (superusuario): crea o actualiza `gimnasio_migrator` y `gimnasio_runtime` sin privilegios administrativos. Si el volumen viene de una versión anterior, transfiere sus tablas al migrador.
+3. `db-init` (`gimnasio_migrator`): `db:prepare`, `db:grant-runtime`, `db:seed-demo-students` y `db:check-security`. Si la verificación de seguridad falla, el deploy se detiene antes de la API.
+4. `api` (`gimnasio_runtime`): no recibe credenciales administrativas.
 
-El seed es idempotente y ya no elimina cuentas automáticamente ante fallos parciales. Para revisar estados inconsistentes, configura un rol `SELECT`-only en `DB_RECONCILIATION_URL`, habilita `DB_RECONCILIATION_ENABLED=true` y usa `npm run db:reconcile-identities`; para vincular una cuenta Auth ya existente a un perfil por código, configura `DB_PROVISIONING_URL` y `DB_PROVISIONING_ENABLED=true` antes de usar `npm run db:link-student-auth -- --student-code CODIGO --email XXXX@utb.edu.co`. Revisa primero las precauciones y el procedimiento de [recuperación y vinculación](docs/supabase.md#diagnóstico-y-recuperación).
-
-## Deployment final (ADR-0010)
-
-La API se despliega en Dokploy con `deploy/compose.lab.yaml`: el servicio `api` corre siempre y `db-migrate` (perfil `maintenance`) solo se usa para migraciones manuales. La base y la autenticación están en el mismo proyecto Supabase: la API se conecta por el Session Pooler con el rol `gimnasio_runtime` y TLS verificado con la CA oficial de Supabase (`DATABASE_SSL_CA_CERT_BASE64`), porque esa CA no está en el almacén de certificados de Node. Las variables del panel se listan en `deploy/.env.example`.
-
-La base se prepara una sola vez desde un equipo del equipo, en este orden: roles (SQL en [la guía de Supabase](docs/supabase.md)), `npm run db:init`, `npm run db:grant-runtime`, `npm run db:check-security` y `npm run db:seed-demo-student`. El contenedor permanente no recibe credenciales administrativas.
+Todo es idempotente: repetir el deploy no duplica ni borra datos. Las variables del panel están en `deploy/.env.example`: `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` (si el volumen ya existe, los mismos valores de siempre), `DB_MIGRATOR_PASSWORD`, `DB_RUNTIME_PASSWORD`, `OPERADOR_TOKEN` y `DEMO_STUDENTS`.
 
 Verificación después de cada deploy:
 
@@ -113,11 +78,9 @@ GET https://gimnasio-utb.iscoutb.dev/ready     -> 200 (la API alcanza PostgreSQL
 GET https://gimnasio-utb.iscoutb.dev/api/v1/aforo -> 200 {"status":"success","data":{"aforoActual":N}}
 ```
 
-## Deployment de S8 (histórico)
+Historia: en S8 el Compose tenía `postgres`, `db-init` y `api` con un único usuario de base de datos, y se verificó una entrada y una salida (aforo 0 → 1 → 0). En noviembre de 2026 se intentó mover base y login a Supabase (ADR-0009 y ADR-0010); ese deployment nunca llegó a funcionar y se revirtió con ADR-0011, conservando las mejoras de la API y de Flutter. El volumen de S8 se reutiliza.
 
-En S8 el Compose tenía tres servicios: `postgres` (PostgreSQL en contenedor con volumen nombrado), `db-init` y `api`. El equipo verificó entonces `Docker Compose Deployed: ✅`, los endpoints públicos y una entrada y salida (aforo 0 → 1 → 0). Ese PostgreSQL en contenedor se retiró en noviembre de 2026 al pasar la base a Supabase (ADR-0010); sus datos no se migraron.
-
-Los archivos de deployment son `Dockerfile`, `.dockerignore`, `deploy/compose.lab.yaml` y `deploy/.env.example`. Dokploy genera `deploy/.env` desde la configuración del panel; no se versionan credenciales.
+Los archivos de deployment son `Dockerfile`, `.dockerignore`, `deploy/compose.lab.yaml` y `deploy/.env.example`. Dokploy genera `deploy/.env` desde el panel; no se versionan credenciales.
 
 ## API actual
 
@@ -129,7 +92,7 @@ Los archivos de deployment son `Dockerfile`, `.dockerignore`, `deploy/compose.la
 | `GET /metrics` | Devuelve `access_operations_total` (`entrada`, `salida`, `total`), en memoria por proceso. Se reinicia con el proceso; no es Prometheus ni una métrica persistente. |
 | `GET /api/v1/aforo` | Devuelve el aforo actual en `data.aforoActual`. |
 | `POST /api/v1/aforo/acceso` | Exige `Authorization: Bearer <OPERADOR_TOKEN>`. Recibe `{"tipoAcceso":"ENTRADA"}` o `{"tipoAcceso":"SALIDA"}`. Responde `201` si se registra, `400` si falla la entrada o regla de dominio, `401` sin token válido, `413` si el cuerpo supera 1 KB, `503` si el repositorio no está disponible o el servidor no tiene token configurado, y `500` ante errores inesperados. |
-| `POST /api/v1/estudiantes/sesion` | Inicia sesión con correo sintético y contraseña mediante Supabase Auth; devuelve el access token del proveedor y su vencimiento. |
+| `POST /api/v1/estudiantes/sesion` | Inicia sesión con correo sintético y contraseña; devuelve un token de sesión aleatorio y su vencimiento (8 horas). |
 | `POST /api/v1/estudiantes/qr` | Requiere la sesión de estudiante; devuelve un QR de un solo uso válido por 60 segundos. |
 | `POST /api/v1/aforo/acceso-qr` | Requiere token de operador; consume el QR y registra la transición individual y el aforo en la misma transacción. |
 
@@ -161,7 +124,7 @@ El backend expone los siguientes endpoints para consultar el estado del servicio
 | GET | `/metrics` | Consulta el contador operacional de entradas y salidas. |
 | GET | `/api/v1/aforo` | Consulta el número actual de personas dentro del gimnasio. |
 | POST | `/api/v1/aforo/acceso` | Registra una entrada o salida manual (token de operador). |
-| POST | `/api/v1/estudiantes/sesion` | Inicia sesión del estudiante con Supabase Auth. |
+| POST | `/api/v1/estudiantes/sesion` | Inicia sesión del estudiante con correo y contraseña. |
 | POST | `/api/v1/estudiantes/qr` | Emite el QR personal de un solo uso (60 s). |
 | POST | `/api/v1/aforo/acceso-qr` | El operador consume el QR; la API decide ENTRADA o SALIDA. |
 
@@ -235,13 +198,13 @@ src/
     │   ├── application/           # casos de uso y puerto del repositorio
     │   └── infrastructure/        # router HTTP, adapters PostgreSQL y memoria, schema.sql
     └── identidad/
-        ├── application/           # errores y puerto de Supabase Auth
-        └── infrastructure/        # router HTTP, adapter PostgreSQL, adapters Supabase Auth
+        ├── application/           # errores y puerto de autenticación
+        └── infrastructure/        # router HTTP, adapter PostgreSQL, autenticación local (scrypt)
 
-scripts/                           # db:init, db:migrate, db:grant-runtime, seed y verificaciones
+scripts/                           # db:bootstrap, db:prepare, db:grant-runtime, seed y verificaciones
 scripts/sql/runtime-grants.sql     # permisos por columna y políticas RLS
 db/migrations/                     # migraciones versionadas para bases existentes
-deploy/                            # Compose de Dokploy (Supabase) y de laboratorio
+deploy/                            # Compose de Dokploy (PostgreSQL propio + API)
 docs/Flutter/                      # app móvil (estudiante y encargado)
 tests/                             # dominio, integración, contrato, seguridad y PostgreSQL
 ```
@@ -268,9 +231,10 @@ tests/                             # dominio, integración, contrato, seguridad 
 - [S13: modelado de amenazas, dependencias y privacidad](docs/s13-seguridad-amenazas.md).
 - [ADR 0007: Token de operador y CORS con lista blanca](docs/adr/0007-autenticacion-operador-y-cors.md).
 - [ADR 0008: Identidad de prueba y QR de acceso](docs/adr/0008-identidad-de-prueba-y-qr-de-acceso.md).
-- [ADR 0009: Supabase Auth para estudiantes](docs/adr/0009-supabase-auth.md).
-- [ADR 0010: PostgreSQL gestionado en Supabase para el deployment final](docs/adr/0010-postgresql-gestionado-en-supabase.md).
-- [Configuración de Supabase, Auth y migraciones](docs/supabase.md).
+- [ADR 0009: Supabase Auth para estudiantes](docs/adr/0009-supabase-auth.md) (reemplazado por ADR 0011).
+- [ADR 0010: PostgreSQL gestionado en Supabase](docs/adr/0010-postgresql-gestionado-en-supabase.md) (reemplazado por ADR 0011).
+- [ADR 0011: Volver a PostgreSQL propio y login local](docs/adr/0011-volver-a-postgresql-propio-y-login-local.md).
+- [Guía de base de datos: roles, permisos y estudiantes de prueba](docs/base-de-datos.md).
 - [Taller: prototipo aislado de mensajería asíncrona](docs/taller-mensajeria/README.md).
 
 ## Integrantes
