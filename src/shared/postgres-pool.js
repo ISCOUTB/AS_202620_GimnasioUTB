@@ -23,18 +23,47 @@ function crearErrorConfiguracion(code, message) {
   return error;
 }
 
-function cargarCertificadoCaPostgres(env) {
-  if (!env.DATABASE_SSL_CA_CERT_PATH) return undefined;
-
-  let ca;
-  try {
-    ca = fs.readFileSync(env.DATABASE_SSL_CA_CERT_PATH, 'utf8');
-  } catch {
+/**
+ * Obtiene el texto PEM de la CA PostgreSQL. Admite una ruta a archivo
+ * (desarrollo local) o el PEM codificado en base64 en una variable
+ * (deployments donde montar un archivo es incómodo, como Dokploy). Si se
+ * definen ambas, se rechaza la configuración para evitar ambigüedad.
+ */
+function leerPemCaPostgres(env) {
+  const ruta = env.DATABASE_SSL_CA_CERT_PATH;
+  const base64 = env.DATABASE_SSL_CA_CERT_BASE64?.trim();
+  if (ruta && base64) {
     throw crearErrorConfiguracion(
-      'DATABASE_SSL_CA_CERT_READ_FAILURE',
-      'No fue posible leer el certificado CA PostgreSQL configurado'
+      'DATABASE_SSL_CA_CERT_AMBIGUOUS',
+      'Defina solo DATABASE_SSL_CA_CERT_PATH o DATABASE_SSL_CA_CERT_BASE64, no ambas'
     );
   }
+  if (ruta) {
+    try {
+      return fs.readFileSync(ruta, 'utf8');
+    } catch {
+      throw crearErrorConfiguracion(
+        'DATABASE_SSL_CA_CERT_READ_FAILURE',
+        'No fue posible leer el certificado CA PostgreSQL configurado'
+      );
+    }
+  }
+  if (base64) {
+    const pem = Buffer.from(base64, 'base64').toString('utf8');
+    if (!pem.includes('-----BEGIN CERTIFICATE-----')) {
+      throw crearErrorConfiguracion(
+        'DATABASE_SSL_CA_CERT_INVALID',
+        'El certificado CA PostgreSQL configurado no es válido'
+      );
+    }
+    return pem;
+  }
+  return undefined;
+}
+
+function cargarCertificadoCaPostgres(env) {
+  const ca = leerPemCaPostgres(env);
+  if (!ca) return undefined;
 
   try {
     tls.createSecureContext({ ca });

@@ -20,6 +20,7 @@ evidencia de un login real.
 | `DATABASE_URL` | Conexión del backend al PostgreSQL mediante `pg`, exclusivamente con `gimnasio_runtime`. |
 | `DATABASE_SSL` | TLS PostgreSQL. Es obligatorio por defecto; `false` solo se admite para `localhost`, `127.0.0.1`, `::1` y el servicio local `postgres`. |
 | `DATABASE_SSL_CA_CERT_PATH` | Ruta opcional a un certificado CA PostgreSQL en PEM. Úsala con la CA oficial descargada del Dashboard si el trust store de Node no la reconoce. |
+| `DATABASE_SSL_CA_CERT_BASE64` | El mismo PEM codificado en base64, para el contenedor de Dokploy. Excluyente con la ruta. |
 | `DB_MIGRATIONS_URL` | Conexión de `gimnasio_migrator`, solo para bootstrap/migraciones. No se usa en la API. |
 | `DB_PROVISIONING_URL` | Conexión separada para seed/vinculación; no se necesita para la primera inicialización. Nunca se usa en la API. |
 | `DB_RECONCILIATION_URL` | Conexión de solo lectura para reconciliación; no se necesita para la primera inicialización ni se usa en la API. |
@@ -158,12 +159,11 @@ el pool de `db:init`/`db:migrate` se crea con `DB_MIGRATIONS_URL`. Aísla y
 elimina el job tras ejecutarlo. No configures la URL migrator ni credenciales
 administrativas en el contenedor permanente de la API.
 
-El Compose de PostgreSQL local requiere `DATABASE_URL` y `DB_MIGRATIONS_URL`
-separadas en `deploy/.env`; ambas apuntan al servicio `postgres` pero deben
-usar roles distintos ya aprovisionados. `POSTGRES_USER` y
-`POSTGRES_PASSWORD` inicializan la instancia y no se reutilizan como URL de la
-API ni de `db-init`. Esta modificación no crea roles y el despliegue no arrancará
-hasta que existan y las URLs se configuren.
+El Compose de Dokploy (`deploy/compose.lab.yaml`) ya no incluye PostgreSQL:
+`api` recibe solo `DATABASE_URL` (rol runtime) y la CA en base64; el servicio
+`db-migrate` (perfil `maintenance`) recibe además `DB_MIGRATIONS_URL`. Ninguno
+crea roles: deben existir antes del primer deploy (ver
+[Deployment final con Supabase](#deployment-final-con-supabase-adr-0010)).
 
 La API devuelve `503` en las rutas de identidad si no están configurados
 `SUPABASE_URL` y alguna de las claves publishable/anon. Si solo se define la URL
@@ -359,6 +359,8 @@ CREATE POLICY gimnasio_runtime_aforo_update ON public.aforo_estado
   FOR UPDATE TO gimnasio_runtime USING (id = 1) WITH CHECK (id = 1);
 CREATE POLICY gimnasio_runtime_estudiantes_read ON public.estudiantes
   FOR SELECT TO gimnasio_runtime USING (true);
+CREATE POLICY gimnasio_runtime_estudiantes_lock ON public.estudiantes
+  FOR UPDATE TO gimnasio_runtime USING (true) WITH CHECK (false);
 CREATE POLICY gimnasio_runtime_qr_read ON public.qr_credenciales
   FOR SELECT TO gimnasio_runtime USING (true);
 CREATE POLICY gimnasio_runtime_qr_insert ON public.qr_credenciales
@@ -373,9 +375,12 @@ CREATE POLICY gimnasio_runtime_estado_update ON public.estudiante_estado_acceso
   FOR UPDATE TO gimnasio_runtime USING (true) WITH CHECK (true);
 ```
 
-La ausencia de política `UPDATE` en `estudiantes` mantiene denegada la
-modificación de perfiles por runtime aunque exista el permiso de columna para
-bloqueo. Las políticas `true` para estudiantes, QR y estado son deliberadamente
+`SELECT ... FOR UPDATE` sobre `estudiantes` (al emitir y consumir un QR)
+exige el permiso de columna `UPDATE (created_at)` **y** que la fila pase el
+`USING` de una política `UPDATE`; sin esa política la consulta devuelve cero
+filas y la API responde "sesión no válida". Por eso
+`gimnasio_runtime_estudiantes_lock` usa `USING (true)` para permitir el bloqueo
+y `WITH CHECK (false)`, que rechaza cualquier modificación real del perfil. Las políticas `true` para estudiantes, QR y estado son deliberadamente
 amplias para las consultas actuales: un proceso Express comprometido podría
 leer/modificar filas de otros estudiantes en las operaciones permitidas. No se
 concede `DELETE`, ni acceso runtime a `sesiones_estudiantes`,
@@ -515,6 +520,44 @@ npm run db:init
 Esta etapa no autoriza crear roles, conceder permisos o políticas, ejecutar
 `db:init`/`db:migrate`, provisionar estudiantes, ejecutar seeds ni modificar
 datos remotos.
+
+## Deployment final con Supabase (ADR-0010)
+
+La entrega final usa el PostgreSQL del mismo proyecto Supabase que provee Auth
+y despliega la API en Dokploy con `deploy/compose.lab.yaml`. El orden
+completo es:
+
+1. Roles `gimnasio_runtime` y `gimnasio_migrator` (SQL de
+   [preparación de roles](#sql-propuesto-para-preparar-roles)), si aún no existen.
+2. Rol de provisionamiento, ejecutado como administrador en el SQL Editor:
+
+   ```sql
+   CREATE ROLE gimnasio_provisioner
+     LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE
+     NOREPLICATION NOBYPASSRLS;
+   GRANT CONNECT ON DATABASE postgres TO gimnasio_provisioner;
+   GRANT USAGE ON SCHEMA public TO gimnasio_provisioner;
+   ```
+
+   Se le asigna una contraseña propia con `ALTER ROLE ... PASSWORD`, distinta
+   de las de runtime y migrador.
+3. `npm run db:init` con `DB_INIT_ENABLED=true` (crea las tablas; el dueño es
+   `gimnasio_migrator`).
+4. `npm run db:grant-runtime` con `DB_GRANTS_ENABLED=true`. Aplica
+   `scripts/sql/runtime-grants.sql` con el rol dueño: los permisos por columna
+   y las políticas RLS de [la matriz runtime](#operaciones-sql-y-matriz-runtime)
+   y, si existe `gimnasio_provisioner`, `SELECT`/`INSERT`/`UPDATE` por columna
+   sobre `estudiantes` con sus políticas. Es idempotente y no concede `DELETE`.
+5. `npm run db:check-security` para validar el rol runtime.
+6. `npm run db:seed-demo-student` por cada cuenta sintética.
+7. En Dokploy, `DATABASE_URL` (runtime), `DATABASE_SSL_CA_CERT_BASE64`,
+   `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` y `OPERADOR_TOKEN`
+   (plantilla en `deploy/.env.example`).
+
+`DATABASE_SSL_CA_CERT_BASE64` contiene el PEM de `prod-ca-2021.crt` codificado
+en base64 y reemplaza a `DATABASE_SSL_CA_CERT_PATH` dentro del contenedor; no se
+deben definir ambas. En Windows se obtiene con
+`[Convert]::ToBase64String([IO.File]::ReadAllBytes("prod-ca-2021.crt"))`.
 
 ## Modelo y relación Auth-estudiante
 

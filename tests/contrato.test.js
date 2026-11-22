@@ -61,6 +61,7 @@ async function withServer(
 
 // Cada caso representa una combinación método/ruta/status documentada.
 const casos = [
+  { nombre: 'GET / -> 200', metodo: 'get', ruta: '/', status: 200 },
   { nombre: 'GET /health -> 200', metodo: 'get', ruta: '/health', status: 200 },
   { nombre: 'GET /ready -> 200', metodo: 'get', ruta: '/ready', status: 200 },
   {
@@ -406,7 +407,7 @@ test('contrato: toda respuesta documentada en openapi.yaml está verificada por 
 });
 
 test('contrato: el cambio incompatible de login está versionado y no promete compatibilidad', () => {
-  assert.equal(spec.info.version, '3.0.0');
+  assert.match(spec.info.version, /^3\./, 'el MAJOR 3 registra el cambio incompatible de login');
   assert.ok(spec.paths['/api/v1/estudiantes/sesion']);
   assert.equal(spec.paths['/api/v2/estudiantes/sesion'], undefined);
   assert.match(spec.info.description, /No se afirma que el contrato sea compatible/);

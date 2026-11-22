@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
   title: API Backend - Gimnasio UTB
-  version: 3.0.0
+  version: 3.1.0
   description: |
     Contrato HTTP del backend actual. El deployment actual utiliza Docker
-    Compose en Dokploy. El cliente Flutter (`docs/Flutter/lib/core/api/aforo_api.dart`)
+    Compose en Dokploy, con la base PostgreSQL de Supabase (ADR-0010). El cliente Flutter (`docs/Flutter/lib/core/api/aforo_api.dart`)
     consume estas rutas.
 
     **2.0.0 (S13, ADR-0007):** `POST /api/v1/aforo/acceso` exige
@@ -28,6 +28,9 @@ info:
     y el único cliente mantenido por el equipo se actualiza junto con la API.
     No se afirma que el contrato sea compatible con clientes anteriores.
 
+    **3.1.0 (entrega final):** se agrega `GET /` como raíz informativa
+    (cambio compatible, MINOR) para que la URL del deployment no responda 404.
+
     El QR temporal sigue siendo independiente de Supabase Auth. No hay SSO ni
     identidad institucional.
 
@@ -43,6 +46,17 @@ servers:
   - url: https://gimnasio-utb.iscoutb.dev
     description: Deployment actual mediante Dokploy; HTTPS termina en su proxy/ingress.
 paths:
+  /:
+    get:
+      operationId: describirServicio
+      summary: Describe el servicio y sus rutas públicas
+      responses:
+        '200':
+          description: Información del servicio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaRaiz'
   /health:
     get:
       operationId: verificarSalud
@@ -326,6 +340,21 @@ components:
           const: error
         message:
           type: string
+    RespuestaRaiz:
+      type: object
+      required: [status, service, descripcion, endpoints]
+      additionalProperties: false
+      properties:
+        status:
+          const: ok
+        service:
+          type: string
+        descripcion:
+          type: string
+        endpoints:
+          type: array
+          items:
+            type: string
     RespuestaHealth:
       type: object
       required: [status, service]

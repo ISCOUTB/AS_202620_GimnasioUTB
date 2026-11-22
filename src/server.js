@@ -71,6 +71,17 @@ function createApp({
   const identityRepository = identidadRepository || null;
   const accessMetrics = { entrada: 0, salida: 0 };
 
+  // Raíz informativa: quien abre la URL del deployment en un navegador ve qué
+  // servicio es y qué rutas públicas puede consultar, en vez de un 404.
+  app.get('/', (req, res) => {
+    res.status(200).json({
+      status: 'ok',
+      service: 'gimnasio-utb-backend',
+      descripcion: 'API del sistema de aforo del Gimnasio UTB. El cliente es la app Flutter.',
+      endpoints: ['/health', '/ready', '/metrics', '/api/v1/aforo'],
+    });
+  });
+
   app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok', service: 'gimnasio-utb-backend' });
   });

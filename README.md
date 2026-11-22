@@ -26,7 +26,7 @@ El QR no contiene datos personales legibles, expira en 60 segundos y solo puede 
 - **Autenticación estudiantil:** adapter de Supabase Auth; la API valida el access token y lo relaciona con un perfil local. El QR temporal sigue siendo responsabilidad de la API.
 - **Adapter en memoria:** disponible como implementación por defecto de `createApp()`, usada por pruebas que no requieren PostgreSQL.
 - **App Flutter:** proyecto en `docs/Flutter`; consulta el aforo y registra accesos contra esta API (instrucciones en [su README](docs/Flutter/README.md)).
-- **Deployment actual:** Docker Compose en Dokploy, con PostgreSQL como servicio del Compose; no es PostgreSQL gestionado. El estado desplegado se describe más abajo.
+- **Deployment actual:** la API corre en Dokploy con `deploy/compose.lab.yaml` y usa el PostgreSQL y Auth del mismo proyecto Supabase ([ADR 0010](docs/adr/0010-postgresql-gestionado-en-supabase.md)). El Compose ya no incluye un PostgreSQL propio.
 
 ## Ejecución local
 
@@ -60,6 +60,7 @@ Variables de entorno (ver `.env.example`):
 |---|---|---|
 | `DATABASE_URL` | Sí | Conexión runtime a PostgreSQL mediante `gimnasio_runtime`. |
 | `DATABASE_SSL` | No | TLS es obligatorio por defecto; `false` solo para hosts PostgreSQL locales permitidos. |
+| `DATABASE_SSL_CA_CERT_PATH` / `DATABASE_SSL_CA_CERT_BASE64` | Para Supabase | CA oficial de Supabase como ruta a archivo (local) o PEM en base64 (Dokploy). Solo una de las dos. |
 | `DB_MIGRATIONS_URL` | Solo para inicializar/migrar | Conexión de `gimnasio_migrator`; no debe usar el rol runtime. |
 | `DB_PROVISIONING_URL` | Futuro seed/vinculación | Rol DML distinto; no requerido para inicializar y nunca usado en la API. |
 | `DB_RECONCILIATION_URL` | Futura reconciliación | Rol de solo lectura separado; no requerido para inicializar. |
@@ -70,6 +71,7 @@ Variables de entorno (ver `.env.example`):
 | `OPERADOR_TOKEN` | Para registrar accesos | Secreto de mínimo 32 caracteres que exige `POST /api/v1/aforo/acceso`. Sin él, ese endpoint responde `503`. Generarlo con `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. |
 | `CORS_ORIGINS` | Solo para Flutter web | Orígenes permitidos separados por coma, p. ej. `http://localhost:8080`. |
 | `DB_INIT_ENABLED`, `DB_MIGRATIONS_ENABLED` | Solo para operaciones de esquema | Autorización explícita separada para inicialización y migraciones. |
+| `DB_GRANTS_ENABLED` | Solo para `db:grant-runtime` | Autoriza aplicar los permisos por columna y las políticas RLS de los roles runtime y provisioning. |
 | `DB_MIGRATIONS_HOST`, `DB_MIGRATIONS_TARGET`, `DB_MIGRATIONS_PROJECT_REF` | Solo para operaciones de esquema | Confirmación del host/base y, en Supabase, del proyecto asociado a la URL. |
 | `DB_PROVISIONING_ENABLED`, `DEMO_DATABASE_HOST`, `DEMO_DATABASE_NAME`, `DEMO_SUPABASE_PROJECT_REF` | Solo para seed/vínculo | Habilitación explícita y confirmaciones de la base/proyecto de demostración. |
 | `DB_RECONCILIATION_ENABLED` | Solo para reconciliación | Habilitación explícita de la consulta de solo lectura. |
@@ -78,11 +80,11 @@ Variables de entorno (ver `.env.example`):
 `db:init` aplica el esquema base idempotente, incluida la fila inicial de
 `aforo_estado`, usando `DB_MIGRATIONS_URL`. En una base nueva se ejecuta después
 de `npm run db:check-connections` y solo con autorización explícita. Luego
-deben aplicarse los grants/políticas RLS de [la guía Supabase](docs/supabase.md)
-antes de iniciar la API. En el Compose de laboratorio,
-`DATABASE_SSL=false` se limita al host local `postgres`; las conexiones Supabase
-mantienen TLS y validación de certificados. El servidor escucha en el puerto
-3000 por defecto. Los logs se escriben como JSON en stdout.
+deben aplicarse los permisos y políticas RLS con `npm run db:grant-runtime`
+antes de iniciar la API. `DATABASE_SSL=false` solo se acepta para hosts
+PostgreSQL locales (desarrollo); las conexiones Supabase mantienen TLS y
+validación de certificados. El servidor escucha en el puerto 3000 por defecto.
+Los logs se escriben como JSON en stdout.
 
 `npm run db:check-connections` es una comprobación de solo lectura previa al
 bootstrap, valida ambas conexiones, TLS, separación de roles, permisos de
@@ -96,31 +98,32 @@ Para provisionar una cuenta sintética, sigue la guía de [configuración de Sup
 
 El seed es idempotente y ya no elimina cuentas automáticamente ante fallos parciales. Para revisar estados inconsistentes, configura un rol `SELECT`-only en `DB_RECONCILIATION_URL`, habilita `DB_RECONCILIATION_ENABLED=true` y usa `npm run db:reconcile-identities`; para vincular una cuenta Auth ya existente a un perfil por código, configura `DB_PROVISIONING_URL` y `DB_PROVISIONING_ENABLED=true` antes de usar `npm run db:link-student-auth -- --student-code CODIGO --email XXXX@utb.edu.co`. Revisa primero las precauciones y el procedimiento de [recuperación y vinculación](docs/supabase.md#diagnóstico-y-recuperación).
 
-## Deployment verificado (S8)
+## Deployment final (ADR-0010)
 
-El backend está desplegado mediante la aplicación Dokploy `gimnasioutb-sistema-kresdf` en [https://gimnasio-utb.iscoutb.dev](https://gimnasio-utb.iscoutb.dev). El deployment usa Docker Compose con tres servicios: `postgres` ejecuta PostgreSQL con un volumen nombrado; `db-init` ejecuta `npm run db:init` cuando PostgreSQL está saludable; y `api` construye la imagen de producción, escucha internamente en el puerto 3000 y espera a que `db-init` termine correctamente. El healthcheck de `api` consulta `/ready`.
+La API se despliega en Dokploy con `deploy/compose.lab.yaml`: el servicio `api` corre siempre y `db-migrate` (perfil `maintenance`) solo se usa para migraciones manuales. La base y la autenticación están en el mismo proyecto Supabase: la API se conecta por el Session Pooler con el rol `gimnasio_runtime` y TLS verificado con la CA oficial de Supabase (`DATABASE_SSL_CA_CERT_BASE64`), porque esa CA no está en el almacén de certificados de Node. Las variables del panel se listan en `deploy/.env.example`.
 
-El Compose requiere `DB_MIGRATIONS_URL` para `db-init` y `DATABASE_URL` para
-`api`; deben ser roles distintos. `POSTGRES_USER`/`POSTGRES_PASSWORD` solo
-inicializan el contenedor PostgreSQL y ya no se interpolan en las conexiones de
-la API ni de `db-init`. Las URLs deben apuntar al servicio `postgres` y los roles
-deben existir previamente; esta configuración no los crea.
+La base se prepara una sola vez desde un equipo del equipo, en este orden: roles (SQL en [la guía de Supabase](docs/supabase.md)), `npm run db:init`, `npm run db:grant-runtime`, `npm run db:check-security` y `npm run db:seed-demo-student`. El contenedor permanente no recibe credenciales administrativas.
 
-La verificación anterior corresponde al estado desplegado en S8; esta etapa no
-se ha desplegado ni se han aplicado migraciones. El entorno remoto no debe
-considerarse actualizado ni autenticando con Supabase hasta una configuración y
-validación explícitas. El Compose permite pasar `SUPABASE_URL` y
-`SUPABASE_PUBLISHABLE_KEY` (o la anon heredada) al backend, pero no recibe la
-clave `service_role`.
+Verificación después de cada deploy:
 
-El equipo verificó PostgreSQL en estado `Healthy`, la finalización correcta de `db-init`, el arranque de la API y el resultado `Docker Compose Deployed: ✅`. También comprobó los endpoints públicos. En una ejecución concreta, el aforo pasó de 0 a 1 con una entrada y volvió a 0 con una salida. `/metrics` reportó entonces `entrada: 1`, `salida: 1` y `total: 2`. Esos valores son una observación de ese proceso, no métricas históricas persistentes.
+```text
+GET https://gimnasio-utb.iscoutb.dev/          -> 200, descripción del servicio
+GET https://gimnasio-utb.iscoutb.dev/health    -> 200 {"status":"ok",...}
+GET https://gimnasio-utb.iscoutb.dev/ready     -> 200 (la API alcanza PostgreSQL)
+GET https://gimnasio-utb.iscoutb.dev/api/v1/aforo -> 200 {"status":"success","data":{"aforoActual":N}}
+```
 
-Los archivos de deployment son `Dockerfile`, `.dockerignore`, `deploy/compose.lab.yaml` y `deploy/.env.example`. Dokploy genera `deploy/.env` desde la configuración del panel; no se versionan credenciales. El Compose configura un volumen nombrado para PostgreSQL, pero no se ha documentado una prueba de retención de datos después de un redeploy.
+## Deployment de S8 (histórico)
+
+En S8 el Compose tenía tres servicios: `postgres` (PostgreSQL en contenedor con volumen nombrado), `db-init` y `api`. El equipo verificó entonces `Docker Compose Deployed: ✅`, los endpoints públicos y una entrada y salida (aforo 0 → 1 → 0). Ese PostgreSQL en contenedor se retiró en noviembre de 2026 al pasar la base a Supabase (ADR-0010); sus datos no se migraron.
+
+Los archivos de deployment son `Dockerfile`, `.dockerignore`, `deploy/compose.lab.yaml` y `deploy/.env.example`. Dokploy genera `deploy/.env` desde la configuración del panel; no se versionan credenciales.
 
 ## API actual
 
 | Método y ruta | Comportamiento |
 |---|---|
+| `GET /` | Raíz informativa: nombre del servicio y rutas públicas. |
 | `GET /health` | Liveness estático. Responde `200` con `{"status":"ok","service":"gimnasio-utb-backend"}`. |
 | `GET /ready` | Consulta el repositorio. Responde `200` si está disponible y `503` si la consulta falla. |
 | `GET /metrics` | Devuelve `access_operations_total` (`entrada`, `salida`, `total`), en memoria por proceso. Se reinicia con el proceso; no es Prometheus ni una métrica persistente. |
@@ -152,11 +155,15 @@ El backend expone los siguientes endpoints para consultar el estado del servicio
 
 | Método | Endpoint | Descripción |
 |:---:|---|---|
+| GET | `/` | Describe el servicio y lista las rutas públicas. |
 | GET | `/health` | Verifica que el servidor se encuentre activo (liveness). |
 | GET | `/ready` | Verifica que el servicio pueda consultar el repositorio de datos (readiness). |
 | GET | `/metrics` | Consulta el contador operacional de entradas y salidas. |
 | GET | `/api/v1/aforo` | Consulta el número actual de personas dentro del gimnasio. |
-| POST | `/api/v1/aforo/acceso` | Registra una entrada o salida y actualiza el aforo. |
+| POST | `/api/v1/aforo/acceso` | Registra una entrada o salida manual (token de operador). |
+| POST | `/api/v1/estudiantes/sesion` | Inicia sesión del estudiante con Supabase Auth. |
+| POST | `/api/v1/estudiantes/qr` | Emite el QR personal de un solo uso (60 s). |
+| POST | `/api/v1/aforo/acceso-qr` | El operador consume el QR; la API decide ENTRADA o SALIDA. |
 
 ### Ejemplos de uso
 
@@ -214,33 +221,29 @@ npm test
 
 `npm test` ejecuta pruebas base, de contrato y PostgreSQL. Las pruebas base y de contrato usan `createApp()` con el adapter en memoria; las pruebas PostgreSQL requieren `DATABASE_URL` apuntando a una base cuyo nombre incluya `test`, y se omiten si no está configurada.
 
-El workflow de GitHub Actions usa Node.js 24 y ejecuta `npm ci --ignore-scripts`, `npm run test:base` (incluye las pruebas de seguridad de S13), `npm run test:contrato`, `npm run test:mensajeria`, `npm run arch:check`, `npm audit --audit-level=high` y `npm audit signatures`, con permisos de solo lectura sobre el repositorio. Dependabot (`.github/dependabot.yml`) propone actualizaciones semanales de npm, pub, Docker y GitHub Actions. No aprovisiona PostgreSQL ni ejecuta `test:postgres`. SonarCloud/Quality Gate y la automatización de pruebas PostgreSQL en CI no están implementados.
+El workflow de GitHub Actions usa Node.js 24 y ejecuta `npm ci --ignore-scripts`, `npm run test:base` (incluye las pruebas de seguridad de S13), `npm run test:contrato`, `npm run test:mensajeria`, `npm run arch:check`, `npm audit --audit-level=high` y `npm audit signatures`, con permisos de solo lectura sobre el repositorio. Dependabot (`.github/dependabot.yml`) propone actualizaciones semanales de npm, pub, Docker y GitHub Actions. No aprovisiona PostgreSQL ni ejecuta `test:postgres`; la automatización de pruebas PostgreSQL en CI no está implementada. SonarCloud analiza el repositorio mediante la integración de la organización en GitHub y el Quality Gate se consulta en su panel.
 
 ## Estructura relevante
 
 ```text
 src/
-├── server.js
-├── shared/logger.js
-└── modules/aforo/
-		├── domain/aforo.js
-		├── application/
-		│   ├── registrar-acceso.usecase.js
-		│   └── ports/aforo-repository.port.js
-		└── infrastructure/
-				├── http/aforo.router.js
-				└── persistence/
-						├── aforo-postgres.adapter.js
-						├── aforo-memoria.adapter.js
-						└── schema.sql
+├── server.js                      # composición (raíz de composición)
+├── shared/                        # logger, entorno, pool PostgreSQL, seguridad HTTP
+└── modules/
+    ├── aforo/
+    │   ├── domain/aforo.js
+    │   ├── application/           # casos de uso y puerto del repositorio
+    │   └── infrastructure/        # router HTTP, adapters PostgreSQL y memoria, schema.sql
+    └── identidad/
+        ├── application/           # errores y puerto de Supabase Auth
+        └── infrastructure/        # router HTTP, adapter PostgreSQL, adapters Supabase Auth
 
-scripts/init-db.js
-tests/
-├── domain/aforo.test.js
-├── aforo.integration.test.js
-├── contrato.test.js
-├── health.test.js
-└── postgres/aforo-postgres.integration.test.js
+scripts/                           # db:init, db:migrate, db:grant-runtime, seed y verificaciones
+scripts/sql/runtime-grants.sql     # permisos por columna y políticas RLS
+db/migrations/                     # migraciones versionadas para bases existentes
+deploy/                            # Compose de Dokploy (Supabase) y de laboratorio
+docs/Flutter/                      # app móvil (estudiante y encargado)
+tests/                             # dominio, integración, contrato, seguridad y PostgreSQL
 ```
 
 ## Documentación
@@ -264,7 +267,9 @@ tests/
 - [S12: estrategia de datos y eventos (consistencia, caché y log de eventos)](docs/s12-datos-eventos.md).
 - [S13: modelado de amenazas, dependencias y privacidad](docs/s13-seguridad-amenazas.md).
 - [ADR 0007: Token de operador y CORS con lista blanca](docs/adr/0007-autenticacion-operador-y-cors.md).
+- [ADR 0008: Identidad de prueba y QR de acceso](docs/adr/0008-identidad-de-prueba-y-qr-de-acceso.md).
 - [ADR 0009: Supabase Auth para estudiantes](docs/adr/0009-supabase-auth.md).
+- [ADR 0010: PostgreSQL gestionado en Supabase para el deployment final](docs/adr/0010-postgresql-gestionado-en-supabase.md).
 - [Configuración de Supabase, Auth y migraciones](docs/supabase.md).
 - [Taller: prototipo aislado de mensajería asíncrona](docs/taller-mensajeria/README.md).
 

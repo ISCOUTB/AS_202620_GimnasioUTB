@@ -14,6 +14,8 @@ services:
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
       DATABASE_URL: "${DATABASE_URL:?Define DATABASE_URL con el rol gimnasio_runtime}"
       DATABASE_SSL: "true"
+      # CA de Supabase (prod-ca-2021.crt) en base64: Node no confía en ella por defecto (ADR-0010).
+      DATABASE_SSL_CA_CERT_BASE64: "${DATABASE_SSL_CA_CERT_BASE64:?Define la CA de Supabase en base64}"
     expose:
       - "${PORT:-3000}"
     healthcheck:
@@ -43,6 +45,7 @@ services:
       DB_MIGRATIONS_URL: "${DB_MIGRATIONS_URL:?Define DB_MIGRATIONS_URL con el rol gimnasio_migrator}"
       DATABASE_URL: "${DATABASE_URL:?Define DATABASE_URL con el rol gimnasio_runtime}"
       DATABASE_SSL: "true"
+      DATABASE_SSL_CA_CERT_BASE64: ${DATABASE_SSL_CA_CERT_BASE64:-}
       DB_MIGRATIONS_HOST: ${DB_MIGRATIONS_HOST:-}
       DB_MIGRATIONS_TARGET: ${DB_MIGRATIONS_TARGET:-}
       DB_MIGRATIONS_PROJECT_REF: ${DB_MIGRATIONS_PROJECT_REF:-}
