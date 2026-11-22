@@ -187,6 +187,34 @@ test('el CA Supabase opcional se carga sin desactivar la validación TLS', async
   }
 });
 
+test('el CA Supabase también se acepta como PEM en base64 (deployment)', () => {
+  const ca = tls.rootCertificates[0];
+  const options = crearOpcionesPoolPostgres(
+    `postgresql://user@db.${PROJECT_REF}.supabase.co:5432/postgres`,
+    {},
+    { DATABASE_SSL: 'true', DATABASE_SSL_CA_CERT_BASE64: Buffer.from(ca).toString('base64') }
+  );
+  assert.equal(options.ssl.rejectUnauthorized, true);
+  assert.equal(options.ssl.ca, ca);
+});
+
+test('el CA en base64 rechaza contenido que no es un certificado o configuración ambigua', () => {
+  const url = `postgresql://user@db.${PROJECT_REF}.supabase.co:5432/postgres`;
+  assert.throws(
+    () => crearOpcionesPoolPostgres(url, {}, {
+      DATABASE_SSL_CA_CERT_BASE64: Buffer.from('no es un certificado').toString('base64'),
+    }),
+    /no es válido/
+  );
+  assert.throws(
+    () => crearOpcionesPoolPostgres(url, {}, {
+      DATABASE_SSL_CA_CERT_PATH: '/tmp/ca.crt',
+      DATABASE_SSL_CA_CERT_BASE64: 'abc',
+    }),
+    /solo DATABASE_SSL_CA_CERT_PATH o DATABASE_SSL_CA_CERT_BASE64/
+  );
+});
+
 function crearPoolFalso({ errorEnMigracion = false, yaAplicada = false } = {}) {
   const llamadas = [];
   const client = {

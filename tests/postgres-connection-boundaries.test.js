@@ -158,9 +158,13 @@ test('Compose separa API y migraciones y no define PostgreSQL local', () => {
     'SUPABASE_ANON_KEY',
     'DATABASE_URL',
     'DATABASE_SSL',
+    'DATABASE_SSL_CA_CERT_BASE64',
   ]) {
     assert.equal(name in api, true, `API debe recibir ${name}`);
   }
+  // La CA de Supabase es obligatoria para la API: sin ella el pooler falla con
+  // SELF_SIGNED_CERT_IN_CHAIN (ADR-0010).
+  assert.match(api.DATABASE_SSL_CA_CERT_BASE64, /\$\{DATABASE_SSL_CA_CERT_BASE64:\?/);
 
   const envExample = fs.readFileSync(
     path.join(__dirname, '..', 'deploy', '.env.example'),

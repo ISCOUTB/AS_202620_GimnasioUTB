@@ -35,3 +35,14 @@ Este documento consolida los ajustes, refinamientos y correcciones aplicadas a l
 | `docs/adr/0003-comunicacion-sincrona-asincrona.md` | Se registró la decisión arquitectónica de usar comunicación síncrona para comandos, consultas y persistencia, y comunicación asíncrona para notificaciones mediante FCM, incluyendo consecuencias y alcance. |
 | `README.md` | Se añadió el enlace al ADR-0003 en la sección de documentación del proyecto. |
 
+## Entrega final — Deployment, documentación y APK
+
+| Archivo / Documento | Corrección Realizada |
+| :--- | :--- |
+| `docs/taller.md` | Se añadió una nota inicial: el análisis de Vercel/Render fue la evaluación de S8; el deployment real es Dokploy con Supabase (ADR-0010). |
+| `README.md` | Se documentó el deployment final, las variables nuevas, `GET /` y los endpoints de QR; se actualizó la estructura del proyecto, el estado de SonarCloud y los enlaces a ADR-0008 y ADR-0010. |
+| `docs/arc42/arc42_gimnasio_utb.md` | Se actualizaron §1.2, §2.1, §2.3, §7.2 (nuevo diagrama de deployment), §9 y §11.2 para que coincidan con el código y el deployment. |
+| `docs/supabase.md` | Se añadió el procedimiento del deployment final: rol de provisionamiento, `db:grant-runtime` y CA en base64. |
+| `deploy/compose.lab.yaml`, `deploy/.env.example` | Se agregó la CA de Supabase en base64 (`DATABASE_SSL_CA_CERT_BASE64`), obligatoria para `api`, que el Compose adaptado a Supabase no tenía. |
+| `docs/c4/c4_level2.md` | Se agregó Supabase Auth como sistema externo y se reemplazó el PostgreSQL en contenedor por el gestionado de Supabase. |
+| Raíz del repositorio | Se eliminaron `h -h github.com -s workflow` y `s13-correcciones-sonar.patch`, que no formaban parte del proyecto. |

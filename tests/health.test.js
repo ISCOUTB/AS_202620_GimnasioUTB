@@ -16,6 +16,23 @@ test('logger emite registros JSON con nivel, evento y mensaje', () => {
   assert.ok(Number.isFinite(Date.parse(record.timestamp)));
 });
 
+test('GET / describe el servicio y sus rutas públicas', async () => {
+  const app = createApp();
+  const server = app.listen(0);
+  const { port } = server.address();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/`);
+    const body = await response.json();
+
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(body.service, 'gimnasio-utb-backend');
+    assert.ok(body.endpoints.includes('/api/v1/aforo'));
+  } finally {
+    server.close();
+  }
+});
+
 test('GET /health responde 200 con status ok', async () => {
   const app = createApp();
   const server = app.listen(0); // puerto aleatorio libre

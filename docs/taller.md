@@ -5,6 +5,8 @@
 
 ---
 
+> **Nota (entrega final):** este informe es el análisis comparativo de S8 (Render vs. Vercel vs. servidor del laboratorio). La alternativa que finalmente se desplegó fue Dokploy: primero con PostgreSQL en el Compose y, desde la entrega final, con PostgreSQL y Auth en Supabase ([ADR-0010](adr/0010-postgresql-gestionado-en-supabase.md)). Los números de este documento no describen el deployment actual.
+
 ## 1. Mapeo Global de las Seis Piezas Operativas
 
 De acuerdo con la metodología de la Semana 8, las decisiones de despliegue se evalúan pieza por pieza para evitar descalificadores operativos (disco efímero, arranque en frío excesivo y punto de cruce de costos):
