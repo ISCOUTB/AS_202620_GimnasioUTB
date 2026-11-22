@@ -88,9 +88,24 @@ test('seed: interpreta DEMO_STUDENTS y valida cada campo sin repetir la contrase
   assert.deepEqual(
     parsearEstudiantes(' T00000001|Ana@UTB.edu.co|Ana Pérez|clave-de-ana-123 ; T00000002|beto@utb.edu.co|Beto|clave-de-beto-12'),
     [
-      { codigo: 'T00000001', correo: 'ana@utb.edu.co', nombre: 'Ana Pérez', contrasena: 'clave-de-ana-123' },
-      { codigo: 'T00000002', correo: 'beto@utb.edu.co', nombre: 'Beto', contrasena: 'clave-de-beto-12' },
+      {
+        codigo: 'T00000001', correo: 'ana@utb.edu.co', nombre: 'Ana Pérez',
+        contrasena: 'clave-de-ana-123', cedula: null,
+      },
+      {
+        codigo: 'T00000002', correo: 'beto@utb.edu.co', nombre: 'Beto',
+        contrasena: 'clave-de-beto-12', cedula: null,
+      },
     ]
+  );
+  assert.equal(parsearEstudiantes('T001|ana@utb.edu.co|Ana|clave-larga-123|1012345678')[0].cedula, '1012345678');
+  assert.throws(() => parsearEstudiantes('T001|ana@utb.edu.co|Ana|clave-larga-123|12AB'), (error) => {
+    assert.doesNotMatch(error.message, /12AB/);
+    return /entre 5 y 12 dígitos/.test(error.message);
+  });
+  assert.throws(
+    () => parsearEstudiantes('T001|a@utb.edu.co|A|clave-larga-123|55555;T002|b@utb.edu.co|B|clave-larga-456|55555'),
+    /repite una cédula/
   );
   assert.throws(() => parsearEstudiantes('T001|ana@gmail.com|Ana|clave-larga-123'), /@utb\.edu\.co/);
   assert.throws(() => parsearEstudiantes('T001|ana@utb.edu.co|Ana|corta'), (error) => {
@@ -118,7 +133,8 @@ test('seed: crea o actualiza todos los estudiantes en una sola sentencia con has
   assert.equal(pool.consultas.length, 1);
   const { sql, params } = pool.consultas[0];
   assert.match(sql, /ON CONFLICT \(codigo_estudiante\) DO UPDATE/);
-  assert.equal(params.length, 8);
+  assert.equal(params.length, 10);
+  assert.match(sql, /cedula_sintetica = COALESCE\(EXCLUDED\.cedula_sintetica, estudiantes\.cedula_sintetica\)/);
   assert.match(params[3], /^scrypt\$[0-9a-f]{32}\$[0-9a-f]{128}$/);
   assert.equal(params.includes('clave-de-ana-123'), false);
 });

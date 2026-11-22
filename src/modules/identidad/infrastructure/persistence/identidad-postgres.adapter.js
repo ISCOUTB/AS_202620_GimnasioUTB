@@ -3,9 +3,24 @@ const {
   SesionEstudianteInvalidaError,
   CuentaEstudianteInactivaError,
   QrNoValidoError,
+  EstudianteNoEncontradoError,
 } = require('../../application/identidad.errors');
 
 const DURACION_QR_MS = 60 * 1000;
+
+const SQL_BLOQUEAR_POR_CODIGO = `SELECT e.codigo_estudiante, e.nombre, e.activa,
+       COALESCE(s.dentro, FALSE) AS dentro
+  FROM estudiantes e
+  LEFT JOIN estudiante_estado_acceso s USING (codigo_estudiante)
+  WHERE e.codigo_estudiante = $1
+  FOR UPDATE OF e`;
+
+const SQL_BLOQUEAR_POR_CEDULA = `SELECT e.codigo_estudiante, e.nombre, e.activa,
+       COALESCE(s.dentro, FALSE) AS dentro
+  FROM estudiantes e
+  LEFT JOIN estudiante_estado_acceso s USING (codigo_estudiante)
+  WHERE e.cedula_sintetica = $1
+  FOR UPDATE OF e`;
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
@@ -68,9 +83,7 @@ class IdentidadPostgresAdapter {
   }
 
   async consumirQr(client, token) {
-    if (!client || typeof client.query !== 'function') {
-      throw new TypeError('El consumo del QR requiere la transacción de aforo');
-    }
+    exigirTransaccion(client);
     const hash = hashToken(token);
     const credencial = await client.query(
       `SELECT codigo_estudiante
@@ -81,36 +94,76 @@ class IdentidadPostgresAdapter {
     );
     if (credencial.rows.length === 0) throw new QrNoValidoError();
 
-    const codigoEstudiante = credencial.rows[0].codigo_estudiante;
-    const estudiante = await client.query(
-      `SELECT e.activa, COALESCE(s.dentro, FALSE) AS dentro
-       FROM estudiantes e
-       LEFT JOIN estudiante_estado_acceso s USING (codigo_estudiante)
-       WHERE e.codigo_estudiante = $1
-       FOR UPDATE OF e`,
-      [codigoEstudiante]
+    const resultado = await alternarAcceso(
+      client,
+      SQL_BLOQUEAR_POR_CODIGO,
+      credencial.rows[0].codigo_estudiante,
+      QrNoValidoError
     );
-    if (estudiante.rows.length === 0) throw new QrNoValidoError();
-
-    const dentro = estudiante.rows[0].dentro;
-    const tipoAcceso = dentro ? 'SALIDA' : 'ENTRADA';
-    if (!estudiante.rows[0].activa && tipoAcceso === 'ENTRADA') {
-      throw new CuentaEstudianteInactivaError();
-    }
-
     await client.query(
       'UPDATE qr_credenciales SET consumido_en = NOW() WHERE token_hash = $1',
       [hash]
     );
-    await client.query(
-      `INSERT INTO estudiante_estado_acceso (codigo_estudiante, dentro)
-       VALUES ($1, $2)
-       ON CONFLICT (codigo_estudiante)
-       DO UPDATE SET dentro = EXCLUDED.dentro`,
-      [codigoEstudiante, !dentro]
-    );
-    return tipoAcceso;
+    return resultado;
   }
+
+  /**
+   * Registro por cédula, para quien no tiene el celular (ADR-0012). Igual
+   * que el QR: decide ENTRADA o SALIDA según si el estudiante está dentro.
+   */
+  async registrarPorCedula(client, cedula) {
+    exigirTransaccion(client);
+    return alternarAcceso(client, SQL_BLOQUEAR_POR_CEDULA, cedula, EstudianteNoEncontradoError);
+  }
+
+  /** Búsqueda del encargado antes de registrar: nombre, código y si está dentro. */
+  async buscarPorCedula(cedula) {
+    const { rows } = await this.pool.query(
+      `SELECT e.codigo_estudiante, e.nombre, e.activa, COALESCE(s.dentro, FALSE) AS dentro
+       FROM estudiantes e
+       LEFT JOIN estudiante_estado_acceso s USING (codigo_estudiante)
+       WHERE e.cedula_sintetica = $1`,
+      [cedula]
+    );
+    if (rows.length === 0) return null;
+    return {
+      codigoEstudiante: rows[0].codigo_estudiante,
+      nombre: rows[0].nombre,
+      activa: rows[0].activa,
+      dentro: rows[0].dentro,
+    };
+  }
+}
+
+function exigirTransaccion(client) {
+  if (!client || typeof client.query !== 'function') {
+    throw new TypeError('El registro de acceso requiere la transacción de aforo');
+  }
+}
+
+/**
+ * Bloquea al estudiante, invierte su estado (dentro/fuera) y devuelve el
+ * tipo de acceso con sus datos visibles. Una cuenta inactiva puede salir,
+ * pero no entrar.
+ */
+async function alternarAcceso(client, sqlBloquear, valor, ErrorNoEncontrado) {
+  const estudiante = await client.query(sqlBloquear, [valor]);
+  if (estudiante.rows.length === 0) throw new ErrorNoEncontrado();
+
+  const { codigo_estudiante: codigoEstudiante, nombre, activa, dentro } = estudiante.rows[0];
+  const tipoAcceso = dentro ? 'SALIDA' : 'ENTRADA';
+  if (!activa && tipoAcceso === 'ENTRADA') {
+    throw new CuentaEstudianteInactivaError();
+  }
+
+  await client.query(
+    `INSERT INTO estudiante_estado_acceso (codigo_estudiante, dentro)
+     VALUES ($1, $2)
+     ON CONFLICT (codigo_estudiante)
+     DO UPDATE SET dentro = EXCLUDED.dentro`,
+    [codigoEstudiante, !dentro]
+  );
+  return { tipoAcceso, estudiante: { codigoEstudiante, nombre } };
 }
 
 module.exports = {
@@ -118,4 +171,5 @@ module.exports = {
   SesionEstudianteInvalidaError,
   CuentaEstudianteInactivaError,
   QrNoValidoError,
+  EstudianteNoEncontradoError,
 };

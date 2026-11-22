@@ -57,3 +57,13 @@ Este documento consolida los ajustes, refinamientos y correcciones aplicadas a l
 | `docs/adr/0011-volver-a-postgresql-propio-y-login-local.md` | Nuevo ADR que explica el regreso. ADR-0009 y ADR-0010 quedan marcados como reemplazados y ADR-0008 vuelve a estar vigente. |
 | `docs/supabase.md` → `docs/base-de-datos.md` | Se reemplazó la guía de Supabase por la de roles, permisos y `DEMO_STUDENTS`. |
 | `README.md`, `docs/arc42/arc42_gimnasio_utb.md`, `docs/c4/c4_level2.md`, `docs/Flutter/README.md`, `docs/openapi.yaml`, `docs/taller.md` | Se corrigieron las menciones a Supabase para que describan el deployment real. El contrato pasa a 3.1.1 (solo documentación). |
+
+## Entrega final — Estado, capacidad y cédula (ADR-0012)
+
+| Archivo / Documento | Corrección Realizada |
+| :--- | :--- |
+| `docs/Flutter/lib/` | Se retiraron de la app las menciones a la API, a cuentas sintéticas y a pruebas; "Token de operador" pasó a "Contraseña de encargado" y "Operación de aforo" a "Ingresar como encargado"; cada campo usa el teclado que corresponde. Se agregaron estado del gimnasio, ocupación, capacidad, registro por cédula y confirmación al superar la capacidad. |
+| `src/modules/aforo/` | El estado del gimnasio y la capacidad pasaron a ser reglas del dominio, evaluadas en la misma transacción que el registro. |
+| `docs/openapi.yaml` | Contrato 4.0.0 con los endpoints nuevos y los `409` de gimnasio cerrado y capacidad superada. |
+| `docs/arc42/arc42_gimnasio_utb.md` | La apertura/cierre dejó de figurar como futuro en §1.2, §2 y §8; se agregó la decisión a §9. |
+| `docs/adr/0012-estado-capacidad-y-registro-por-cedula.md` | Nuevo ADR con las alternativas consideradas. |

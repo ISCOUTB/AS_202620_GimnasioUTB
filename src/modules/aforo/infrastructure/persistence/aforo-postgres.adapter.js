@@ -32,33 +32,55 @@ async function deshacer(client, error) {
   }
 }
 
+const SQL_ESTADO = `SELECT aforo_actual, capacidad_maxima, abierto, motivo_cierre
+  FROM aforo_estado WHERE id = 1`;
+
+function estadoDesdeFila(fila) {
+  return {
+    aforoActual: fila.aforo_actual,
+    capacidadMaxima: fila.capacidad_maxima,
+    abierto: fila.abierto,
+    motivoCierre: fila.motivo_cierre,
+  };
+}
+
+/** Lee y bloquea la fila única del aforo dentro de la transacción en curso. */
+async function bloquearEstado(client) {
+  const { rows } = await ejecutar(client, `${SQL_ESTADO} FOR UPDATE`);
+  if (rows.length === 0) {
+    throw new AforoRepositoryError('Estado de aforo no inicializado; ejecute npm run db:prepare');
+  }
+  return estadoDesdeFila(rows[0]);
+}
+
 /**
  * Cuerpo de la transacción ya iniciada: bloquea la fila, aplica la transición
  * del dominio y confirma. Los errores de la transición (p. ej. AforoDomainError)
  * se propagan sin envolver; los de PostgreSQL ya llegan como AforoRepositoryError.
  */
 async function transicionarEnTransaccion(client, transicionar) {
-  try {
-    const { rows } = await ejecutar(
-      client,
-      'SELECT aforo_actual FROM aforo_estado WHERE id = 1 FOR UPDATE'
-    );
-    if (rows.length === 0) {
-      throw new AforoRepositoryError('Estado de aforo no inicializado; ejecute npm run db:init');
-    }
+  const estado = await bloquearEstado(client);
+  const nuevoAforo = await transicionar(estado.aforoActual, client, estado);
+  const result = await ejecutar(
+    client,
+    'UPDATE aforo_estado SET aforo_actual = $1 WHERE id = 1 RETURNING aforo_actual',
+    [nuevoAforo]
+  );
+  return result.rows[0].aforo_actual;
+}
 
-    const nuevoAforo = await transicionar(rows[0].aforo_actual, client);
-    const result = await ejecutar(
-      client,
-      'UPDATE aforo_estado SET aforo_actual = $1 WHERE id = 1 RETURNING aforo_actual',
-      [nuevoAforo]
-    );
-    await ejecutar(client, 'COMMIT');
-    return result.rows[0].aforo_actual;
-  } catch (error) {
-    await deshacer(client, error);
-    throw error;
-  }
+async function modificarEnTransaccion(client, transformar) {
+  const estado = await bloquearEstado(client);
+  const nuevo = { ...estado, ...(await transformar(estado)) };
+  const { rows } = await ejecutar(
+    client,
+    `UPDATE aforo_estado
+     SET capacidad_maxima = $1, abierto = $2, motivo_cierre = $3
+     WHERE id = 1
+     RETURNING aforo_actual, capacidad_maxima, abierto, motivo_cierre`,
+    [nuevo.capacidadMaxima, nuevo.abierto, nuevo.motivoCierre]
+  );
+  return estadoDesdeFila(rows[0]);
 }
 
 class AforoPostgresAdapter extends AforoRepositoryPort {
@@ -78,14 +100,16 @@ class AforoPostgresAdapter extends AforoRepositoryPort {
   }
 
   async obtenerAforoActual() {
+    return (await this.obtenerEstado()).aforoActual;
+  }
+
+  async obtenerEstado() {
     try {
-      const { rows } = await this.pool.query(
-        'SELECT aforo_actual FROM aforo_estado WHERE id = 1'
-      );
+      const { rows } = await this.pool.query(SQL_ESTADO);
       if (rows.length === 0) {
-        throw new Error('Estado de aforo no inicializado; ejecute npm run db:init');
+        throw new Error('Estado de aforo no inicializado; ejecute npm run db:prepare');
       }
-      return rows[0].aforo_actual;
+      return estadoDesdeFila(rows[0]);
     } catch (error) {
       throw comoErrorDeRepositorio(error);
     }
@@ -95,7 +119,18 @@ class AforoPostgresAdapter extends AforoRepositoryPort {
     if (typeof transicionar !== 'function') {
       throw new TypeError('La transición del aforo debe ser una función');
     }
+    return this.#enTransaccion((client) => transicionarEnTransaccion(client, transicionar));
+  }
 
+  async modificarEstado(transformar) {
+    if (typeof transformar !== 'function') {
+      throw new TypeError('El cambio de estado debe ser una función');
+    }
+    return this.#enTransaccion((client) => modificarEnTransaccion(client, transformar));
+  }
+
+  /** BEGIN, cuerpo y COMMIT; ante cualquier error, ROLLBACK y se propaga. */
+  async #enTransaccion(cuerpo) {
     let client;
     try {
       client = await this.pool.connect();
@@ -105,7 +140,12 @@ class AforoPostgresAdapter extends AforoRepositoryPort {
 
     try {
       await ejecutar(client, 'BEGIN');
-      return await transicionarEnTransaccion(client, transicionar);
+      const resultado = await cuerpo(client);
+      await ejecutar(client, 'COMMIT');
+      return resultado;
+    } catch (error) {
+      await deshacer(client, error);
+      throw error;
     } finally {
       client.release();
     }

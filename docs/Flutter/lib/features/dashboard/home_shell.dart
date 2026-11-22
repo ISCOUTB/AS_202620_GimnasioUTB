@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/aforo_api.dart';
+import '../../core/state/estado_gimnasio_controller.dart';
 import '../../features/access/access_page.dart';
 import '../../features/auth/login_page.dart';
 import '../../features/dashboard/dashboard_page.dart';
@@ -11,25 +12,37 @@ class HomeShell extends StatefulWidget {
   const HomeShell({
     required this.api,
     required this.mode,
+    this.nombreEstudiante,
     super.key,
   });
 
   final AforoApi api;
   final WorkspaceMode mode;
 
+  /// Nombre del estudiante que inició sesión; null para visitantes y para
+  /// el encargado.
+  final String? nombreEstudiante;
+
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
 
 class _HomeShellState extends State<HomeShell> {
-  final GlobalKey<DashboardPageState> _dashboardKey =
-      GlobalKey<DashboardPageState>();
+  late final EstadoGimnasioController _estadoGimnasio;
   int _currentIndex = 0;
 
   bool get _isOperator => widget.mode == WorkspaceMode.operator;
 
-  void _refreshDashboard() {
-    _dashboardKey.currentState?.refresh();
+  @override
+  void initState() {
+    super.initState();
+    _estadoGimnasio = EstadoGimnasioController(api: widget.api)..iniciar();
+  }
+
+  @override
+  void dispose() {
+    _estadoGimnasio.dispose();
+    super.dispose();
   }
 
   void _logout() {
@@ -87,28 +100,27 @@ class _HomeShellState extends State<HomeShell> {
             ),
           ];
 
+    final dashboard = DashboardPage(
+      api: widget.api,
+      mode: widget.mode,
+      estadoGimnasio: _estadoGimnasio,
+      nombreEstudiante: widget.nombreEstudiante,
+    );
     final pages = _isOperator
         ? [
-            DashboardPage(
-              key: _dashboardKey,
-              api: widget.api,
-              mode: widget.mode,
-            ),
+            dashboard,
             AccessPage(
               api: widget.api,
               mode: widget.mode,
-              onAccessRegistered: _refreshDashboard,
+              estadoGimnasio: _estadoGimnasio,
             ),
           ]
         : [
-            DashboardPage(
-              key: _dashboardKey,
-              api: widget.api,
-              mode: widget.mode,
-            ),
+            dashboard,
             AccessPage(
               api: widget.api,
               mode: widget.mode,
+              estadoGimnasio: _estadoGimnasio,
               onStudentSessionExpired: _studentSessionExpired,
             ),
             const SettingsPage(),
@@ -119,7 +131,7 @@ class _HomeShellState extends State<HomeShell> {
         title: const Text('Gimnasio UTB'),
         actions: [
           IconButton(
-            tooltip: 'Cerrar vista',
+            tooltip: 'Cerrar sesión',
             onPressed: _logout,
             icon: const Icon(Icons.logout_rounded),
           ),

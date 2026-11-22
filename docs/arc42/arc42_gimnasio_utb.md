@@ -20,7 +20,7 @@ El propósito del producto es ofrecer información confiable sobre la disponibil
 
 **IMPLEMENTADO:** backend Node.js/Express con Arquitectura Hexagonal / Ports and Adapters; consulta y registro de aforo; cuentas estudiantiles sintéticas; sesión temporal; QR de un solo uso; escaneo desde Flutter; transacción PostgreSQL; readiness, liveness, métricas locales, logs estructurados y cierre ordenado ante `SIGTERM`.
 
-**IMPLEMENTADO:** la app Flutter consulta el aforo, permite iniciar sesión con una cuenta estudiantil sintética y muestra un QR temporal; el operador puede escanearlo o registrar una transición manual. El QR se consume y el aforo se actualiza en una transacción PostgreSQL. **OBJETIVO / FUTURO:** SSO institucional; roles individuales; historial completo de eventos y deduplicación de operaciones manuales; apertura/cierre; WebSocket; FCM; IaC completa y definición final de costos. La API y PostgreSQL se despliegan juntos en Dokploy con Docker Compose y login propio (ADR-0011); Render y Supabase fueron alternativas que no se mantuvieron.
+**IMPLEMENTADO:** la app Flutter consulta el aforo, permite iniciar sesión con una cuenta estudiantil sintética y muestra un QR temporal; el operador puede escanearlo, buscar al estudiante por cédula o registrar una transición sin identificación. El QR se consume y el aforo se actualiza en una transacción PostgreSQL. El encargado abre y cierra el gimnasio (con motivo opcional) y define la capacidad máxima; con el gimnasio cerrado se bloquean las entradas, y una entrada que supera la capacidad exige su confirmación (ADR-0012). La app muestra estado, aforo, porcentaje de ocupación y cupos, y se actualiza cada 15 segundos. **OBJETIVO / FUTURO:** SSO institucional; roles individuales; historial completo de eventos y deduplicación de operaciones manuales; WebSocket; FCM; IaC completa y definición final de costos. La API y PostgreSQL se despliegan juntos en Dokploy con Docker Compose y login propio (ADR-0011); Render y Supabase fueron alternativas que no se mantuvieron.
 
 La identidad usada es sintética y no representa cuentas UTB reales. La tabla de estado individual no constituye un historial de eventos.
 
@@ -37,7 +37,7 @@ Rendimiento bajo carga, alta disponibilidad cloud, SSO institucional y experienc
 | Stakeholder | Interés y estado |
 |---|---|
 | Estudiantes | Quieren conocer la disponibilidad y presentar un QR. La autenticación disponible usa exclusivamente cuentas sintéticas de demostración. |
-| Encargado del gimnasio | Requeriría operar registros manuales y apertura/cierre. Estas capacidades están pendientes. |
+| Encargado del gimnasio | Registra accesos por QR, por cédula o sin identificación; abre y cierra el gimnasio y define la capacidad máxima (ADR-0012). |
 | Bienestar Universitario y área administrativa | Interesados en la gestión del aforo y el uso del gimnasio. |
 | Equipo de desarrollo y evaluadores | Necesitan decisiones trazables y evidencia verificable por corte académico. |
 
@@ -178,7 +178,7 @@ La prueba de integración PostgreSQL comprueba rechazo de salida desde cero y ro
 
 ## 6.3 Flujos fuera del alcance
 
-El QR de cuenta sintética sí está implementado. El historial completo, la corrección con trazabilidad, apertura/cierre, difusión WebSocket y notificaciones FCM no forman parte de estos flujos.
+El QR de cuenta sintética sí está implementado. La apertura/cierre y la capacidad están implementadas (ADR-0012). El historial completo, la corrección con trazabilidad, difusión WebSocket y notificaciones FCM no forman parte de estos flujos.
 
 # 7. Vista de despliegue
 
@@ -256,7 +256,7 @@ El equipo reportó PostgreSQL `Healthy`, finalización de `db-init`, arranque de
 
 | Punto del espectro | Operaciones | Mecanismo | Estado |
 |---|---|---|---|
-| Fuerte (serializable sobre la fila) | Registrar entrada/salida; clave de idempotencia; anexar evento al log; abrir/cerrar; corrección manual | Transacción local con `SELECT ... FOR UPDATE` | IMPLEMENTADO para el registro; el resto DISEÑO / FUTURO |
+| Fuerte (serializable sobre la fila) | Registrar entrada/salida; abrir/cerrar y capacidad; clave de idempotencia; anexar evento al log; corrección manual | Transacción local con `SELECT ... FOR UPDATE` | IMPLEMENTADO para el registro, la apertura/cierre y la capacidad (ADR-0012); el resto DISEÑO / FUTURO |
 | De sesión (leer lo propio) | Respuesta al que registra | El `201` devuelve el valor del `COMMIT`; *write-through* en la caché | IMPLEMENTADO (respuesta); caché DISEÑO |
 | Eventual con atraso ≤ 2 s, sin retroceso | `GET /api/v1/aforo` desde la app | Caché en proceso con TTL y versión (8.6) | DISEÑO |
 | Eventual, al menos una vez, en orden | Notificaciones, WebSocket | Lectores del log con checkpoint (8.7) | FUTURO / DISEÑO |
@@ -340,6 +340,7 @@ Modelo de amenazas completo, análisis de dependencias y privacidad en la [evide
 | PostgreSQL como persistencia del contador con transacción y bloqueo de fila. | **IMPLEMENTADO:** `AforoPostgresAdapter`, `schema.sql` y pruebas de persistencia, rollback y concurrencia. | [ADR-0004](../adr/0004-concurrencia-postgresql.md) documenta el bloqueo pesimista con `SELECT ... FOR UPDATE`, la transacción y la evidencia del escenario probado. |
 | Deployment en Dokploy con PostgreSQL en el Compose, roles separados creados automáticamente y login propio. | **IMPLEMENTADO:** `deploy/compose.lab.yaml` (`postgres`, `db-bootstrap`, `db-init`, `api`), `AutenticacionLocalAdapter`, `db:check-security` en cada deploy. | [ADR-0011](../adr/0011-volver-a-postgresql-propio-y-login-local.md), que reemplaza a [ADR-0009](../adr/0009-supabase-auth.md) y [ADR-0010](../adr/0010-postgresql-gestionado-en-supabase.md). |
 | Identidad sintética, sesión temporal y QR de un solo uso consumido en la transacción del aforo. | **IMPLEMENTADO:** módulo `identidad`, `qr_credenciales`, `estudiante_estado_acceso`. | [ADR-0008](../adr/0008-identidad-de-prueba-y-qr-de-acceso.md). |
+| Estado del gimnasio (apertura con motivo y capacidad máxima), confirmación al superar la capacidad y registro por cédula. | **IMPLEMENTADO:** reglas en `aforo.js`, migración `20261122_002`, `PUT /api/v1/aforo/estado` y `/capacidad`, `POST /acceso-cedula`; pruebas de dominio, HTTP, contrato y PostgreSQL. | [ADR-0012](../adr/0012-estado-capacidad-y-registro-por-cedula.md). |
 | Métricas en memoria, logs JSON y cierre ante SIGTERM. | **IMPLEMENTADO** en la composición del servidor y `src/shared/logger.js`. | No hay ADR independiente para estas decisiones operativas básicas. |
 | No extraer Notificaciones a un servicio. | **DECIDIDO, NO IMPLEMENTADO:** Notificaciones, su puerto, outbox y relay aún no existen; son parte del diseño futuro evaluado, no componentes actuales. Se compararon "no extraer", "servicio + broker" y "servicio + HTTP". | [ADR-0005](../adr/0005-no-extraer-notificaciones.md). Modos de fallo en la [evidencia S11](../s11-fallos-parciales.md). |
 | Proteger el registro de accesos con token de operador y limitar CORS a una lista blanca. | **IMPLEMENTADO:** `src/shared/http/seguridad.js`, `server.js`, cliente Flutter; pruebas en `tests/seguridad.test.js` y contrato. Excepción documentada a la regla de versionado (`2.0.0` en `/api/v1`). | [ADR-0007](../adr/0007-autenticacion-operador-y-cors.md). Amenazas en la [evidencia S13](../s13-seguridad-amenazas.md). |
@@ -460,7 +461,8 @@ No se encontró en el repositorio un acta, comentario o documento que identifiqu
 |---|---|
 | **Aforo** | Contador agregado de ocupación que mantiene el backend. No identifica físicamente a cada persona. |
 | **Transición de aforo** | Cambio del contador por `ENTRADA` o `SALIDA`, validado por `aplicarAcceso`. |
-| **AforoRepositoryPort** | Contrato de persistencia con lectura actual y actualización mediante `actualizarAforo(transicionar)`. |
+| **AforoRepositoryPort** | Contrato de persistencia: `obtenerEstado()`, `actualizarAforo(transicionar)` y `modificarEstado(transformar)`, todos atómicos sobre la fila única. |
+| **Estado del gimnasio** | Abierto o cerrado, motivo del cierre y capacidad máxima, en la fila de `aforo_estado`. Cerrado bloquea entradas; superar la capacidad exige confirmación (ADR-0012). |
 | **Bloqueo de fila** | Bloqueo PostgreSQL obtenido por `SELECT ... FOR UPDATE` dentro de la transacción del adapter. |
 | **Liveness** | Señal de proceso disponible; en este backend la entrega `GET /health` sin consultar la base de datos. |
 | **Readiness** | Comprobación de que el repositorio puede responder; la entrega `GET /ready`. |

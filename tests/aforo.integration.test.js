@@ -123,3 +123,97 @@ test('fallos del logger no alteran el resultado HTTP ni ocultan errores del acce
     server.close();
   }
 });
+
+// --- Estado del gimnasio, capacidad y confirmación (ADR-0012) ---
+async function enviar(baseUrl, metodo, ruta, body, headers = HEADERS) {
+  const res = await fetch(`${baseUrl}${ruta}`, {
+    method: metodo,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+test('GET /api/v1/aforo entrega estado, capacidad y porcentaje de ocupación', async () => {
+  await withServer(async (baseUrl) => {
+    await enviar(baseUrl, 'POST', '/api/v1/aforo/acceso', { tipoAcceso: 'ENTRADA' });
+    const { status, body } = await enviar(baseUrl, 'GET', '/api/v1/aforo', undefined, {});
+    assert.equal(status, 200);
+    assert.deepEqual(body.data, {
+      aforoActual: 1,
+      capacidadMaxima: 30,
+      abierto: true,
+      motivoCierre: null,
+      porcentajeOcupacion: 3,
+    });
+  });
+});
+
+test('el encargado cierra con motivo: se bloquean las entradas, no las salidas, y al abrir se reanudan', async () => {
+  await withServer(async (baseUrl) => {
+    await enviar(baseUrl, 'POST', '/api/v1/aforo/acceso', { tipoAcceso: 'ENTRADA' });
+
+    const cierre = await enviar(baseUrl, 'PUT', '/api/v1/aforo/estado', {
+      abierto: false, motivoCierre: 'Mantenimiento de máquinas',
+    });
+    assert.equal(cierre.status, 200);
+    assert.equal(cierre.body.data.abierto, false);
+    assert.equal(cierre.body.data.motivoCierre, 'Mantenimiento de máquinas');
+    assert.equal(cierre.body.data.aforoActual, 1, 'cerrar no saca a nadie');
+
+    const entrada = await enviar(baseUrl, 'POST', '/api/v1/aforo/acceso', { tipoAcceso: 'ENTRADA' });
+    assert.equal(entrada.status, 409);
+    assert.equal(entrada.body.code, 'GIMNASIO_CERRADO');
+    assert.match(entrada.body.message, /Mantenimiento de máquinas/);
+
+    const salida = await enviar(baseUrl, 'POST', '/api/v1/aforo/acceso', { tipoAcceso: 'SALIDA' });
+    assert.equal(salida.status, 201);
+    assert.equal(salida.body.data.aforoActual, 0);
+
+    const apertura = await enviar(baseUrl, 'PUT', '/api/v1/aforo/estado', { abierto: true });
+    assert.equal(apertura.body.data.motivoCierre, null);
+    const otra = await enviar(baseUrl, 'POST', '/api/v1/aforo/acceso', { tipoAcceso: 'ENTRADA' });
+    assert.equal(otra.status, 201);
+  });
+});
+
+test('superar la capacidad pide confirmación (409) y con ella registra el ingreso', async () => {
+  await withServer(async (baseUrl) => {
+    const capacidad = await enviar(baseUrl, 'PUT', '/api/v1/aforo/capacidad', { capacidadMaxima: 1 });
+    assert.equal(capacidad.status, 200);
+    assert.equal(capacidad.body.data.capacidadMaxima, 1);
+
+    await enviar(baseUrl, 'POST', '/api/v1/aforo/acceso', { tipoAcceso: 'ENTRADA' });
+    const sinConfirmar = await enviar(baseUrl, 'POST', '/api/v1/aforo/acceso', { tipoAcceso: 'ENTRADA' });
+    assert.equal(sinConfirmar.status, 409);
+    assert.equal(sinConfirmar.body.code, 'CAPACIDAD_SUPERADA');
+    assert.deepEqual(sinConfirmar.body.data, { aforoActual: 1, capacidadMaxima: 1 });
+
+    const confirmado = await enviar(baseUrl, 'POST', '/api/v1/aforo/acceso', {
+      tipoAcceso: 'ENTRADA', confirmarExcesoCapacidad: true,
+    });
+    assert.equal(confirmado.status, 201);
+    assert.equal(confirmado.body.data.aforoActual, 2);
+
+    const { body } = await enviar(baseUrl, 'GET', '/api/v1/aforo', undefined, {});
+    assert.equal(body.data.porcentajeOcupacion, 200);
+  });
+});
+
+test('configurar el gimnasio exige la contraseña de encargado y valida los datos', async () => {
+  await withServer(async (baseUrl) => {
+    const sinToken = { 'Content-Type': 'application/json' };
+    assert.equal((await enviar(baseUrl, 'PUT', '/api/v1/aforo/estado', { abierto: false }, sinToken)).status, 401);
+    assert.equal((await enviar(baseUrl, 'PUT', '/api/v1/aforo/capacidad', { capacidadMaxima: 9 }, sinToken)).status, 401);
+    assert.equal((await enviar(baseUrl, 'PUT', '/api/v1/aforo/capacidad', { capacidadMaxima: 0 })).status, 400);
+    assert.equal((await enviar(baseUrl, 'PUT', '/api/v1/aforo/estado', {})).status, 400);
+    const confirmacionInvalida = await enviar(baseUrl, 'POST', '/api/v1/aforo/acceso', {
+      tipoAcceso: 'ENTRADA', confirmarExcesoCapacidad: 'si',
+    });
+    assert.equal(confirmacionInvalida.status, 400);
+
+    const verificacion = await enviar(baseUrl, 'POST', '/api/v1/operador/verificacion', {});
+    assert.equal(verificacion.status, 200);
+    assert.equal((await enviar(baseUrl, 'POST', '/api/v1/operador/verificacion', {}, sinToken)).status, 401);
+  });
+});

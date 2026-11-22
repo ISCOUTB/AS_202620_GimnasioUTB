@@ -15,6 +15,7 @@ const {
   CredencialesInvalidasError,
   QrNoValidoError,
   CuentaEstudianteInactivaError,
+  EstudianteNoEncontradoError,
 } = require('../src/modules/identidad/application/identidad.errors');
 
 const TOKEN = 'token-de-prueba-de-al-menos-32-caracteres-xx';
@@ -79,6 +80,9 @@ const casos = [
     nombre: 'GET /api/v1/aforo -> 503', metodo: 'get', ruta: '/api/v1/aforo', status: 503,
     aforoRepository: {
       obtenerAforoActual: async () => {
+        throw new Error('detalle interno no expuesto');
+      },
+      obtenerEstado: async () => {
         throw new Error('detalle interno no expuesto');
       },
       actualizarAforo: async () => 0,
@@ -319,6 +323,187 @@ const casos = [
   },
 ];
 
+// --- ADR-0012: estado del gimnasio, capacidad y cédula ---
+const ESTADO_CERRADO = { aforoActual: 0, capacidadMaxima: 30, abierto: false, motivoCierre: 'Mantenimiento' };
+const ESTADO_LLENO = { aforoActual: 30, capacidadMaxima: 30, abierto: true, motivoCierre: null };
+const repositorioCon = (estado) => ({
+  obtenerAforoActual: async () => estado.aforoActual,
+  obtenerEstado: async () => estado,
+  actualizarAforo: async (transicionar) => transicionar(estado.aforoActual, {}, estado),
+  modificarEstado: async () => estado,
+});
+const repositorioCaido = {
+  obtenerAforoActual: async () => 0,
+  obtenerEstado: async () => { throw new Error('detalle interno'); },
+  actualizarAforo: async () => 0,
+  modificarEstado: async () => { throw new Error('detalle interno de PostgreSQL'); },
+};
+const ESTUDIANTE = { codigoEstudiante: 'demo-001', nombre: 'Ana Pérez' };
+const identidadCedula = {
+  registrarPorCedula: async () => ({ tipoAcceso: 'ENTRADA', estudiante: ESTUDIANTE }),
+  buscarPorCedula: async () => ({ ...ESTUDIANTE, activa: true, dentro: false }),
+};
+
+casos.push(
+  {
+    nombre: 'POST /api/v1/aforo/acceso (gimnasio cerrado) -> 409',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso', status: 409,
+    body: { tipoAcceso: 'ENTRADA' }, cumpleSolicitud: true,
+    aforoRepository: repositorioCon(ESTADO_CERRADO),
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso (capacidad superada sin confirmar) -> 409',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso', status: 409,
+    body: { tipoAcceso: 'ENTRADA', confirmarExcesoCapacidad: false }, cumpleSolicitud: true,
+    aforoRepository: repositorioCon(ESTADO_LLENO),
+    respuestaEsperada: {
+      status: 'error',
+      code: 'CAPACIDAD_SUPERADA',
+      message: 'El gimnasio ya tiene 30 de 30 personas. Confirma para registrar el ingreso de todas formas.',
+      data: { aforoActual: 30, capacidadMaxima: 30 },
+    },
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso-qr (gimnasio cerrado) -> 409',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso-qr', status: 409,
+    body: { qr: 'qr-prueba' }, cumpleSolicitud: true,
+    aforoRepository: repositorioCon(ESTADO_CERRADO),
+    identidadRepository: { consumirQr: async () => 'ENTRADA' },
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso-cedula -> 201',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso-cedula', status: 201,
+    body: { cedula: '1012345678', confirmarExcesoCapacidad: true }, cumpleSolicitud: true,
+    identidadRepository: identidadCedula,
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso-cedula -> 400',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso-cedula', status: 400,
+    body: { cedula: '12AB' }, cumpleSolicitud: false,
+    identidadRepository: identidadCedula,
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso-cedula -> 401',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso-cedula', status: 401,
+    body: { cedula: '1012345678' }, cumpleSolicitud: true, sinToken: true,
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso-cedula -> 403',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso-cedula', status: 403,
+    body: { cedula: '1012345678' }, cumpleSolicitud: true,
+    identidadRepository: {
+      registrarPorCedula: async () => { throw new CuentaEstudianteInactivaError(); },
+    },
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso-cedula -> 404',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso-cedula', status: 404,
+    body: { cedula: '1012345678' }, cumpleSolicitud: true,
+    identidadRepository: {
+      registrarPorCedula: async () => { throw new EstudianteNoEncontradoError(); },
+    },
+    respuestaEsperada: {
+      status: 'error',
+      message: 'No hay ningún estudiante registrado con esa cédula.',
+    },
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso-cedula -> 409',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso-cedula', status: 409,
+    body: { cedula: '1012345678' }, cumpleSolicitud: true,
+    aforoRepository: repositorioCon(ESTADO_CERRADO),
+    identidadRepository: identidadCedula,
+  },
+  {
+    nombre: 'POST /api/v1/aforo/acceso-cedula -> 503',
+    metodo: 'post', ruta: '/api/v1/aforo/acceso-cedula', status: 503,
+    body: { cedula: '1012345678' }, cumpleSolicitud: true,
+  },
+  {
+    nombre: 'PUT /api/v1/aforo/estado -> 200',
+    metodo: 'put', ruta: '/api/v1/aforo/estado', status: 200,
+    body: { abierto: false, motivoCierre: 'Mantenimiento' }, cumpleSolicitud: true,
+  },
+  {
+    nombre: 'PUT /api/v1/aforo/estado -> 400',
+    metodo: 'put', ruta: '/api/v1/aforo/estado', status: 400,
+    body: { abierto: 'no' }, cumpleSolicitud: false,
+  },
+  {
+    nombre: 'PUT /api/v1/aforo/estado -> 401',
+    metodo: 'put', ruta: '/api/v1/aforo/estado', status: 401,
+    body: { abierto: true }, cumpleSolicitud: true, sinToken: true,
+  },
+  {
+    nombre: 'PUT /api/v1/aforo/estado -> 503',
+    metodo: 'put', ruta: '/api/v1/aforo/estado', status: 503,
+    body: { abierto: true }, cumpleSolicitud: true,
+    aforoRepository: repositorioCaido,
+    respuestaEsperada: { status: 'error', message: 'No fue posible guardar el cambio.' },
+  },
+  {
+    nombre: 'PUT /api/v1/aforo/capacidad -> 200',
+    metodo: 'put', ruta: '/api/v1/aforo/capacidad', status: 200,
+    body: { capacidadMaxima: 45 }, cumpleSolicitud: true,
+  },
+  {
+    nombre: 'PUT /api/v1/aforo/capacidad -> 400',
+    metodo: 'put', ruta: '/api/v1/aforo/capacidad', status: 400,
+    body: { capacidadMaxima: 0 }, cumpleSolicitud: false,
+  },
+  {
+    nombre: 'PUT /api/v1/aforo/capacidad -> 401',
+    metodo: 'put', ruta: '/api/v1/aforo/capacidad', status: 401,
+    body: { capacidadMaxima: 45 }, cumpleSolicitud: true, sinToken: true,
+  },
+  {
+    nombre: 'PUT /api/v1/aforo/capacidad -> 503',
+    metodo: 'put', ruta: '/api/v1/aforo/capacidad', status: 503,
+    body: { capacidadMaxima: 45 }, cumpleSolicitud: true,
+    aforoRepository: repositorioCaido,
+  },
+  {
+    nombre: 'POST /api/v1/estudiantes/busqueda -> 200',
+    metodo: 'post', ruta: '/api/v1/estudiantes/busqueda', status: 200,
+    body: { cedula: '1012345678' }, cumpleSolicitud: true,
+    identidadRepository: identidadCedula,
+  },
+  {
+    nombre: 'POST /api/v1/estudiantes/busqueda -> 400',
+    metodo: 'post', ruta: '/api/v1/estudiantes/busqueda', status: 400,
+    body: { cedula: '123' }, cumpleSolicitud: false,
+    identidadRepository: identidadCedula,
+  },
+  {
+    nombre: 'POST /api/v1/estudiantes/busqueda -> 401',
+    metodo: 'post', ruta: '/api/v1/estudiantes/busqueda', status: 401,
+    body: { cedula: '1012345678' }, cumpleSolicitud: true, sinToken: true,
+  },
+  {
+    nombre: 'POST /api/v1/estudiantes/busqueda -> 404',
+    metodo: 'post', ruta: '/api/v1/estudiantes/busqueda', status: 404,
+    body: { cedula: '1012345678' }, cumpleSolicitud: true,
+    identidadRepository: { buscarPorCedula: async () => null },
+  },
+  {
+    nombre: 'POST /api/v1/estudiantes/busqueda -> 503',
+    metodo: 'post', ruta: '/api/v1/estudiantes/busqueda', status: 503,
+    body: { cedula: '1012345678' }, cumpleSolicitud: true,
+  },
+  {
+    nombre: 'POST /api/v1/operador/verificacion -> 200',
+    metodo: 'post', ruta: '/api/v1/operador/verificacion', status: 200,
+  },
+  {
+    nombre: 'POST /api/v1/operador/verificacion -> 401',
+    metodo: 'post', ruta: '/api/v1/operador/verificacion', status: 401, sinToken: true,
+  },
+  {
+    nombre: 'POST /api/v1/operador/verificacion -> 503',
+    metodo: 'post', ruta: '/api/v1/operador/verificacion', status: 503, operadorToken: null,
+  },
+);
+
 const cubiertos = new Set();
 
 for (const caso of casos) {
@@ -343,7 +528,7 @@ for (const caso of casos) {
           method: caso.metodo.toUpperCase(),
           headers: {
             'Content-Type': solicitud.contentType || 'application/json',
-            ...(caso.metodo === 'post' && !caso.sinToken
+            ...(['post', 'put'].includes(caso.metodo) && !caso.sinToken
               ? { Authorization: `Bearer ${caso.tokenEstudiante || TOKEN}` }
               : {}),
           },
@@ -406,8 +591,8 @@ test('contrato: toda respuesta documentada en openapi.yaml está verificada por 
   assert.deepEqual([...documentados].sort(), [...cubiertos].sort());
 });
 
-test('contrato: el cambio incompatible de login está versionado y no promete compatibilidad', () => {
-  assert.match(spec.info.version, /^3\./, 'el MAJOR 3 registra el cambio incompatible de login');
+test('contrato: los cambios incompatibles están versionados y no prometen compatibilidad', () => {
+  assert.match(spec.info.version, /^4\./, 'el MAJOR 4 registra el 409 nuevo en las entradas (ADR-0012)');
   assert.ok(spec.paths['/api/v1/estudiantes/sesion']);
   assert.equal(spec.paths['/api/v2/estudiantes/sesion'], undefined);
   assert.match(spec.info.description, /No se afirma que el contrato sea compatible/);

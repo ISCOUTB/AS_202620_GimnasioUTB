@@ -43,6 +43,14 @@ class QrNoValidoError extends Error {
   }
 }
 
+class EstudianteNoEncontradoError extends Error {
+  constructor() {
+    super('No hay ningún estudiante registrado con esa cédula.');
+    this.name = 'EstudianteNoEncontradoError';
+    this.code = 'STUDENT_NOT_FOUND';
+  }
+}
+
 module.exports = {
   CredencialesInvalidasError,
   SesionEstudianteInvalidaError,
@@ -50,4 +58,5 @@ module.exports = {
   IdentidadProveedorError,
   CuentaEstudianteInactivaError,
   QrNoValidoError,
+  EstudianteNoEncontradoError,
 };

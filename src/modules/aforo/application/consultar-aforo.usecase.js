@@ -1,16 +1,21 @@
+const { calcularPorcentajeOcupacion } = require('../domain/aforo');
+
 /**
  * Caso de uso "consultar aforo actual".
  *
- * Hoy es un passthrough al puerto, pero deja un único punto de entrada al
- * módulo para las lecturas (corrige V2 de docs/contextos-delimitados.md):
- * si mañana consultar necesita una regla (p. ej. gimnasio cerrado), vive aquí
- * y no dispersa en server.js.
+ * Deja un único punto de entrada al módulo para las lecturas (corrige V2 de
+ * docs/contextos-delimitados.md). Desde ADR-0012 devuelve el estado completo
+ * del gimnasio, con el porcentaje de ocupación calculado por el dominio.
  *
  * @param {import('./ports/aforo-repository.port').AforoRepositoryPort} aforoRepository
  */
 function crearConsultarAforoUseCase(aforoRepository) {
   return async function consultarAforoActual() {
-    return aforoRepository.obtenerAforoActual();
+    const estado = await aforoRepository.obtenerEstado();
+    return {
+      ...estado,
+      porcentajeOcupacion: calcularPorcentajeOcupacion(estado.aforoActual, estado.capacidadMaxima),
+    };
   };
 }
 

@@ -11,16 +11,32 @@ const { AforoRepositoryPort } = require('../../application/ports/aforo-repositor
  * para que los tests locales no necesiten una base de datos.
  */
 class AforoMemoriaAdapter extends AforoRepositoryPort {
-  #aforoActual = 0; // privado: solo se modifica vía actualizarAforo (corrige V1)
+  // privado: solo se modifica vía actualizarAforo y modificarEstado (corrige V1)
+  #estado;
+
+  constructor({ capacidadMaxima = 30 } = {}) {
+    super();
+    this.#estado = { aforoActual: 0, capacidadMaxima, abierto: true, motivoCierre: null };
+  }
 
   async obtenerAforoActual() {
-    return this.#aforoActual;
+    return this.#estado.aforoActual;
+  }
+
+  async obtenerEstado() {
+    return { ...this.#estado };
   }
 
   async actualizarAforo(transicionar) {
-    const nuevoAforo = await transicionar(this.#aforoActual);
-    this.#aforoActual = nuevoAforo;
+    const nuevoAforo = await transicionar(this.#estado.aforoActual, undefined, { ...this.#estado });
+    this.#estado = { ...this.#estado, aforoActual: nuevoAforo };
     return nuevoAforo;
+  }
+
+  async modificarEstado(transformar) {
+    const cambios = await transformar({ ...this.#estado });
+    this.#estado = { ...this.#estado, ...cambios };
+    return { ...this.#estado };
   }
 }
 

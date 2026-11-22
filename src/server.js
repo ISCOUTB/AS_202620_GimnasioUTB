@@ -4,12 +4,12 @@ const { AforoMemoriaAdapter } = require('./modules/aforo/infrastructure/persiste
 const { AforoPostgresAdapter } = require('./modules/aforo/infrastructure/persistence/aforo-postgres.adapter');
 const { crearRegistrarAccesoUseCase } = require('./modules/aforo/application/registrar-acceso.usecase');
 const { crearRegistrarAccesoQrUseCase } = require('./modules/aforo/application/registrar-acceso-qr.usecase');
+const { crearRegistrarAccesoEstudianteUseCase } = require('./modules/aforo/application/registrar-acceso-estudiante.usecase');
 const { crearConsultarAforoUseCase } = require('./modules/aforo/application/consultar-aforo.usecase');
-const { AforoDomainError } = require('./modules/aforo/domain/aforo');
+const { crearConfigurarGimnasioUseCases } = require('./modules/aforo/application/configurar-gimnasio.usecase');
 const { crearIdentidadRouter } = require('./modules/identidad/infrastructure/http/identidad.router');
 const { IdentidadPostgresAdapter } = require('./modules/identidad/infrastructure/persistence/identidad-postgres.adapter');
 const { AutenticacionLocalAdapter } = require('./modules/identidad/infrastructure/auth/autenticacion-local.adapter');
-const { CuentaEstudianteInactivaError } = require('./modules/identidad/application/identidad.errors');
 const { logger } = require('./shared/logger');
 const { cargarEntornoRuntime } = require('./shared/environment');
 const {
@@ -21,17 +21,26 @@ const {
 
 const LIMITE_CUERPO_JSON = '1kb';
 
+// Rutas que exigen la contraseña de encargado (token de operador, ADR-0007).
+const RUTAS_POST_OPERADOR = [
+  '/api/v1/aforo/acceso',
+  '/api/v1/aforo/acceso-qr',
+  '/api/v1/aforo/acceso-cedula',
+  '/api/v1/estudiantes/busqueda',
+  '/api/v1/operador/verificacion',
+];
+const RUTAS_PUT_OPERADOR = ['/api/v1/aforo/estado', '/api/v1/aforo/capacidad'];
+const NOMBRE_SERVICIO = 'gimnasio-utb-backend';
+
 
 /**
  * @param {object} [opciones]
  * @param {object} [opciones.aforoRepository] adaptador del puerto de aforo
  * @param {object} [opciones.identidadRepository] repositorio de estudiantes y QR
  * @param {object} [opciones.autenticacion] adaptador del puerto de autenticación de estudiantes
- * @param {string} [opciones.operadorToken] secreto que exige POST /acceso (ADR-0007)
+ * @param {string} [opciones.operadorToken] secreto del encargado para registrar y configurar (ADR-0007)
  * @param {string[]} [opciones.origenesCors] orígenes web permitidos (ADR-0007)
  */
-const NOMBRE_SERVICIO = 'gimnasio-utb-backend';
-
 function createApp({
   aforoRepository,
   identidadRepository,
@@ -45,8 +54,9 @@ function createApp({
   app.use(crearCors({ origenesPermitidos: origenesCors }));
   // La autenticación va antes del parseo: una petición sin token no consume
   // recursos de parseo ni llega al caso de uso.
-  app.post('/api/v1/aforo/acceso', crearAutenticacionOperador({ token: operadorToken, logger }));
-  app.post('/api/v1/aforo/acceso-qr', crearAutenticacionOperador({ token: operadorToken, logger }));
+  const autenticarOperador = crearAutenticacionOperador({ token: operadorToken, logger });
+  for (const ruta of RUTAS_POST_OPERADOR) app.post(ruta, autenticarOperador);
+  for (const ruta of RUTAS_PUT_OPERADOR) app.put(ruta, autenticarOperador);
   app.use(express.json({ limit: LIMITE_CUERPO_JSON }));
   app.use((error, req, res, next) => {
     if (error?.type === 'entity.too.large') {
@@ -109,74 +119,42 @@ function createApp({
   });
 
   // --- Composición del módulo aforo (corte vertical) ---
-  const registrarAccesoUseCase = crearRegistrarAccesoUseCase(repository);
-  const registrarAccesoQrUseCase = identityRepository
+  const registrarAcceso = crearRegistrarAccesoUseCase(repository);
+  const registrarAccesoQr = identityRepository
     ? crearRegistrarAccesoQrUseCase(
       repository,
       (transaccion, qr) => identityRepository.consumirQr(transaccion, qr)
     )
     : null;
-  const registrarAcceso = async (tipoAcceso) => {
-    const aforoActual = await registrarAccesoUseCase(tipoAcceso);
+  const registrarAccesoCedula = identityRepository
+    ? crearRegistrarAccesoEstudianteUseCase(
+      repository,
+      (transaccion, cedula) => identityRepository.registrarPorCedula(transaccion, cedula)
+    )
+    : null;
+  const alRegistrar = (tipoAcceso, canal) => {
     if (tipoAcceso === 'ENTRADA') accessMetrics.entrada += 1;
     if (tipoAcceso === 'SALIDA') accessMetrics.salida += 1;
     try {
-      logger.info('aforo.access_processed', `Access operation processed: ${tipoAcceso}`);
+      logger.info('aforo.access_processed', `Access operation processed: ${tipoAcceso} (${canal})`);
     } catch {}
-    return aforoActual;
   };
-  const obtenerAforoActual = crearConsultarAforoUseCase(repository);
 
-  app.use('/api/v1/aforo', crearAforoRouter(registrarAcceso, obtenerAforoActual));
+  app.use('/api/v1/aforo', crearAforoRouter({
+    registrarAcceso,
+    consultarAforo: crearConsultarAforoUseCase(repository),
+    configurar: crearConfigurarGimnasioUseCases(repository),
+    registrarAccesoQr,
+    registrarAccesoCedula,
+    alRegistrar,
+  }));
   app.use('/api/v1/estudiantes', crearIdentidadRouter(identityRepository, autenticacion));
-  app.post(
-    '/api/v1/aforo/acceso-qr',
-    async (req, res) => {
-      if (!registrarAccesoQrUseCase) {
-        return res.status(503).json({
-          status: 'error',
-          message: 'El acceso por QR no está habilitado en este entorno.',
-        });
-      }
-      const { qr } = req.body || {};
-      if (typeof qr !== 'string' || qr.length < 1 || qr.length > 256) {
-        return res.status(400).json({
-          status: 'error',
-          message: 'Se requiere un código QR válido.',
-        });
-      }
-      try {
-        const resultado = await registrarAccesoQrUseCase(qr);
-        const clave = resultado.tipoAcceso === 'ENTRADA' ? 'entrada' : 'salida';
-        accessMetrics[clave] += 1;
-        try {
-          logger.info('aforo.qr_access_processed', `QR access processed: ${clave}`);
-        } catch {}
-        return res.status(201).json({
-          status: 'success',
-          data: {
-            tipoAcceso: resultado.tipoAcceso,
-            aforoActual: resultado.aforoActual,
-          },
-        });
-      } catch (error) {
-        if (error?.code === 'QR_NOT_VALID') {
-          return res.status(400).json({ status: 'error', message: error.message });
-        }
-        if (error instanceof CuentaEstudianteInactivaError) {
-          return res.status(403).json({ status: 'error', message: error.message });
-        }
-        if (error instanceof AforoDomainError) {
-          return res.status(400).json({ status: 'error', message: error.message });
-        }
-        logger.error('aforo.qr_access_failed', 'Failed to register QR access');
-        return res.status(503).json({
-          status: 'error',
-          message: 'No fue posible registrar el acceso por QR.',
-        });
-      }
-    }
-  );
+
+  // La app valida la contraseña de encargado al ingresar, antes de mostrar
+  // el panel. Si llega aquí, el middleware ya la aceptó.
+  app.post('/api/v1/operador/verificacion', (req, res) => {
+    res.status(200).json({ status: 'success', data: { valido: true } });
+  });
 
   return app;
 }

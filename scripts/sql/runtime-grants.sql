@@ -5,11 +5,14 @@
 -- se crea si todavía no está en pg_policies. `npm run db:check-security`
 -- comprueba que el resultado sea exactamente esta matriz.
 
-GRANT SELECT (id, aforo_actual), UPDATE (aforo_actual)
+-- capacidad_maxima, abierto y motivo_cierre: los cambia el encargado (ADR-0012).
+GRANT SELECT (id, aforo_actual, capacidad_maxima, abierto, motivo_cierre),
+  UPDATE (aforo_actual, capacidad_maxima, abierto, motivo_cierre)
   ON TABLE public.aforo_estado TO gimnasio_runtime;
 -- password_hash: la API verifica la contraseña en el login (ADR-0011).
+-- cedula_sintetica: el encargado busca y registra por cédula (ADR-0012).
 -- UPDATE (created_at) solo existe para poder bloquear la fila con FOR UPDATE.
-GRANT SELECT (id, codigo_estudiante, correo, nombre, activa, password_hash),
+GRANT SELECT (id, codigo_estudiante, correo, nombre, activa, password_hash, cedula_sintetica),
   UPDATE (created_at)
   ON TABLE public.estudiantes TO gimnasio_runtime;
 GRANT SELECT (token_hash, codigo_estudiante, expires_at),

@@ -1,20 +1,18 @@
-const { aplicarAcceso } = require('../domain/aforo');
+const { crearRegistrarAccesoEstudianteUseCase } = require('./registrar-acceso-estudiante.usecase');
 
+/**
+ * Registro por QR: `consumirQr` valida y gasta el QR dentro de la
+ * transacción del aforo y devuelve el tipo de acceso, o un objeto con
+ * `tipoAcceso` y los datos visibles del estudiante.
+ */
 function crearRegistrarAccesoQrUseCase(aforoRepository, consumirQr) {
   if (typeof consumirQr !== 'function') {
     throw new TypeError('Se requiere una función para validar y consumir el QR');
   }
-
-  return async (qr) => {
-    let tipoAcceso;
-    const aforoActual = await aforoRepository.actualizarAforo(
-      async (aforoAnterior, transaccion) => {
-        tipoAcceso = await consumirQr(transaccion, qr);
-        return aplicarAcceso(aforoAnterior, tipoAcceso);
-      }
-    );
-    return { tipoAcceso, aforoActual };
-  };
+  return crearRegistrarAccesoEstudianteUseCase(aforoRepository, async (transaccion, qr) => {
+    const resultado = await consumirQr(transaccion, qr);
+    return typeof resultado === 'string' ? { tipoAcceso: resultado } : resultado;
+  });
 }
 
 module.exports = { crearRegistrarAccesoQrUseCase };

@@ -167,12 +167,14 @@ const COLUMN_PRIVILEGES = [
 ];
 const EXPECTED_COLUMN_PRIVILEGES = {
   'public.aforo_estado': {
-    select_columns: ['aforo_actual', 'id'],
+    select_columns: ['abierto', 'aforo_actual', 'capacidad_maxima', 'id', 'motivo_cierre'],
     insert_columns: [],
-    update_columns: ['aforo_actual'],
+    update_columns: ['abierto', 'aforo_actual', 'capacidad_maxima', 'motivo_cierre'],
   },
   'public.estudiantes': {
-    select_columns: ['activa', 'codigo_estudiante', 'correo', 'id', 'nombre', 'password_hash'],
+    select_columns: [
+      'activa', 'cedula_sintetica', 'codigo_estudiante', 'correo', 'id', 'nombre', 'password_hash',
+    ],
     insert_columns: [],
     update_columns: ['created_at'],
   },

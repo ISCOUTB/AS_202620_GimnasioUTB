@@ -43,6 +43,9 @@ function crearRepositorios({ qrValido = true } = {}) {
     async obtenerAforoActual() {
       return aforo;
     },
+    async obtenerEstado() {
+      return { aforoActual: aforo, capacidadMaxima: 30, abierto: true, motivoCierre: null };
+    },
     async actualizarAforo(transicionar) {
       const nuevoAforo = await transicionar(aforo, {});
       aforo = nuevoAforo;

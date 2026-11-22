@@ -24,7 +24,9 @@ class _LoginPageState extends State<LoginPage> {
   bool _ocultarToken = true;
   bool _ocultarContrasena = true;
   bool _iniciandoSesion = false;
+  bool _verificandoEncargado = false;
   String? _errorToken;
+  String? _errorCorreo;
   String? _errorEstudiante;
 
   @override
@@ -35,36 +37,67 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  void _openWorkspace(BuildContext context, WorkspaceMode mode) {
-    var api = widget.api;
-    if (mode == WorkspaceMode.operator) {
-      final token = _tokenController.text.trim();
-      if (token.isEmpty) {
-        setState(() => _errorToken = 'Ingresa el token de operador.');
-        return;
-      }
-      // El token queda solo en memoria (ADR-0007). El backend lo valida en
-      // cada registro; si es incorrecto, la pantalla de accesos mostrará 401.
-      api = api.conTokenOperador(token);
-      _tokenController.clear();
-    }
+  void _continuarComoVisitante() {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
-        builder: (_) => HomeShell(api: api, mode: mode),
+        builder: (_) =>
+            HomeShell(api: widget.api, mode: WorkspaceMode.student),
       ),
     );
   }
 
+  /// Comprueba la contraseña de encargado con el servidor antes de abrir el
+  /// panel. Solo vive en memoria (ADR-0007): no se guarda en el dispositivo.
+  Future<void> _ingresarComoEncargado() async {
+    if (_verificandoEncargado) return;
+    final token = _tokenController.text.trim();
+    if (token.isEmpty) {
+      setState(() => _errorToken = 'Ingresa la contraseña de encargado.');
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _verificandoEncargado = true;
+      _errorToken = null;
+    });
+    final api = widget.api.conTokenOperador(token);
+    try {
+      await api.verificarEncargado();
+      if (!mounted) return;
+      _tokenController.clear();
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => HomeShell(api: api, mode: WorkspaceMode.operator),
+        ),
+      );
+    } on AforoApiException catch (error) {
+      if (mounted) setState(() => _errorToken = error.message);
+    } finally {
+      if (mounted) setState(() => _verificandoEncargado = false);
+    }
+  }
+
   Future<void> _iniciarSesionEstudiante() async {
     if (_iniciandoSesion) return;
+    final correo = _correoEstudianteController.text.trim();
+    final contrasena = _contrasenaController.text;
+    if (correo.isEmpty || contrasena.isEmpty) {
+      setState(() {
+        _errorCorreo = correo.isEmpty ? 'Ingresa tu correo estudiantil.' : null;
+        _errorEstudiante = contrasena.isEmpty ? 'Ingresa tu contraseña.' : null;
+      });
+      return;
+    }
+    FocusScope.of(context).unfocus();
     setState(() {
       _iniciandoSesion = true;
+      _errorCorreo = null;
       _errorEstudiante = null;
     });
     try {
       final sesion = await widget.api.iniciarSesionEstudiante(
-        correo: _correoEstudianteController.text.trim(),
-        contrasena: _contrasenaController.text,
+        correo: correo,
+        contrasena: contrasena,
       );
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -72,6 +105,7 @@ class _LoginPageState extends State<LoginPage> {
           builder: (_) => HomeShell(
             api: widget.api.conTokenEstudiante(sesion.token),
             mode: WorkspaceMode.student,
+            nombreEstudiante: sesion.nombre,
           ),
         ),
       );
@@ -157,9 +191,9 @@ class _LoginPageState extends State<LoginPage> {
                   const SizedBox(height: 24),
                   const StatusCard(
                     title: 'Acceso por perfil',
-                    message: 'Los estudiantes usan cuentas sintéticas de '
-                        'demostración. El encargado registra accesos con el '
-                        'token de operador.',
+                    message: 'Estudiantes: inicia sesión con tu correo '
+                        'estudiantil para ver tu código de acceso. Encargados: '
+                        'ingresa con la contraseña de encargado.',
                     icon: Icons.lock_outline_rounded,
                   ),
                   if (widget.notice != null) ...[
@@ -181,10 +215,7 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 12),
                   ElevatedButton.icon(
-                    onPressed: () => _openWorkspace(
-                      context,
-                      WorkspaceMode.student,
-                    ),
+                    onPressed: _continuarComoVisitante,
                     icon: const Icon(Icons.insights_rounded),
                     label: const Text('Continuar como visitante'),
                   ),
@@ -195,11 +226,18 @@ class _LoginPageState extends State<LoginPage> {
                     enableSuggestions: false,
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Correo sintético de estudiante',
-                      hintText: 'XXXX@utb.edu.co',
-                      prefixIcon: Icon(Icons.email_outlined),
+                    autofillHints: const [AutofillHints.email],
+                    decoration: InputDecoration(
+                      labelText: 'Correo estudiantil',
+                      hintText: 'usuario@utb.edu.co',
+                      errorText: _errorCorreo,
+                      prefixIcon: const Icon(Icons.email_outlined),
                     ),
+                    onChanged: (_) {
+                      if (_errorCorreo != null) {
+                        setState(() => _errorCorreo = null);
+                      }
+                    },
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -207,6 +245,9 @@ class _LoginPageState extends State<LoginPage> {
                     obscureText: _ocultarContrasena,
                     autocorrect: false,
                     enableSuggestions: false,
+                    keyboardType: TextInputType.visiblePassword,
+                    textInputAction: TextInputAction.done,
+                    autofillHints: const [AutofillHints.password],
                     decoration: InputDecoration(
                       labelText: 'Contraseña',
                       errorText: _errorEstudiante,
@@ -223,6 +264,11 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                       ),
                     ),
+                    onChanged: (_) {
+                      if (_errorEstudiante != null) {
+                        setState(() => _errorEstudiante = null);
+                      }
+                    },
                     onSubmitted: (_) => _iniciarSesionEstudiante(),
                   ),
                   const SizedBox(height: 10),
@@ -244,9 +290,12 @@ class _LoginPageState extends State<LoginPage> {
                     obscureText: _ocultarToken,
                     autocorrect: false,
                     enableSuggestions: false,
+                    keyboardType: TextInputType.visiblePassword,
+                    textInputAction: TextInputAction.done,
                     decoration: InputDecoration(
-                      labelText: 'Token de operador',
+                      labelText: 'Contraseña de encargado',
                       errorText: _errorToken,
+                      prefixIcon: const Icon(Icons.admin_panel_settings_outlined),
                       suffixIcon: IconButton(
                         tooltip: _ocultarToken ? 'Mostrar' : 'Ocultar',
                         onPressed: () =>
@@ -263,21 +312,20 @@ class _LoginPageState extends State<LoginPage> {
                         setState(() => _errorToken = null);
                       }
                     },
+                    onSubmitted: (_) => _ingresarComoEncargado(),
                   ),
                   const SizedBox(height: 10),
                   OutlinedButton.icon(
-                    onPressed: () => _openWorkspace(
-                      context,
-                      WorkspaceMode.operator,
-                    ),
-                    icon: const Icon(Icons.admin_panel_settings_outlined),
-                    label: const Text('Operación de aforo'),
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    'El token no se guarda en el dispositivo: se borra al '
-                    'cerrar la vista de operación.',
-                    style: Theme.of(context).textTheme.bodySmall,
+                    onPressed:
+                        _verificandoEncargado ? null : _ingresarComoEncargado,
+                    icon: _verificandoEncargado
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.badge_outlined),
+                    label: const Text('Ingresar como encargado'),
                   ),
                 ],
               ),
