@@ -42,13 +42,13 @@ async function withServer(
   aforoRepository,
   operadorToken = TOKEN,
   identidadRepository,
-  supabaseAuth
+  autenticacion
 ) {
   const app = createApp({
     aforoRepository,
     operadorToken,
     identidadRepository,
-    supabaseAuth,
+    autenticacion,
   });
   const server = app.listen(0);
   const { port } = server.address();
@@ -170,7 +170,7 @@ const casos = [
     body: { correo: 'demo-001@utb.edu.co', contrasena: 'clave-de-prueba' },
     cumpleSolicitud: true,
     identidadRepository: {
-      obtenerEstudiantePorAuthId: async () => ({
+      obtenerEstudiantePorCodigo: async () => ({
         id: '39a05c8d-b8ea-4fa2-a42a-183f564d8e78',
         codigo_estudiante: 'demo-001',
         correo: 'demo-001@utb.edu.co',
@@ -179,11 +179,11 @@ const casos = [
         dentro: false,
       }),
     },
-    supabaseAuth: {
+    autenticacion: {
       iniciarSesion: async () => ({
-        token: 'supabase-access-token',
+        token: 'session-token',
         expiresAt: '2026-11-16T12:00:00.000Z',
-        usuario: { id: 'e52fef92-e63f-4f66-8865-7de0647c4c08' },
+        usuario: { id: 'demo-001' },
       }),
     },
   },
@@ -198,7 +198,7 @@ const casos = [
       },
     ],
     identidadRepository: {},
-    supabaseAuth: {},
+    autenticacion: {},
   },
   {
     nombre: 'POST /api/v1/estudiantes/sesion -> 401',
@@ -206,9 +206,9 @@ const casos = [
     body: { correo: 'demo-001@utb.edu.co', contrasena: 'incorrecta' },
     cumpleSolicitud: true,
     identidadRepository: {
-      obtenerEstudiantePorAuthId: async () => null,
+      obtenerEstudiantePorCodigo: async () => null,
     },
-    supabaseAuth: {
+    autenticacion: {
       iniciarSesion: async () => { throw new CredencialesInvalidasError(); },
     },
   },
@@ -217,12 +217,12 @@ const casos = [
     metodo: 'post', ruta: '/api/v1/estudiantes/sesion', status: 403,
     body: { correo: 'demo-001@utb.edu.co', contrasena: 'clave-de-prueba' },
     cumpleSolicitud: true,
-    identidadRepository: { obtenerEstudiantePorAuthId: async () => null },
-    supabaseAuth: {
+    identidadRepository: { obtenerEstudiantePorCodigo: async () => null },
+    autenticacion: {
       iniciarSesion: async () => ({
-        token: 'supabase-access-token',
+        token: 'session-token',
         expiresAt: '2026-11-16T12:00:00.000Z',
-        usuario: { id: 'e52fef92-e63f-4f66-8865-7de0647c4c08' },
+        usuario: { id: 'demo-001' },
       }),
     },
   },
@@ -237,7 +237,7 @@ const casos = [
     metodo: 'post', ruta: '/api/v1/estudiantes/qr', status: 201,
     body: {}, cumpleSolicitud: true,
     identidadRepository: {
-      obtenerEstudiantePorAuthId: async () => ({
+      obtenerEstudiantePorCodigo: async () => ({
         id: '39a05c8d-b8ea-4fa2-a42a-183f564d8e78',
         codigo_estudiante: 'demo-001',
         correo: 'demo-001@utb.edu.co',
@@ -249,12 +249,12 @@ const casos = [
         expiresAt: '2026-11-15T12:00:00.000Z',
       }),
     },
-    supabaseAuth: {
+    autenticacion: {
       obtenerUsuario: async () => ({
-        id: 'e52fef92-e63f-4f66-8865-7de0647c4c08',
+        id: 'demo-001',
       }),
     },
-    tokenEstudiante: 'supabase-access-token',
+    tokenEstudiante: 'session-token',
   },
   {
     nombre: 'POST /api/v1/estudiantes/qr -> 401',
@@ -268,11 +268,11 @@ const casos = [
   {
     nombre: 'POST /api/v1/estudiantes/qr -> 403',
     metodo: 'post', ruta: '/api/v1/estudiantes/qr', status: 403,
-    identidadRepository: { obtenerEstudiantePorAuthId: async () => null },
-    supabaseAuth: {
-      obtenerUsuario: async () => ({ id: 'e52fef92-e63f-4f66-8865-7de0647c4c08' }),
+    identidadRepository: { obtenerEstudiantePorCodigo: async () => null },
+    autenticacion: {
+      obtenerUsuario: async () => ({ id: 'demo-001' }),
     },
-    tokenEstudiante: 'supabase-access-token',
+    tokenEstudiante: 'session-token',
   },
   {
     nombre: 'POST /api/v1/aforo/acceso-qr -> 201',
@@ -390,7 +390,7 @@ for (const caso of casos) {
 
       cubiertos.add(`${caso.metodo.toUpperCase()} ${caso.ruta} ${caso.status}`);
     }, caso.aforoRepository, caso.operadorToken === undefined ? TOKEN : caso.operadorToken,
-    caso.identidadRepository, caso.supabaseAuth);
+    caso.identidadRepository, caso.autenticacion);
   });
 }
 

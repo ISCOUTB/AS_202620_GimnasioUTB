@@ -1,15 +1,20 @@
--- Permisos y políticas RLS para los roles de aplicación (docs/supabase.md).
--- Lo ejecuta `npm run db:grant-runtime` con el rol gimnasio_migrator, que es
--- dueño de las tablas después de `db:init` y por eso puede conceder permisos
--- y crear políticas. Es idempotente: GRANT no falla si ya existe y cada
--- política solo se crea si todavía no está en pg_policies.
+-- Permisos por columna y políticas RLS del rol de la API (gimnasio_runtime).
+-- Lo ejecuta `npm run db:grant-runtime` con gimnasio_migrator, que es dueño de
+-- las tablas después de `db:prepare` y por eso puede conceder permisos y crear
+-- políticas. Es idempotente: GRANT no falla si ya existe y cada política solo
+-- se crea si todavía no está en pg_policies. `npm run db:check-security`
+-- comprueba que el resultado sea exactamente esta matriz.
 
--- 1. Rol runtime (API Express): matriz de permisos por columna.
 GRANT SELECT (id, aforo_actual), UPDATE (aforo_actual)
   ON TABLE public.aforo_estado TO gimnasio_runtime;
-GRANT SELECT (id, auth_user_id, codigo_estudiante, correo, nombre, activa),
+-- password_hash: la API verifica la contraseña en el login (ADR-0011).
+-- UPDATE (created_at) solo existe para poder bloquear la fila con FOR UPDATE.
+GRANT SELECT (id, codigo_estudiante, correo, nombre, activa, password_hash),
   UPDATE (created_at)
   ON TABLE public.estudiantes TO gimnasio_runtime;
+GRANT SELECT (token_hash, codigo_estudiante, expires_at),
+  INSERT (token_hash, codigo_estudiante, expires_at)
+  ON TABLE public.sesiones_estudiantes TO gimnasio_runtime;
 GRANT SELECT (token_hash, codigo_estudiante, expires_at, consumido_en),
   INSERT (token_hash, codigo_estudiante, expires_at),
   UPDATE (consumido_en)
@@ -36,6 +41,10 @@ BEGIN
       -- bloquear la fila pero rechaza cualquier modificación real del perfil.
       ('estudiantes', 'gimnasio_runtime_estudiantes_lock',
         'FOR UPDATE TO gimnasio_runtime USING (true) WITH CHECK (false)'),
+      ('sesiones_estudiantes', 'gimnasio_runtime_sesiones_read',
+        'FOR SELECT TO gimnasio_runtime USING (true)'),
+      ('sesiones_estudiantes', 'gimnasio_runtime_sesiones_insert',
+        'FOR INSERT TO gimnasio_runtime WITH CHECK (true)'),
       ('qr_credenciales', 'gimnasio_runtime_qr_read',
         'FOR SELECT TO gimnasio_runtime USING (true)'),
       ('qr_credenciales', 'gimnasio_runtime_qr_insert',
@@ -59,48 +68,6 @@ BEGIN
       EXECUTE format(
         'CREATE POLICY %I ON public.%I %s',
         politica.nombre, politica.tabla, politica.definicion
-      );
-    END IF;
-  END LOOP;
-END;
-$$;
-
--- 2. Rol de provisionamiento (seed y vinculación de cuentas sintéticas).
--- Solo se configura si el administrador ya creó gimnasio_provisioner.
--- No recibe DELETE ni acceso a QR, presencia o aforo.
-DO $$
-DECLARE
-  politica RECORD;
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'gimnasio_provisioner') THEN
-    RAISE NOTICE 'gimnasio_provisioner no existe; se omiten sus permisos';
-    RETURN;
-  END IF;
-
-  GRANT SELECT (auth_user_id, codigo_estudiante, correo, cedula_sintetica, nombre, activa),
-    INSERT (auth_user_id, codigo_estudiante, correo, cedula_sintetica, nombre, activa),
-    UPDATE (auth_user_id, correo)
-    ON TABLE public.estudiantes TO gimnasio_provisioner;
-
-  FOR politica IN
-    SELECT * FROM (VALUES
-      ('gimnasio_provisioner_estudiantes_read',
-        'FOR SELECT TO gimnasio_provisioner USING (true)'),
-      ('gimnasio_provisioner_estudiantes_insert',
-        'FOR INSERT TO gimnasio_provisioner WITH CHECK (true)'),
-      ('gimnasio_provisioner_estudiantes_update',
-        'FOR UPDATE TO gimnasio_provisioner USING (true) WITH CHECK (true)')
-    ) AS p(nombre, definicion)
-  LOOP
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_catalog.pg_policies
-      WHERE schemaname = 'public'
-        AND tablename = 'estudiantes'
-        AND policyname = politica.nombre
-    ) THEN
-      EXECUTE format(
-        'CREATE POLICY %I ON public.estudiantes %s',
-        politica.nombre, politica.definicion
       );
     END IF;
   END LOOP;

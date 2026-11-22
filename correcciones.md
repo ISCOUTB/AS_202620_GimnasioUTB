@@ -46,3 +46,14 @@ Este documento consolida los ajustes, refinamientos y correcciones aplicadas a l
 | `deploy/compose.lab.yaml`, `deploy/.env.example` | Se agregó la CA de Supabase en base64 (`DATABASE_SSL_CA_CERT_BASE64`), obligatoria para `api`, que el Compose adaptado a Supabase no tenía. |
 | `docs/c4/c4_level2.md` | Se agregó Supabase Auth como sistema externo y se reemplazó el PostgreSQL en contenedor por el gestionado de Supabase. |
 | Raíz del repositorio | Se eliminaron `h -h github.com -s workflow` y `s13-correcciones-sonar.patch`, que no formaban parte del proyecto. |
+
+## Entrega final — Regreso a PostgreSQL en el Compose (ADR-0011)
+
+| Archivo / Documento | Corrección Realizada |
+| :--- | :--- |
+| `deploy/compose.lab.yaml`, `deploy/.env.example` | Se retiró la configuración de Supabase (URL, claves y CA). Vuelven el servicio `postgres` con el volumen de S8 y la preparación automática (`db-bootstrap`, `db-init`) antes de la API. |
+| `src/modules/identidad/` | Se reemplazó Supabase Auth por `AutenticacionLocalAdapter` (scrypt y sesiones propias) detrás del puerto `AutenticacionEstudiantePort`. El contrato HTTP no cambió. |
+| `scripts/` | Se eliminaron los scripts de provisionamiento y reconciliación de Supabase; se agregaron `db:bootstrap`, `db:prepare` y `db:seed-demo-students`. |
+| `docs/adr/0011-volver-a-postgresql-propio-y-login-local.md` | Nuevo ADR que explica el regreso. ADR-0009 y ADR-0010 quedan marcados como reemplazados y ADR-0008 vuelve a estar vigente. |
+| `docs/supabase.md` → `docs/base-de-datos.md` | Se reemplazó la guía de Supabase por la de roles, permisos y `DEMO_STUDENTS`. |
+| `README.md`, `docs/arc42/arc42_gimnasio_utb.md`, `docs/c4/c4_level2.md`, `docs/Flutter/README.md`, `docs/openapi.yaml`, `docs/taller.md` | Se corrigieron las menciones a Supabase para que describan el deployment real. El contrato pasa a 3.1.1 (solo documentación). |

@@ -1,4 +1,79 @@
+# Deployment en Dokploy (ADR-0011): PostgreSQL propio dentro del Compose.
+# Orden de arranque en cada deploy, cada paso espera al anterior:
+#   1. postgres      base de datos con volumen persistente
+#   2. db-bootstrap  (superusuario) crea/actualiza los roles gimnasio_migrator y
+#                    gimnasio_runtime y les da solo los privilegios de conexión
+#   3. db-init       (gimnasio_migrator) esquema + migraciones, permisos por
+#                    columna y RLS del runtime, estudiantes de prueba y
+#                    verificación de seguridad del runtime
+#   4. api           (gimnasio_runtime) la API; nunca recibe credenciales
+#                    administrativas
+# Todo es idempotente: repetir el deploy no duplica ni borra datos.
+x-db-admin: &db-admin
+  DATABASE_SSL: "false"
+  DATABASE_URL: "postgresql://gimnasio_runtime:${DB_RUNTIME_PASSWORD:?Define DB_RUNTIME_PASSWORD en Dokploy}@postgres:5432/${POSTGRES_DB:?Define POSTGRES_DB en Dokploy}"
+  DB_MIGRATIONS_URL: "postgresql://gimnasio_migrator:${DB_MIGRATOR_PASSWORD:?Define DB_MIGRATOR_PASSWORD en Dokploy}@postgres:5432/${POSTGRES_DB:?Define POSTGRES_DB en Dokploy}"
+  DB_MIGRATIONS_HOST: postgres
+  DB_MIGRATIONS_TARGET: "${POSTGRES_DB:?Define POSTGRES_DB en Dokploy}"
+
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:?Define POSTGRES_DB en Dokploy}"
+      POSTGRES_USER: "${POSTGRES_USER:?Define POSTGRES_USER en Dokploy}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en Dokploy}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  db-bootstrap:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: "no"
+    command: ["npm", "run", "db:bootstrap"]
+    environment:
+      <<: *db-admin
+      DB_BOOTSTRAP_ENABLED: "true"
+      DB_ADMIN_URL: "postgresql://${POSTGRES_USER:?Define POSTGRES_USER en Dokploy}:${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en Dokploy}@postgres:5432/${POSTGRES_DB:?Define POSTGRES_DB en Dokploy}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  db-init:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: "no"
+    command:
+      [
+        "sh",
+        "-c",
+        "npm run db:prepare && npm run db:grant-runtime && npm run db:seed-demo-students && npm run db:check-security"
+      ]
+    environment:
+      <<: *db-admin
+      DB_INIT_ENABLED: "true"
+      DB_MIGRATIONS_ENABLED: "true"
+      DB_GRANTS_ENABLED: "true"
+      DB_SEED_ENABLED: "true"
+      # codigo|correo|nombre|contraseña;... (vacío = no se crean estudiantes)
+      DEMO_STUDENTS: "${DEMO_STUDENTS:-}"
+    depends_on:
+      db-bootstrap:
+        condition: service_completed_successfully
+
   api:
     build:
       context: ..
@@ -7,17 +82,17 @@ services:
     environment:
       NODE_ENV: production
       PORT: ${PORT:-3000}
-      OPERADOR_TOKEN: "${OPERADOR_TOKEN:?Define OPERADOR_TOKEN en Dokploy}"
+      # Sin OPERADOR_TOKEN la API arranca, pero los registros de acceso responden 503 (ADR-0007).
+      OPERADOR_TOKEN: ${OPERADOR_TOKEN:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
-      SUPABASE_URL: "${SUPABASE_URL:?Define SUPABASE_URL en Dokploy}"
-      SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:-}
-      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
-      DATABASE_URL: "${DATABASE_URL:?Define DATABASE_URL con el rol gimnasio_runtime}"
-      DATABASE_SSL: "true"
-      # CA de Supabase (prod-ca-2021.crt) en base64: Node no confía en ella por defecto (ADR-0010).
-      DATABASE_SSL_CA_CERT_BASE64: "${DATABASE_SSL_CA_CERT_BASE64:?Define la CA de Supabase en base64}"
+      DATABASE_URL: "postgresql://gimnasio_runtime:${DB_RUNTIME_PASSWORD:?Define DB_RUNTIME_PASSWORD en Dokploy}@postgres:5432/${POSTGRES_DB:?Define POSTGRES_DB en Dokploy}"
+      # La conexión no sale de la red interna del Compose.
+      DATABASE_SSL: "false"
     expose:
       - "${PORT:-3000}"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
     healthcheck:
       test:
         [
@@ -31,22 +106,5 @@ services:
       retries: 3
       start_period: 10s
 
-  db-migrate:
-    profiles:
-      - maintenance
-    build:
-      context: ..
-      dockerfile: Dockerfile
-    restart: "no"
-    command: ["npm", "run", "db:migrate"]
-    environment:
-      NODE_ENV: production
-      DB_MIGRATIONS_ENABLED: "true"
-      DB_MIGRATIONS_URL: "${DB_MIGRATIONS_URL:?Define DB_MIGRATIONS_URL con el rol gimnasio_migrator}"
-      DATABASE_URL: "${DATABASE_URL:?Define DATABASE_URL con el rol gimnasio_runtime}"
-      DATABASE_SSL: "true"
-      DATABASE_SSL_CA_CERT_BASE64: ${DATABASE_SSL_CA_CERT_BASE64:-}
-      DB_MIGRATIONS_HOST: ${DB_MIGRATIONS_HOST:-}
-      DB_MIGRATIONS_TARGET: ${DB_MIGRATIONS_TARGET:-}
-      DB_MIGRATIONS_PROJECT_REF: ${DB_MIGRATIONS_PROJECT_REF:-}
-      SUPABASE_URL: "${SUPABASE_URL:?Define SUPABASE_URL en Dokploy}"
+volumes:
+  postgres_data:

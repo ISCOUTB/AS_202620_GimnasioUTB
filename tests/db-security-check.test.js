@@ -9,11 +9,10 @@ const {
 const TABLES = [
   ['public', 'aforo_estado', true, false, true],
   ['public', 'estudiantes', true, false, true],
-  ['public', 'sesiones_estudiantes', false, false, false],
+  ['public', 'sesiones_estudiantes', true, true, false],
   ['public', 'qr_credenciales', true, true, true],
   ['public', 'estudiante_estado_acceso', true, true, true],
   ['public', 'schema_migrations', false, false, false],
-  ['auth', 'users', false, false, false],
 ];
 const COLUMN_PRIVILEGES = {
   'public.aforo_estado': {
@@ -22,13 +21,13 @@ const COLUMN_PRIVILEGES = {
     update_columns: ['aforo_actual'],
   },
   'public.estudiantes': {
-    select_columns: ['activa', 'auth_user_id', 'codigo_estudiante', 'correo', 'id', 'nombre'],
+    select_columns: ['activa', 'codigo_estudiante', 'correo', 'id', 'nombre', 'password_hash'],
     insert_columns: [],
     update_columns: ['created_at'],
   },
   'public.sesiones_estudiantes': {
-    select_columns: [],
-    insert_columns: [],
+    select_columns: ['codigo_estudiante', 'expires_at', 'token_hash'],
+    insert_columns: ['codigo_estudiante', 'expires_at', 'token_hash'],
     update_columns: [],
   },
   'public.qr_credenciales': {
@@ -42,11 +41,6 @@ const COLUMN_PRIVILEGES = {
     update_columns: ['dentro'],
   },
   'public.schema_migrations': {
-    select_columns: [],
-    insert_columns: [],
-    update_columns: [],
-  },
-  'auth.users': {
     select_columns: [],
     insert_columns: [],
     update_columns: [],
@@ -74,7 +68,7 @@ function filasEstadoSeguridad(overrides = {}) {
     table_exists: table_name !== 'schema_migrations',
     schema_usage: schema_name === 'public',
     schema_create: false,
-    rls_enabled: schema_name === 'auth' || table_name !== 'schema_migrations',
+    rls_enabled: table_name !== 'schema_migrations',
     rls_forced: false,
     can_select: select,
     can_insert: insert,
@@ -118,7 +112,6 @@ test('security probe falla ante TLS apagado, rol privilegiado o ACL excesiva', a
   rows[0].tls_active = false;
   rows[0].database_create = true;
   rows[0].schema_create = true;
-  rows[6].schema_usage = true;
   rows[3].can_delete = true;
   rows[3].table_select = true;
 
@@ -128,12 +121,29 @@ test('security probe falla ante TLS apagado, rol privilegiado o ACL excesiva', a
     },
   });
 
-  assert.equal(report.checks.tlsActive, false);
+  assert.equal(report.checks.tlsActiveWhenRequired, false);
   assert.equal(report.checks.runtimeRoleRestricted, false);
   assert.equal(report.checks.databaseCreateDisabled, false);
   assert.equal(report.checks.publicSchemaCreateDisabled, false);
-  assert.equal(report.checks.authSchemaAccessDisabled, false);
   assert.equal(report.checks.effectivePrivilegesMatch, false);
+});
+
+test('sin TLS solo pasa cuando no es requerido (red interna del Compose)', async () => {
+  const rows = filasEstadoSeguridad({ tls_active: false });
+  const consulta = { async query() { return { rows }; } };
+  const requerido = await consultarEstadoSeguridad(consulta);
+  const interno = await consultarEstadoSeguridad(consulta, { tlsRequerido: false });
+  assert.equal(requerido.checks.tlsActiveWhenRequired, false);
+  assert.equal(interno.checks.tlsActiveWhenRequired, true);
+  assert.equal(interno.tls.required, false);
+});
+
+test('el runtime no puede actualizar sesiones aunque pueda crearlas', async () => {
+  const rows = filasEstadoSeguridad();
+  rows[2].update_columns = ['expires_at'];
+  rows[2].can_update = true;
+  const report = await consultarEstadoSeguridad({ async query() { return { rows }; } });
+  assert.equal(report.tables.find((table) => table.table === 'public.sesiones_estudiantes').permissionsMatch, false);
 });
 
 test('security probe rechaza columnas adicionales aunque el grant no sea a nivel de tabla', async () => {

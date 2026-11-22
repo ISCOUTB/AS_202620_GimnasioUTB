@@ -19,14 +19,14 @@ class IdentidadPostgresAdapter {
     this.pool = pool;
   }
 
-  async obtenerEstudiantePorAuthId(authUserId) {
+  async obtenerEstudiantePorCodigo(codigoEstudiante) {
     const { rows } = await this.pool.query(
-      `SELECT e.id, e.auth_user_id, e.codigo_estudiante, e.correo, e.nombre, e.activa,
+      `SELECT e.id, e.codigo_estudiante, e.correo, e.nombre, e.activa,
               COALESCE(s.dentro, FALSE) AS dentro
        FROM estudiantes e
        LEFT JOIN estudiante_estado_acceso s USING (codigo_estudiante)
-       WHERE e.auth_user_id = $1`,
-      [authUserId]
+       WHERE e.codigo_estudiante = $1`,
+      [codigoEstudiante]
     );
     return rows[0] || null;
   }

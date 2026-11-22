@@ -14,11 +14,13 @@ const {
   CuentaEstudianteInactivaError,
 } = require('../../src/modules/identidad/infrastructure/persistence/identidad-postgres.adapter');
 
-const databaseUrl = process.env.DATABASE_URL;
-const AUTH_USER_ID = 'e52fef92-e63f-4f66-8865-7de0647c4c08';
-const AUTH_USER_ID_INACTIVO = 'e52fef92-e63f-4f66-8865-7de0647c4c09';
+const { AutenticacionLocalAdapter } = require('../../src/modules/identidad/infrastructure/auth/autenticacion-local.adapter');
+const { crearHashContrasena } = require('../../src/modules/identidad/infrastructure/auth/contrasena');
+const { CredencialesInvalidasError } = require('../../src/modules/identidad/application/identidad.errors');
 
-test('PostgreSQL: perfil vinculado a Supabase Auth y consumo transaccional de QR', {
+const databaseUrl = process.env.DATABASE_URL;
+
+test('PostgreSQL: login propio y consumo transaccional de QR', {
   skip: !databaseUrl,
 }, async () => {
   const databaseName = decodeURIComponent(new URL(databaseUrl).pathname.slice(1));
@@ -38,17 +40,31 @@ test('PostgreSQL: perfil vinculado a Supabase Auth y consumo transaccional de QR
     );
     await adapter.pool.query(schemaSql);
     const identity = new IdentidadPostgresAdapter({ pool: adapter.pool });
+    const hash = await crearHashContrasena('clave-de-prueba-123');
     await adapter.pool.query(
       `INSERT INTO estudiantes (
-         auth_user_id, codigo_estudiante, correo, cedula_sintetica, nombre, activa
+         codigo_estudiante, correo, cedula_sintetica, nombre, password_hash, activa
        )
        VALUES
-         ($1, 'demo-001', 'demo-001@utb.edu.co', '1000000001', 'Estudiante de prueba', TRUE),
-         ($2, 'demo-002', 'demo-002@utb.edu.co', '1000000002', 'Estudiante inactivo', FALSE)`,
-      [AUTH_USER_ID, AUTH_USER_ID_INACTIVO]
+         ('demo-001', 'demo-001@utb.edu.co', '1000000001', 'Estudiante de prueba', $1, TRUE),
+         ('demo-002', 'demo-002@utb.edu.co', '1000000002', 'Estudiante inactivo', $1, FALSE)`,
+      [hash]
     );
 
-    const estudiante = await identity.obtenerEstudiantePorAuthId(AUTH_USER_ID);
+    const autenticacion = new AutenticacionLocalAdapter({ pool: adapter.pool });
+    const sesion = await autenticacion.iniciarSesion('DEMO-001@utb.edu.co', 'clave-de-prueba-123');
+    assert.deepEqual(await autenticacion.obtenerUsuario(sesion.token), { id: 'demo-001' });
+    assert.equal(await autenticacion.obtenerUsuario('token-inventado'), null);
+    await assert.rejects(
+      autenticacion.iniciarSesion('demo-001@utb.edu.co', 'clave-incorrecta'),
+      CredencialesInvalidasError
+    );
+    await assert.rejects(
+      autenticacion.iniciarSesion('demo-002@utb.edu.co', 'clave-de-prueba-123'),
+      CredencialesInvalidasError
+    );
+
+    const estudiante = await identity.obtenerEstudiantePorCodigo('demo-001');
     assert.equal(estudiante.codigo_estudiante, 'demo-001');
     assert.equal(estudiante.activa, true);
 

@@ -2,9 +2,13 @@
 
 ## Estado
 
-Aceptada e implementada en el backend para una cuenta configurada. La
-integración real no está verificada porque aún no hay credenciales de un
-proyecto Supabase.
+**Reemplazada por [ADR-0011](0011-volver-a-postgresql-propio-y-login-local.md)**
+(22 de noviembre de 2026). El código de Supabase Auth se eliminó y el login
+volvió a scrypt y sesiones propias en PostgreSQL. Se conserva este documento
+como historial de la decisión.
+
+Estado anterior: aceptada e implementada en el backend para una cuenta
+configurada; la integración real nunca se verificó en el deployment.
 
 ## Contexto
 

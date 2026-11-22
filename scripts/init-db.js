@@ -6,7 +6,7 @@ const {
   validarDestinoPostgres,
   validarRolEsquema,
 } = require('./postgres-destination');
-const { sanitizarMensajeAdministrativo } = require('./demo-environment');
+const { sanitizarMensajeAdministrativo } = require('./admin-messages');
 
 function validarConfiguracionInit(env = process.env) {
   if (env.DB_INIT_ENABLED !== 'true') {
@@ -20,15 +20,21 @@ function crearPoolInicializacion(env = process.env, poolFactory = crearPoolPostg
   return poolFactory(env.DB_MIGRATIONS_URL);
 }
 
+const RUTA_ESQUEMA = path.join(
+  __dirname, '..', 'src/modules/aforo/infrastructure/persistence/schema.sql'
+);
+
+/** Ejecuta schema.sql (idempotente: CREATE ... IF NOT EXISTS). */
+async function aplicarEsquema(queryable) {
+  const sql = await fs.readFile(RUTA_ESQUEMA, 'utf8');
+  await queryable.query(sql);
+}
+
 async function main(env = process.env) {
-  const sql = await fs.readFile(
-    path.join(__dirname, '..', 'src/modules/aforo/infrastructure/persistence/schema.sql'),
-    'utf8'
-  );
   const pool = crearPoolInicializacion(env);
   try {
     await validarRolEsquema(pool);
-    await pool.query(sql);
+    await aplicarEsquema(pool);
   } finally {
     await pool.end();
   }
@@ -44,4 +50,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { validarConfiguracionInit, crearPoolInicializacion };
+module.exports = { validarConfiguracionInit, crearPoolInicializacion, aplicarEsquema };

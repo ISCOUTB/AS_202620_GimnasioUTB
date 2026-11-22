@@ -6,7 +6,7 @@ const {
   validarDestinoPostgres,
   validarRolEsquema,
 } = require('./postgres-destination');
-const { sanitizarMensajeAdministrativo } = require('./demo-environment');
+const { sanitizarMensajeAdministrativo } = require('./admin-messages');
 
 const RUTA_SQL = path.join(__dirname, 'sql', 'runtime-grants.sql');
 

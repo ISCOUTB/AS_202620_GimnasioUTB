@@ -4,11 +4,13 @@
 
 Aceptada e implementada para demostración en una base PostgreSQL de pruebas.
 
-> **Actualización:** la autenticación scrypt y las sesiones personalizadas
-> descritas en esta decisión fueron reemplazadas por Supabase Auth según
-> [ADR-0009](0009-supabase-auth.md). Se conserva el flujo QR temporal y su
-> consumo transaccional; las conclusiones de identidad institucional y uso
-> exclusivo de cuentas sintéticas siguen vigentes.
+> **Actualización:** entre el 16 y el 22 de noviembre la autenticación se movió
+> a Supabase Auth ([ADR-0009](0009-supabase-auth.md)). Esa decisión fue
+> reemplazada por [ADR-0011](0011-volver-a-postgresql-propio-y-login-local.md):
+> la autenticación scrypt y las sesiones propias descritas aquí vuelven a estar
+> vigentes, ahora detrás de `AutenticacionEstudiantePort` y con cuentas creadas
+> desde `DEMO_STUDENTS`. El flujo QR temporal y su consumo transaccional no
+> cambiaron.
 
 ## Contexto
 
@@ -22,7 +24,10 @@ datos personales.
 
 - Se usan cuentas sintéticas creadas explícitamente con
   `npm run db:seed-demo-student`. El script solo permite bases cuyo nombre
-  incluya `test` y rechaza `NODE_ENV=production`.
+  incluya `test` y rechaza `NODE_ENV=production`. *(Desde ADR-0011 las
+  cuentas se crean en cada deploy con `npm run db:seed-demo-students` a partir
+  de la variable `DEMO_STUDENTS`, que exige `DB_SEED_ENABLED=true` y la
+  confirmación del host y la base.)*
 - Las contraseñas se almacenan con scrypt; el servidor entrega sesiones
   aleatorias con vencimiento de ocho horas y almacena solo su hash.
 - El QR contiene un token aleatorio, no datos del estudiante. Se almacena su

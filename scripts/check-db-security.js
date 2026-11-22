@@ -7,11 +7,10 @@ const SECURITY_QUERY = `
     VALUES
       ('public', 'aforo_estado', TRUE, FALSE, TRUE),
       ('public', 'estudiantes', TRUE, FALSE, TRUE),
-      ('public', 'sesiones_estudiantes', FALSE, FALSE, FALSE),
+      ('public', 'sesiones_estudiantes', TRUE, TRUE, FALSE),
       ('public', 'qr_credenciales', TRUE, TRUE, TRUE),
       ('public', 'estudiante_estado_acceso', TRUE, TRUE, TRUE),
-      ('public', 'schema_migrations', FALSE, FALSE, FALSE),
-      ('auth', 'users', FALSE, FALSE, FALSE)
+      ('public', 'schema_migrations', FALSE, FALSE, FALSE)
   ),
   role_state AS (
     SELECT
@@ -173,13 +172,13 @@ const EXPECTED_COLUMN_PRIVILEGES = {
     update_columns: ['aforo_actual'],
   },
   'public.estudiantes': {
-    select_columns: ['activa', 'auth_user_id', 'codigo_estudiante', 'correo', 'id', 'nombre'],
+    select_columns: ['activa', 'codigo_estudiante', 'correo', 'id', 'nombre', 'password_hash'],
     insert_columns: [],
     update_columns: ['created_at'],
   },
   'public.sesiones_estudiantes': {
-    select_columns: [],
-    insert_columns: [],
+    select_columns: ['codigo_estudiante', 'expires_at', 'token_hash'],
+    insert_columns: ['codigo_estudiante', 'expires_at', 'token_hash'],
     update_columns: [],
   },
   'public.qr_credenciales': {
@@ -197,14 +196,16 @@ const EXPECTED_COLUMN_PRIVILEGES = {
     insert_columns: [],
     update_columns: [],
   },
-  'auth.users': {
-    select_columns: [],
-    insert_columns: [],
-    update_columns: [],
-  },
 };
 
-function evaluarEstadoSeguridad(rows) {
+/**
+ * @param {object[]} rows filas de SECURITY_QUERY
+ * @param {object} [opciones]
+ * @param {boolean} [opciones.tlsRequerido=true] false solo dentro de la red
+ *   interna del Compose (DATABASE_SSL=false con host local), donde la conexión
+ *   no sale del servidor.
+ */
+function evaluarEstadoSeguridad(rows, { tlsRequerido = true } = {}) {
   if (!Array.isArray(rows) || rows.length === 0) {
     throw new Error('La comprobación PostgreSQL no devolvió resultados');
   }
@@ -225,10 +226,11 @@ function evaluarEstadoSeguridad(rows) {
       PRIVILEGES.map((privilege) => [privilege, row[privilege]])
     );
     const expected = {
-      can_select: row.schema_name === 'public'
-        && ['aforo_estado', 'estudiantes', 'qr_credenciales', 'estudiante_estado_acceso']
-          .includes(row.table_name),
-      can_insert: ['qr_credenciales', 'estudiante_estado_acceso']
+      can_select: [
+        'aforo_estado', 'estudiantes', 'sesiones_estudiantes',
+        'qr_credenciales', 'estudiante_estado_acceso',
+      ].includes(row.table_name),
+      can_insert: ['sesiones_estudiantes', 'qr_credenciales', 'estudiante_estado_acceso']
         .includes(row.table_name),
       can_update: ['aforo_estado', 'estudiantes', 'qr_credenciales', 'estudiante_estado_acceso']
         .includes(row.table_name),
@@ -276,13 +278,11 @@ function evaluarEstadoSeguridad(rows) {
   const publicSchemaCreateDisabled = tables
     .filter((table) => table.table.startsWith('public.'))
     .every((table) => !table.schemaCreate);
-  const authSchemaAccessDisabled = tables
-    .filter((table) => table.table.startsWith('auth.'))
-    .every((table) => !table.schemaUsage);
 
   return {
     database: first.database_name,
     tls: {
+      required: tlsRequerido,
       active: first.tls_active,
       version: first.tls_version,
       cipher: first.cipher,
@@ -302,14 +302,13 @@ function evaluarEstadoSeguridad(rows) {
     },
     tables,
     checks: {
-      tlsActive: first.tls_active === true,
+      tlsActiveWhenRequired: first.tls_active === true || !tlsRequerido,
       runtimeRoleRestricted: roleRestricted,
       applicationTablesPresent: appTablesPresent,
       applicationRlsEnabled: appTablesHaveRls,
       publicSchemaUsage,
       publicSchemaCreateDisabled,
       databaseCreateDisabled: first.database_create === false,
-      authSchemaAccessDisabled,
       effectivePrivilegesMatch: exactPrivileges,
     },
     note: 'RLS policies and row-level behavior require separate review and are not certified by this probe.',
@@ -339,9 +338,9 @@ function categorizarError(error) {
   return 'CONFIGURATION_OR_UNKNOWN_FAILURE';
 }
 
-async function consultarEstadoSeguridad(pool) {
+async function consultarEstadoSeguridad(pool, opciones) {
   const result = await pool.query(SECURITY_QUERY);
-  return evaluarEstadoSeguridad(result.rows);
+  return evaluarEstadoSeguridad(result.rows, opciones);
 }
 
 async function main() {
@@ -357,7 +356,9 @@ async function main() {
   let queryFailure;
   let poolCloseFailure;
   try {
-    report = await consultarEstadoSeguridad(pool);
+    report = await consultarEstadoSeguridad(pool, {
+      tlsRequerido: process.env.DATABASE_SSL !== 'false',
+    });
   } catch (error) {
     queryFailure = categorizarError(error);
   } finally {

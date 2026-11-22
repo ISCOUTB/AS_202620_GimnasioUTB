@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
   title: API Backend - Gimnasio UTB
-  version: 3.1.0
+  version: 3.1.1
   description: |
     Contrato HTTP del backend actual. El deployment actual utiliza Docker
-    Compose en Dokploy, con la base PostgreSQL de Supabase (ADR-0010). El cliente Flutter (`docs/Flutter/lib/core/api/aforo_api.dart`)
+    Compose en Dokploy, con PostgreSQL dentro del mismo Compose (ADR-0011). El cliente Flutter (`docs/Flutter/lib/core/api/aforo_api.dart`)
     consume estas rutas.
 
     **2.0.0 (S13, ADR-0007):** `POST /api/v1/aforo/acceso` exige
@@ -20,8 +20,7 @@ info:
     comprobar la disponibilidad de PostgreSQL en el servidor real.
 
     **3.0.0 (estabilización académica):** el inicio de sesión estudiantil
-    cambió de `codigoEstudiante` a `correo`, que se valida mediante Supabase
-    Auth. El cambio es incompatible: las solicitudes antiguas que solo envían
+    cambió de `codigoEstudiante` a `correo` y contraseña. El cambio es incompatible: las solicitudes antiguas que solo envían
     `codigoEstudiante` reciben `400`; no existe compatibilidad retroactiva.
     Se conserva temporalmente `/api/v1` porque este contrato académico no tiene
     una versión publicada con consumidores externos que requieran coexistencia,
@@ -31,8 +30,12 @@ info:
     **3.1.0 (entrega final):** se agrega `GET /` como raíz informativa
     (cambio compatible, MINOR) para que la URL del deployment no responda 404.
 
-    El QR temporal sigue siendo independiente de Supabase Auth. No hay SSO ni
-    identidad institucional.
+    **3.1.1 (ADR-0011):** solo documentación. La autenticación de estudiantes
+    deja de depender de Supabase Auth: la API verifica la contraseña (scrypt)
+    y emite su propio token de sesión opaco de 8 horas. Rutas, cuerpos y
+    códigos de estado no cambian, por eso la app Flutter no se modifica.
+
+    No hay SSO ni identidad institucional.
 
     Versionado (semver sobre este archivo):
     - MAJOR: cambio incompatible. En un servicio publicado requiere un nuevo
@@ -169,7 +172,7 @@ paths:
   /api/v1/estudiantes/sesion:
     post:
       operationId: iniciarSesionEstudiante
-      summary: Inicia sesión mediante Supabase Auth con una cuenta sintética vinculada a un estudiante
+      summary: Inicia sesión con el correo y la contraseña de una cuenta sintética de estudiante
       requestBody:
         required: true
         content:
@@ -178,7 +181,7 @@ paths:
               $ref: '#/components/schemas/SolicitudSesionEstudiante'
       responses:
         '200':
-          description: Supabase Auth validó las credenciales y la cuenta está vinculada
+          description: Credenciales válidas; devuelve un token de sesión de 8 horas
           content:
             application/json:
               schema:
@@ -196,7 +199,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RespuestaError'
         '403':
-          description: La identidad de Supabase Auth no está vinculada a un estudiante
+          description: La sesión no corresponde a un estudiante registrado
           content:
             application/json:
               schema:
@@ -307,7 +310,7 @@ components:
     sesionEstudiante:
       type: http
       scheme: bearer
-      description: Access token emitido y validado por Supabase Auth para una cuenta sintética vinculada a un estudiante.
+      description: Token de sesión opaco emitido por `POST /api/v1/estudiantes/sesion`. Dura 8 horas y la base solo guarda su hash SHA-256.
   schemas:
     SolicitudAcceso:
       type: object
