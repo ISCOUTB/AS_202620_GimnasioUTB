@@ -113,22 +113,61 @@ test('db:init y db:migrate construyen sus pools con DB_MIGRATIONS_URL', () => {
   assert.notEqual(migrationPool.connectionString, RUNTIME_URL);
 });
 
-test('Compose inyecta cada URL solo en el servicio que la necesita', () => {
+test('Compose separa API y migraciones y no define PostgreSQL local', () => {
   const compose = yaml.load(fs.readFileSync(
     path.join(__dirname, '..', 'deploy', 'compose.lab.yaml'),
     'utf8'
   ));
-  const initializer = compose.services['db-init'].environment;
-  const api = compose.services.api.environment;
+  const migration = compose.services['db-migrate'];
+  const migrationEnvironment = migration.environment;
+  const apiService = compose.services.api;
+  const api = apiService.environment;
 
-  assert.match(initializer.DB_MIGRATIONS_URL, /\$\{DB_MIGRATIONS_URL/);
-  assert.match(initializer.DATABASE_URL, /\$\{DATABASE_URL/);
+  assert.deepEqual(Object.keys(compose.services).sort(), ['api', 'db-migrate']);
+  assert.equal(migration.command.join(' '), 'npm run db:migrate');
+  assert.deepEqual(migration.profiles, ['maintenance']);
+  assert.equal(migrationEnvironment.DB_MIGRATIONS_ENABLED, 'true');
+  assert.match(migrationEnvironment.DB_MIGRATIONS_URL, /\$\{DB_MIGRATIONS_URL/);
+  assert.match(migrationEnvironment.DB_MIGRATIONS_HOST, /\$\{DB_MIGRATIONS_HOST/);
+  assert.match(migrationEnvironment.DB_MIGRATIONS_TARGET, /\$\{DB_MIGRATIONS_TARGET/);
+  assert.match(migrationEnvironment.DB_MIGRATIONS_PROJECT_REF, /\$\{DB_MIGRATIONS_PROJECT_REF/);
+  assert.equal('depends_on' in migration, false);
+  assert.equal('volumes' in migration, false);
+  assert.equal('SUPABASE_SERVICE_ROLE_KEY' in migrationEnvironment, false);
+  assert.equal(migrationEnvironment.DATABASE_SSL, 'true');
+  assert.equal('DATABASE_SSL_CA_CERT_PATH' in migrationEnvironment, false);
+
   assert.match(api.DATABASE_URL, /\$\{DATABASE_URL/);
+  assert.equal(api.DATABASE_SSL, 'true');
+  assert.equal('volumes' in apiService, false);
+  assert.equal('DATABASE_SSL_CA_CERT_PATH' in api, false);
   assert.equal('DB_MIGRATIONS_URL' in api, false);
   assert.equal('DB_PROVISIONING_URL' in api, false);
   assert.equal('DB_RECONCILIATION_URL' in api, false);
   assert.equal('SUPABASE_SERVICE_ROLE_KEY' in api, false);
   assert.equal('POSTGRES_PASSWORD' in api, false);
+  assert.equal('depends_on' in apiService, false);
+
+  for (const name of [
+    'NODE_ENV',
+    'PORT',
+    'OPERADOR_TOKEN',
+    'CORS_ORIGINS',
+    'SUPABASE_URL',
+    'SUPABASE_PUBLISHABLE_KEY',
+    'SUPABASE_ANON_KEY',
+    'DATABASE_URL',
+    'DATABASE_SSL',
+  ]) {
+    assert.equal(name in api, true, `API debe recibir ${name}`);
+  }
+
+  const envExample = fs.readFileSync(
+    path.join(__dirname, '..', 'deploy', '.env.example'),
+    'utf8'
+  );
+  assert.match(envExample, /^SUPABASE_SERVICE_ROLE_KEY=$/m);
+  assert.doesNotMatch(envExample, /DATABASE_SSL_CA_CERT_FILE/);
 });
 
 test('el seed usa DB_PROVISIONING_URL y jamás conecta con DATABASE_URL', async () => {

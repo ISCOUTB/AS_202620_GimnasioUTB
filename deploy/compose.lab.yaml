@@ -1,41 +1,4 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:?Define POSTGRES_DB en deploy/.env}
-      POSTGRES_USER: ${POSTGRES_USER:?Define POSTGRES_USER en deploy/.env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en deploy/.env}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""
-        ]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 5s
-
-  db-init:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-    restart: "no"
-    command: ["npm", "run", "db:init"]
-    environment:
-      DB_MIGRATIONS_URL: "${DB_MIGRATIONS_URL:?Define el rol de migraciones en deploy/.env}"
-      DATABASE_URL: "${DATABASE_URL:?Define el rol runtime en deploy/.env}"
-      DATABASE_SSL: "false"
-      DB_INIT_ENABLED: "true"
-      DB_MIGRATIONS_HOST: postgres
-      DB_MIGRATIONS_TARGET: ${POSTGRES_DB:?Define POSTGRES_DB en deploy/.env}
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   api:
     build:
       context: ..
@@ -44,19 +7,15 @@ services:
     environment:
       NODE_ENV: production
       PORT: ${PORT:-3000}
-      # Sin OPERADOR_TOKEN la API arranca, pero POST /acceso responde 503 (falla cerrado, ADR-0007).
-      OPERADOR_TOKEN: ${OPERADOR_TOKEN:-}
+      OPERADOR_TOKEN: "${OPERADOR_TOKEN:?Define OPERADOR_TOKEN en Dokploy}"
       CORS_ORIGINS: ${CORS_ORIGINS:-}
-      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_URL: "${SUPABASE_URL:?Define SUPABASE_URL en Dokploy}"
       SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:-}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
-      DATABASE_URL: "${DATABASE_URL:?Define el rol runtime de PostgreSQL en deploy/.env}"
-      DATABASE_SSL: "false"
+      DATABASE_URL: "${DATABASE_URL:?Define DATABASE_URL con el rol gimnasio_runtime}"
+      DATABASE_SSL: "true"
     expose:
       - "${PORT:-3000}"
-    depends_on:
-      db-init:
-        condition: service_completed_successfully
     healthcheck:
       test:
         [
@@ -70,6 +29,21 @@ services:
       retries: 3
       start_period: 10s
 
-volumes:
-  postgres_data:
-# Dokploy redeploy trigger
+  db-migrate:
+    profiles:
+      - maintenance
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: "no"
+    command: ["npm", "run", "db:migrate"]
+    environment:
+      NODE_ENV: production
+      DB_MIGRATIONS_ENABLED: "true"
+      DB_MIGRATIONS_URL: "${DB_MIGRATIONS_URL:?Define DB_MIGRATIONS_URL con el rol gimnasio_migrator}"
+      DATABASE_URL: "${DATABASE_URL:?Define DATABASE_URL con el rol gimnasio_runtime}"
+      DATABASE_SSL: "true"
+      DB_MIGRATIONS_HOST: ${DB_MIGRATIONS_HOST:-}
+      DB_MIGRATIONS_TARGET: ${DB_MIGRATIONS_TARGET:-}
+      DB_MIGRATIONS_PROJECT_REF: ${DB_MIGRATIONS_PROJECT_REF:-}
+      SUPABASE_URL: "${SUPABASE_URL:?Define SUPABASE_URL en Dokploy}"
