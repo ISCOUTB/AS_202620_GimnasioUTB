@@ -13,7 +13,7 @@ El backend mantiene el contador y, para accesos por QR, un estado individual aso
 ### Decisión arquitectónica inicial
 
 - El estado actual de ocupación se mantiene en la fila `aforo_estado`.
-- El puerto `AforoRepositoryPort` expone `obtenerAforoActual()` y `actualizarAforo(transicionar)`.
+- El puerto `AforoRepositoryPort` expone `obtenerAforoActual()`, `obtenerEstado()`, `actualizarAforo(transicionar)` y `modificarEstado(transformar)`. La capacidad máxima y la apertura viven en la misma fila, así que cada registro las evalúa con la fila bloqueada (ADR-0012).
 - `AforoPostgresAdapter` aplica la transición bajo `BEGIN`, `SELECT ... FOR UPDATE`, `UPDATE` y `COMMIT`; ante errores intenta `ROLLBACK`.
 - `createApp()` puede usar el adapter en memoria por defecto; el servidor real compone PostgreSQL y requiere `DATABASE_URL`.
 - La identidad de demostración y el QR están implementados; no hay SSO, roles individuales de operador, deduplicación manual ni historial completo.

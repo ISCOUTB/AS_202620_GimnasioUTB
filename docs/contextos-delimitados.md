@@ -59,7 +59,7 @@ flowchart TD
 |---|---|---|---|
 | **Aforo** | Contador de ocupación actual; historial de eventos de entrada/salida | Notificaciones (para decidir si envía push), Gestión Operativa (para mostrar en panel del encargado) | Implementado (contador; historial completo no persistido) |
 | **Identidad / Estudiante** | Cuentas sintéticas, sesiones, QR temporales y estado individual dentro/fuera | Aforo (valida y consume el QR dentro de la transacción) | Implementado para demostración; sin SSO ni identidad UTB |
-| **Gestión Operativa (Encargado)** | Estado de apertura/cierre del gimnasio; marca de "corrección manual" sobre un evento de acceso | Aforo (para bloquear registros si está cerrado), app del estudiante (solo lectura del estado) | No implementado |
+| **Gestión Operativa (Encargado)** | Estado de apertura/cierre del gimnasio y capacidad máxima; marca de "corrección manual" sobre un evento de acceso | Aforo (para bloquear registros si está cerrado), app del estudiante (solo lectura del estado) | Apertura/cierre y capacidad implementadas **dentro del módulo Aforo** (ADR-0012): viven en la misma fila que el contador porque cada registro debe leerlas con la fila bloqueada. La corrección manual no está implementada |
 | **Notificaciones** | Log de notificaciones enviadas; estado de suscripción push del dispositivo | — (nodo terminal, nadie más necesita leer esto) | No implementado |
 
 **Regla que se debe respetar al crecer:** Aforo nunca escribe preferencias del estudiante, y Notificaciones nunca escribe el contador de aforo — solo lo lee. Esa separación es la que permitiría, si se quisiera, extraer Notificaciones como servicio aparte sin tocar Aforo.

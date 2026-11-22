@@ -69,7 +69,7 @@ Mantiene la regla de negocio aislada y permite conectar adapters mediante puerto
 
 ## Evolución futura
 
-**IMPLEMENTADO:** el cliente Flutter consulta el backend, estudiantes de demostración pueden iniciar sesión y mostrar un QR temporal, y el operador puede escanearlo. La identidad usa cuentas sintéticas restringidas a bases de prueba; no hay SSO institucional. **FUTURO / OBJETIVO:** roles individuales de operadores, historial completo de eventos, deduplicación de operaciones manuales, apertura/cierre, WebSocket y FCM. El deployment operativo actual usa Dokploy y Docker Compose; Render no es la plataforma actual, PostgreSQL gestionado no está desplegado y el Compose versionado no constituye IaC completa. Ver [ADR-0008](0008-identidad-de-prueba-y-qr-de-acceso.md).
+**IMPLEMENTADO:** el cliente Flutter consulta el backend, estudiantes de demostración pueden iniciar sesión y mostrar un QR temporal, y el operador puede escanearlo. La identidad usa cuentas sintéticas restringidas a bases de prueba; no hay SSO institucional. **FUTURO / OBJETIVO:** roles individuales de operadores, historial completo de eventos, deduplicación de operaciones manuales, WebSocket y FCM. *(Actualización: la apertura/cierre y la capacidad máxima se implementaron con [ADR-0012](0012-estado-capacidad-y-registro-por-cedula.md); el login propio y el deployment con PostgreSQL en el Compose se describen en [ADR-0011](0011-volver-a-postgresql-propio-y-login-local.md).)* El deployment operativo actual usa Dokploy y Docker Compose; Render no es la plataforma actual, PostgreSQL gestionado no está desplegado y el Compose versionado no constituye IaC completa. Ver [ADR-0008](0008-identidad-de-prueba-y-qr-de-acceso.md).
 
 ## Referencias
 
