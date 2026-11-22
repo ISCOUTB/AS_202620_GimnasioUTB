@@ -26,6 +26,104 @@ function crearPoolMigraciones(env = process.env, PoolImpl = Pool) {
   return new PoolImpl(crearOpcionesPoolPostgres(env.DB_MIGRATIONS_URL));
 }
 
+const SQL_CREAR_TABLA_MIGRACIONES = `
+  CREATE TABLE IF NOT EXISTS public.schema_migrations (
+    version TEXT PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )
+`;
+
+const SQL_REVOCAR_ROLES_SUPABASE = `
+  DO $$
+  DECLARE
+    role_name TEXT;
+  BEGIN
+    FOREACH role_name IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
+        EXECUTE format(
+          'REVOKE ALL PRIVILEGES ON TABLE public.schema_migrations FROM %I',
+          role_name
+        );
+      END IF;
+    END LOOP;
+  END;
+  $$;
+`;
+
+// Orden por código de carácter (igual que el sort() por defecto) para que la
+// fecha AAAAMMDD_NNN del nombre defina el orden de aplicación.
+function compararPorCodigo(a, b) {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
+async function prepararTablaMigraciones(client) {
+  await client.query(SQL_CREAR_TABLA_MIGRACIONES);
+  await client.query('REVOKE ALL PRIVILEGES ON TABLE public.schema_migrations FROM PUBLIC');
+  await client.query(SQL_REVOCAR_ROLES_SUPABASE);
+}
+
+async function revertir(client, error) {
+  try {
+    await client.query('ROLLBACK');
+  } catch (rollbackError) {
+    if (error instanceof Error) error.rollbackError = rollbackError;
+  }
+}
+
+/**
+ * Aplica un archivo de migración en su propia transacción. Si la versión ya
+ * está registrada en schema_migrations solo confirma la transacción vacía.
+ */
+async function aplicarMigracion(client, migrationsDir, archivo) {
+  const version = archivo.slice(0, -4);
+  const sql = await fs.readFile(path.join(migrationsDir, archivo), 'utf8');
+  await client.query('BEGIN');
+  try {
+    await prepararTablaMigraciones(client);
+    const yaAplicada = await client.query(
+      'SELECT 1 FROM public.schema_migrations WHERE version = $1',
+      [version]
+    );
+    if (yaAplicada.rowCount === 0) {
+      await client.query(sql);
+      await client.query(
+        'INSERT INTO public.schema_migrations (version) VALUES ($1)',
+        [version]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await revertir(client, error);
+    throw error;
+  }
+}
+
+/**
+ * Las migraciones deben ejecutarse en orden y de una en una: cada una puede
+ * depender de la anterior y todas comparten la misma conexión con el
+ * advisory lock. Por eso se encadenan de forma recursiva en vez de lanzarse
+ * en paralelo con Promise.all.
+ */
+async function aplicarEnOrden(client, migrationsDir, archivos, indice = 0) {
+  if (indice >= archivos.length) return;
+  await aplicarMigracion(client, migrationsDir, archivos[indice]);
+  await aplicarEnOrden(client, migrationsDir, archivos, indice + 1);
+}
+
+async function liberarBloqueo(client, lockAcquired) {
+  try {
+    if (lockAcquired) {
+      await client.query(
+        'SELECT pg_advisory_unlock($1, $2)',
+        [ADVISORY_LOCK_NAMESPACE, ADVISORY_LOCK_ID]
+      );
+    }
+  } finally {
+    client.release();
+  }
+}
+
 async function aplicarMigraciones(pool, migrationsDir = MIGRATIONS_DIR) {
   await validarRolEsquema(pool);
   const client = await pool.connect();
@@ -39,74 +137,12 @@ async function aplicarMigraciones(pool, migrationsDir = MIGRATIONS_DIR) {
 
     const archivos = (await fs.readdir(migrationsDir))
       .filter((archivo) => MIGRATION_FILE_RE.test(archivo))
-      .sort();
+      .sort(compararPorCodigo);
 
-    for (const archivo of archivos) {
-      const version = archivo.slice(0, -4);
-      const sql = await fs.readFile(path.join(migrationsDir, archivo), 'utf8');
-      await client.query('BEGIN');
-      try {
-        await client.query(`
-          CREATE TABLE IF NOT EXISTS public.schema_migrations (
-            version TEXT PRIMARY KEY,
-            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-          )
-        `);
-        await client.query('REVOKE ALL PRIVILEGES ON TABLE public.schema_migrations FROM PUBLIC');
-        await client.query(`
-          DO $$
-          DECLARE
-            role_name TEXT;
-          BEGIN
-            FOREACH role_name IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
-              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
-                EXECUTE format(
-                  'REVOKE ALL PRIVILEGES ON TABLE public.schema_migrations FROM %I',
-                  role_name
-                );
-              END IF;
-            END LOOP;
-          END;
-          $$;
-        `);
-
-        const yaAplicada = await client.query(
-          'SELECT 1 FROM public.schema_migrations WHERE version = $1',
-          [version]
-        );
-        if (yaAplicada.rowCount > 0) {
-          await client.query('COMMIT');
-          continue;
-        }
-
-        await client.query(sql);
-        await client.query(
-          'INSERT INTO public.schema_migrations (version) VALUES ($1)',
-          [version]
-        );
-        await client.query('COMMIT');
-      } catch (error) {
-        try {
-          await client.query('ROLLBACK');
-        } catch (rollbackError) {
-          if (error instanceof Error) error.rollbackError = rollbackError;
-        }
-        throw error;
-      }
-    }
-
+    await aplicarEnOrden(client, migrationsDir, archivos);
     return archivos.length;
   } finally {
-    try {
-      if (lockAcquired) {
-        await client.query(
-          'SELECT pg_advisory_unlock($1, $2)',
-          [ADVISORY_LOCK_NAMESPACE, ADVISORY_LOCK_ID]
-        );
-      }
-    } finally {
-      client.release();
-    }
+    await liberarBloqueo(client, lockAcquired);
   }
 }
 

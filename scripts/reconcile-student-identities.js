@@ -7,15 +7,50 @@ const {
   sanitizarMensajeAdministrativo,
 } = require('./demo-environment');
 
-function crearInformeReconciliacion(perfiles, usuariosAuth) {
+function mismoCorreo(a, b) {
+  return a.toLowerCase() === b.toLowerCase();
+}
+
+function agruparPerfilesPorAuthId(perfiles) {
   const perfilesPorAuthId = new Map();
-  for (const perfil of perfiles) {
-    if (!perfil.auth_user_id) continue;
+  for (const perfil of perfiles.filter((p) => p.auth_user_id)) {
     const vinculados = perfilesPorAuthId.get(perfil.auth_user_id) || [];
     vinculados.push(perfil);
     perfilesPorAuthId.set(perfil.auth_user_id, vinculados);
   }
+  return perfilesPorAuthId;
+}
 
+/** Usuario Auth sin perfil: ¿hay perfiles sin vincular con su mismo correo? */
+function clasificarUsuarioSinPerfil(usuario, perfilesSinAuth, authConCandidato, authSinPerfil) {
+  const candidatos = perfilesSinAuth.filter(
+    (perfil) => perfil.correo && mismoCorreo(perfil.correo, usuario.email)
+  );
+  if (candidatos.length > 0) {
+    authConCandidato.push({
+      authUserId: usuario.id,
+      correo: usuario.email,
+      codigosEstudiante: candidatos.map((perfil) => perfil.codigo_estudiante),
+    });
+  } else {
+    authSinPerfil.push({ authUserId: usuario.id, correo: usuario.email });
+  }
+}
+
+/** Perfiles vinculados cuyo correo no coincide con el de su cuenta Auth. */
+function buscarCorreosDesalineados(usuario, vinculados) {
+  return vinculados
+    .filter((perfil) => perfil.correo && !mismoCorreo(perfil.correo, usuario.email))
+    .map((perfil) => ({
+      authUserId: usuario.id,
+      codigoEstudiante: perfil.codigo_estudiante,
+      correoPerfil: perfil.correo,
+      correoAuth: usuario.email,
+    }));
+}
+
+function crearInformeReconciliacion(perfiles, usuariosAuth) {
+  const perfilesPorAuthId = agruparPerfilesPorAuthId(perfiles);
   const perfilesSinAuth = perfiles.filter((perfil) => !perfil.auth_user_id);
   const authSinPerfil = [];
   const authConCandidato = [];
@@ -31,30 +66,9 @@ function crearInformeReconciliacion(perfiles, usuariosAuth) {
   for (const usuario of usuariosAuth) {
     const vinculados = perfilesPorAuthId.get(usuario.id) || [];
     if (vinculados.length === 0) {
-      const candidatos = perfilesSinAuth.filter(
-        (perfil) => perfil.correo?.toLowerCase() === usuario.email.toLowerCase()
-      );
-      if (candidatos.length > 0) {
-        authConCandidato.push({
-          authUserId: usuario.id,
-          correo: usuario.email,
-          codigosEstudiante: candidatos.map((perfil) => perfil.codigo_estudiante),
-        });
-      } else {
-        authSinPerfil.push({ authUserId: usuario.id, correo: usuario.email });
-      }
-      continue;
-    }
-
-    for (const perfil of vinculados) {
-      if (perfil.correo && perfil.correo.toLowerCase() !== usuario.email.toLowerCase()) {
-        correosDesalineados.push({
-          authUserId: usuario.id,
-          codigoEstudiante: perfil.codigo_estudiante,
-          correoPerfil: perfil.correo,
-          correoAuth: usuario.email,
-        });
-      }
+      clasificarUsuarioSinPerfil(usuario, perfilesSinAuth, authConCandidato, authSinPerfil);
+    } else {
+      correosDesalineados.push(...buscarCorreosDesalineados(usuario, vinculados));
     }
   }
 

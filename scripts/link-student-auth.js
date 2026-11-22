@@ -28,83 +28,95 @@ function validarArgumentos(args) {
   return { codigo, correo };
 }
 
-async function vincularPerfilExistente({ pool, authAdmin, codigo, correo }) {
+/** Exige exactamente una cuenta Supabase Auth con ese correo. */
+async function buscarUsuarioAuthUnico(authAdmin, correo) {
   const usuarios = await authAdmin.listarUsuarios();
-  const coincidenciasAuth = usuarios.filter(
+  const coincidencias = usuarios.filter(
     (usuario) => usuario.email.toLowerCase() === correo
   );
-  if (coincidenciasAuth.length !== 1) {
+  if (coincidencias.length === 0) {
+    throw new Error(`No existe una cuenta Supabase Auth con ${correo}; no se modificó PostgreSQL`);
+  }
+  if (coincidencias.length > 1) {
+    throw new Error(`Hay identidades Auth duplicadas para ${correo}; requiere revisión manual`);
+  }
+  return coincidencias[0];
+}
+
+/** Bloquea el perfil (FOR UPDATE) y comprueba que se puede vincular a esa identidad. */
+async function obtenerPerfilVinculable(client, codigo, correo, usuarioAuth) {
+  const perfilResult = await client.query(
+    `SELECT auth_user_id, codigo_estudiante, correo, nombre, cedula_sintetica, activa
+     FROM estudiantes
+     WHERE codigo_estudiante = $1
+     FOR UPDATE`,
+    [codigo]
+  );
+  if (perfilResult.rows.length !== 1) {
+    throw new Error(`No existe exactamente un perfil con código ${codigo}`);
+  }
+  const perfil = perfilResult.rows[0];
+  if (perfil.correo && perfil.correo.toLowerCase() !== correo) {
+    throw new Error(`El perfil ${codigo} ya tiene otro correo; no se modificó`);
+  }
+
+  const otroPerfil = await client.query(
+    `SELECT codigo_estudiante
+     FROM estudiantes
+     WHERE auth_user_id = $1 AND codigo_estudiante <> $2`,
+    [usuarioAuth.id, codigo]
+  );
+  if (otroPerfil.rows.length > 0) {
     throw new Error(
-      coincidenciasAuth.length === 0
-        ? `No existe una cuenta Supabase Auth con ${correo}; no se modificó PostgreSQL`
-        : `Hay identidades Auth duplicadas para ${correo}; requiere revisión manual`
+      `La identidad Auth ya está vinculada al código ${otroPerfil.rows[0].codigo_estudiante}; no se modificó`
     );
   }
-  const usuarioAuth = coincidenciasAuth[0];
+  return perfil;
+}
+
+/** Perfil ya vinculado: solo completa el correo si estaba vacío. */
+async function confirmarVinculoExistente(client, perfil, codigo, correo, usuarioAuth) {
+  if (perfil.auth_user_id !== usuarioAuth.id) {
+    throw new Error(`El perfil ${codigo} ya tiene otra identidad vinculada; no se sobrescribió`);
+  }
+  if (!perfil.correo) {
+    await client.query(
+      `UPDATE estudiantes
+       SET correo = $2
+       WHERE codigo_estudiante = $1 AND auth_user_id = $3 AND correo IS NULL`,
+      [codigo, correo, usuarioAuth.id]
+    );
+  }
+  return { status: 'already-linked', codigo, authUserId: usuarioAuth.id };
+}
+
+async function vincularPerfilNuevo(client, codigo, correo, usuarioAuth) {
+  const actualizado = await client.query(
+    `UPDATE estudiantes
+     SET auth_user_id = $2, correo = COALESCE(correo, $3)
+     WHERE codigo_estudiante = $1
+       AND auth_user_id IS NULL
+       AND (correo IS NULL OR LOWER(correo) = LOWER($3))
+     RETURNING codigo_estudiante`,
+    [codigo, usuarioAuth.id, correo]
+  );
+  if (actualizado.rowCount !== 1) {
+    throw new Error(`No se pudo vincular el perfil ${codigo}; no se sobrescribieron sus datos`);
+  }
+  return { status: 'linked-existing-profile', codigo, authUserId: usuarioAuth.id };
+}
+
+/** Ejecuta trabajo(client) en una transacción; si falla, intenta ROLLBACK. */
+async function enTransaccion(pool, trabajo) {
   const client = await pool.connect();
   let transaccionIniciada = false;
   try {
     await client.query('BEGIN');
     transaccionIniciada = true;
-    const perfilResult = await client.query(
-      `SELECT auth_user_id, codigo_estudiante, correo, nombre, cedula_sintetica, activa
-       FROM estudiantes
-       WHERE codigo_estudiante = $1
-       FOR UPDATE`,
-      [codigo]
-    );
-    if (perfilResult.rows.length !== 1) {
-      throw new Error(`No existe exactamente un perfil con código ${codigo}`);
-    }
-    const perfil = perfilResult.rows[0];
-    if (perfil.correo && perfil.correo.toLowerCase() !== correo) {
-      throw new Error(`El perfil ${codigo} ya tiene otro correo; no se modificó`);
-    }
-
-    const otroPerfil = await client.query(
-      `SELECT codigo_estudiante
-       FROM estudiantes
-       WHERE auth_user_id = $1 AND codigo_estudiante <> $2`,
-      [usuarioAuth.id, codigo]
-    );
-    if (otroPerfil.rows.length > 0) {
-      throw new Error(
-        `La identidad Auth ya está vinculada al código ${otroPerfil.rows[0].codigo_estudiante}; no se modificó`
-      );
-    }
-
-    if (perfil.auth_user_id) {
-      if (perfil.auth_user_id !== usuarioAuth.id) {
-        throw new Error(`El perfil ${codigo} ya tiene otra identidad vinculada; no se sobrescribió`);
-      }
-      if (!perfil.correo) {
-        await client.query(
-          `UPDATE estudiantes
-           SET correo = $2
-           WHERE codigo_estudiante = $1 AND auth_user_id = $3 AND correo IS NULL`,
-          [codigo, correo, usuarioAuth.id]
-        );
-      }
-      await client.query('COMMIT');
-      transaccionIniciada = false;
-      return { status: 'already-linked', codigo, authUserId: usuarioAuth.id };
-    }
-
-    const actualizado = await client.query(
-      `UPDATE estudiantes
-       SET auth_user_id = $2, correo = COALESCE(correo, $3)
-       WHERE codigo_estudiante = $1
-         AND auth_user_id IS NULL
-         AND (correo IS NULL OR LOWER(correo) = LOWER($3))
-       RETURNING codigo_estudiante`,
-      [codigo, usuarioAuth.id, correo]
-    );
-    if (actualizado.rowCount !== 1) {
-      throw new Error(`No se pudo vincular el perfil ${codigo}; no se sobrescribieron sus datos`);
-    }
+    const resultado = await trabajo(client);
     await client.query('COMMIT');
     transaccionIniciada = false;
-    return { status: 'linked-existing-profile', codigo, authUserId: usuarioAuth.id };
+    return resultado;
   } catch (error) {
     if (transaccionIniciada) {
       try {
@@ -117,6 +129,17 @@ async function vincularPerfilExistente({ pool, authAdmin, codigo, correo }) {
   } finally {
     client.release();
   }
+}
+
+async function vincularPerfilExistente({ pool, authAdmin, codigo, correo }) {
+  const usuarioAuth = await buscarUsuarioAuthUnico(authAdmin, correo);
+  return enTransaccion(pool, async (client) => {
+    const perfil = await obtenerPerfilVinculable(client, codigo, correo, usuarioAuth);
+    if (perfil.auth_user_id) {
+      return confirmarVinculoExistente(client, perfil, codigo, correo, usuarioAuth);
+    }
+    return vincularPerfilNuevo(client, codigo, correo, usuarioAuth);
+  });
 }
 
 async function linkStudentAuth({

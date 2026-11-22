@@ -42,26 +42,31 @@ class SupabaseAuthAdminAdapter {
   }
 
   async listarUsuarios() {
-    const usuarios = [];
+    return this.listarDesdePagina(1, []);
+  }
+
+  // La API de administración pagina de 100 en 100 y no informa el total, así
+  // que cada página se pide después de recibir la anterior (recursión en vez
+  // de un ciclo con await).
+  async listarDesdePagina(pagina, acumulados) {
     const porPagina = 100;
-    for (let pagina = 1; ; pagina += 1) {
-      const response = await this.request(
-        `/auth/v1/admin/users?page=${pagina}&per_page=${porPagina}`,
-        { method: 'GET' }
-      );
-      if (!response.ok || !Array.isArray(response.body?.users)) {
-        throw new IdentidadProveedorError('Supabase Auth no pudo listar las cuentas para reconciliación.');
-      }
-
-      for (const usuario of response.body.users) {
-        if (typeof usuario.id !== 'string' || typeof usuario.email !== 'string') {
-          throw new IdentidadProveedorError('Supabase Auth devolvió una cuenta incompleta al listar usuarios.');
-        }
-        usuarios.push({ id: usuario.id, email: usuario.email });
-      }
-
-      if (response.body.users.length < porPagina) return usuarios;
+    const response = await this.request(
+      `/auth/v1/admin/users?page=${pagina}&per_page=${porPagina}`,
+      { method: 'GET' }
+    );
+    if (!response.ok || !Array.isArray(response.body?.users)) {
+      throw new IdentidadProveedorError('Supabase Auth no pudo listar las cuentas para reconciliación.');
     }
+
+    for (const usuario of response.body.users) {
+      if (typeof usuario.id !== 'string' || typeof usuario.email !== 'string') {
+        throw new IdentidadProveedorError('Supabase Auth devolvió una cuenta incompleta al listar usuarios.');
+      }
+      acumulados.push({ id: usuario.id, email: usuario.email });
+    }
+
+    if (response.body.users.length < porPagina) return acumulados;
+    return this.listarDesdePagina(pagina + 1, acumulados);
   }
 
   async request(path, { method, body } = {}) {

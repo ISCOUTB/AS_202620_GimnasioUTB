@@ -183,4 +183,18 @@ Este documento registra, de forma trazable, el uso de IA generativa durante el d
 | **Rechazado** | Marcar los hallazgos como "Safe" o "Won't fix" en SonarCloud sin cambiar el código. |
 | **Motivo** | Corregir la causa en el código en lugar de ocultar los hallazgos. |
 
+## Entrega final — Deuda técnica señalada por SonarCloud
+
+| Campo | Detalle |
+|---|---|
+| **Fecha** | 22 de noviembre de 2026 |
+| **Herramienta** | Claude (claude.ai), con acceso de lectura al repositorio clonado |
+| **Prompt utilizado (resumido)** | Se compartieron capturas de los 26 hallazgos abiertos en `main`: complejidad cognitiva mayor a 15 en cinco scripts, `await` dentro de ciclos, ternarios anidados, una excepción capturada sin usar, un `AggregateError` sin mensaje y hallazgos de configuración Android (tráfico en texto plano, código comentado, tarea Gradle sin grupo y `rootProject.name`). |
+| **Salida generada** | (1) División en funciones de `validarDestinoPostgres`, `provisionarEstudiante`, `vincularPerfilExistente`, `crearInformeReconciliacion` y `sanitizarMensajeAdministrativo`, conservando el orden de validación y los mensajes de error; (2) migraciones y paginación de Supabase Auth encadenadas por recursión (deben ser secuenciales) y cierre de pools en paralelo con `Promise.all`; (3) ternarios reemplazados por funciones (`obtenerCodigoError`, `calcularVencimientoMs`); (4) tipo de error registrado en `identidad.router.js` y mensaje en el `AggregateError`; (5) Android: `usesCleartextTraffic="false"`, permiso `CAMERA`, plantillas sin código comentado, `group`/`description` en la tarea `clean` y `rootProject.name`; (6) esta entrada. |
+| **Verificación** | `npm run test:base` 79/79, `npm run test:contrato` 29/29, `npm run test:mensajeria` 9/9, `npm run arch:check` sin violaciones. ESLint con `sonarjs/cognitive-complexity` (máximo 15), `no-await-in-loop` y `no-nested-ternary` sin errores en `scripts/` y `src/` (antes reportaba, por ejemplo, 35 y 32 en `postgres-destination.js` y `seed-demo-student.js`). `aplicarMigraciones` se ejecutó dos veces contra PostgreSQL 16 local: aplicó la migración y la segunda vez la reconoció como aplicada. `test:postgres` no se ejecutó. La APK debe recompilarse con `flutter build apk --release`. **Revisión por el equipo:** ☐ fecha y responsable. |
+| **Aceptado** | Refactorizaciones sin cambio de comportamiento, recursión para operaciones que deben ser secuenciales y `usesCleartextTraffic="false"` (la app usa HTTPS y el cliente HTTP de Dart no depende de esa política, por lo que el backend local por `http://10.0.2.2` sigue funcionando en desarrollo). |
+| **Corregido** | (a) La primera versión del orden de migraciones usaba `localeCompare`; se cambió a comparación por código de carácter para conservar el orden exacto de `sort()`. (b) Al quitar el código comentado de `launch_background.xml` se escribió un comentario con `<item>`, que Sonar podía volver a marcar; se eliminó. |
+| **Rechazado** | Ejecutar las migraciones con `Promise.all` (rompería el orden y compartiría una conexión transaccional), marcar los hallazgos como "Won't fix" sin cambiar el código y desactivar reglas en SonarCloud. |
+| **Motivo** | Bajar la complejidad para que cada función se pueda explicar y probar por separado, sin debilitar los controles de seguridad de los scripts administrativos. |
+
 *Este registro se actualiza en cada corte con los usos de IA generativa relevantes al entregable correspondiente.*

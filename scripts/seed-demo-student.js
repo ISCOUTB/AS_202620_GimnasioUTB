@@ -72,7 +72,23 @@ async function buscarPerfilPorCodigo(pool, codigo) {
   return rows[0] || null;
 }
 
-async function provisionarEstudiante({ pool, authAdmin, config }) {
+function resultado(status, config, usuarioAuth) {
+  return { status, codigo: config.codigo, authUserId: usuarioAuth.id };
+}
+
+function buscarUsuarioPorCorreo(usuarios, correo) {
+  return buscarUnico(
+    usuarios,
+    (usuario) => usuario.email?.toLowerCase() === correo,
+    `el correo ${correo}`
+  );
+}
+
+/**
+ * Fase 1: busca el perfil local por código y comprueba que el correo y la
+ * cédula no pertenezcan a otro estudiante.
+ */
+async function validarPerfilLocal(pool, config) {
   const coincidenciasLocales = await pool.query(
     `SELECT auth_user_id, codigo_estudiante, correo, cedula_sintetica, nombre, activa
      FROM estudiantes
@@ -99,103 +115,120 @@ async function provisionarEstudiante({ pool, authAdmin, config }) {
       `El perfil ${config.codigo} tiene otro correo; no se sobrescribió su información`
     );
   }
+  return perfil;
+}
 
-  let usuarios = await authAdmin.listarUsuarios();
-  let usuarioAuth = buscarUnico(
+/** Si el perfil ya tiene auth_user_id, ese usuario debe existir y coincidir con el correo. */
+function verificarIdentidadVinculada(usuarios, usuarioPorCorreo, perfil, config) {
+  const usuarioVinculado = buscarUnico(
     usuarios,
-    (usuario) => usuario.email?.toLowerCase() === config.correo,
-    `el correo ${config.correo}`
+    (usuario) => usuario.id === perfil.auth_user_id,
+    `el UUID Auth vinculado al código ${config.codigo}`
   );
-
-  if (perfil?.auth_user_id) {
-    const usuarioVinculado = buscarUnico(
-      usuarios,
-      (usuario) => usuario.id === perfil.auth_user_id,
-      `el UUID Auth vinculado al código ${config.codigo}`
+  if (!usuarioVinculado) {
+    throw new Error(
+      `El perfil ${config.codigo} referencia un usuario Auth inexistente; reconcilie antes de volver a provisionar`
     );
-    if (!usuarioVinculado) {
-      throw new Error(
-        `El perfil ${config.codigo} referencia un usuario Auth inexistente; reconcilie antes de volver a provisionar`
-      );
-    }
-    if (
-      usuarioVinculado.email?.toLowerCase() !== config.correo
-      || (usuarioAuth && usuarioAuth.id !== usuarioVinculado.id)
-    ) {
-      throw new Error(
-        `El perfil ${config.codigo} ya está vinculado a otra identidad o correo; no se modificó`
-      );
-    }
-    usuarioAuth = usuarioVinculado;
   }
+  if (
+    usuarioVinculado.email?.toLowerCase() !== config.correo
+    || (usuarioPorCorreo && usuarioPorCorreo.id !== usuarioVinculado.id)
+  ) {
+    throw new Error(
+      `El perfil ${config.codigo} ya está vinculado a otra identidad o correo; no se modificó`
+    );
+  }
+  return usuarioVinculado;
+}
 
-  if (!usuarioAuth) {
+/**
+ * Crea la cuenta Auth. Si la creación falla, vuelve a listar: la cuenta pudo
+ * crearse aunque la respuesta se perdiera (por ejemplo, por un timeout).
+ */
+async function crearUsuarioConRecuperacion(authAdmin, config) {
+  try {
+    return await authAdmin.crearUsuario({
+      correo: config.correo,
+      contrasena: config.contrasena,
+    });
+  } catch (createError) {
+    let usuarios;
     try {
-      usuarioAuth = await authAdmin.crearUsuario({
-        correo: config.correo,
-        contrasena: config.contrasena,
-      });
-    } catch (createError) {
-      try {
-        usuarios = await authAdmin.listarUsuarios();
-      } catch (recoveryError) {
-        const error = new Error(
-          `No se pudo confirmar el resultado de creación Auth para ${config.correo}; revise Auth antes de reintentar`,
-          { cause: new AggregateError([createError, recoveryError]) }
-        );
-        throw error;
-      }
-      usuarioAuth = buscarUnico(
-        usuarios,
-        (usuario) => usuario.email?.toLowerCase() === config.correo,
-        `el correo ${config.correo}`
+      usuarios = await authAdmin.listarUsuarios();
+    } catch (recoveryError) {
+      throw new Error(
+        `No se pudo confirmar el resultado de creación Auth para ${config.correo}; revise Auth antes de reintentar`,
+        {
+          cause: new AggregateError(
+            [createError, recoveryError],
+            'Fallaron la creación Auth y la consulta de recuperación'
+          ),
+        }
       );
-      if (!usuarioAuth) throw createError;
     }
+    const usuarioAuth = buscarUsuarioPorCorreo(usuarios, config.correo);
+    if (!usuarioAuth) throw createError;
+    return usuarioAuth;
   }
+}
 
+/** Fase 2: obtiene (o crea) la identidad Auth que corresponde al perfil. */
+async function resolverUsuarioAuth(authAdmin, config, perfil) {
+  const usuarios = await authAdmin.listarUsuarios();
+  const usuarioPorCorreo = buscarUsuarioPorCorreo(usuarios, config.correo);
+  if (perfil?.auth_user_id) {
+    return verificarIdentidadVinculada(usuarios, usuarioPorCorreo, perfil, config);
+  }
+  return usuarioPorCorreo || crearUsuarioConRecuperacion(authAdmin, config);
+}
+
+/** Fase 3: la identidad Auth no puede estar vinculada a otro código. */
+async function verificarAuthLibre(pool, usuarioAuth, config) {
   const perfilPorAuth = await pool.query(
     `SELECT codigo_estudiante
      FROM estudiantes
      WHERE auth_user_id = $1`,
     [usuarioAuth.id]
   );
-  if (
-    perfilPorAuth.rows.some((row) => row.codigo_estudiante !== config.codigo)
-  ) {
+  if (perfilPorAuth.rows.some((row) => row.codigo_estudiante !== config.codigo)) {
     throw new Error(
       `La identidad Auth ${usuarioAuth.id} ya está vinculada a otro código; no se modificaron perfiles`
     );
   }
+}
 
-  if (perfil) {
-    if (perfil.auth_user_id === usuarioAuth.id) {
-      return { status: 'already-linked', codigo: config.codigo, authUserId: usuarioAuth.id };
-    }
-    const actualizado = await pool.query(
-      `UPDATE estudiantes
-       SET auth_user_id = $2, correo = COALESCE(correo, $3)
-       WHERE codigo_estudiante = $1
-         AND auth_user_id IS NULL
-         AND (correo IS NULL OR LOWER(correo) = LOWER($3))
-       RETURNING codigo_estudiante`,
-      [config.codigo, usuarioAuth.id, config.correo]
-    );
-    if (actualizado.rowCount !== 1) {
-      const estadoActual = await buscarPerfilPorCodigo(pool, config.codigo);
-      if (
-        estadoActual?.auth_user_id === usuarioAuth.id
-        && estadoActual.correo?.toLowerCase() === config.correo
-      ) {
-        return { status: 'already-linked', codigo: config.codigo, authUserId: usuarioAuth.id };
-      }
-      throw new Error(
-        `La cuenta Auth ${usuarioAuth.id} existe, pero el perfil ${config.codigo} cambió durante la vinculación; reconcilie manualmente`
-      );
-    }
-    return { status: 'linked-existing-profile', codigo: config.codigo, authUserId: usuarioAuth.id };
+/** Relee el perfil: otra ejecución concurrente pudo dejarlo ya vinculado. */
+async function yaQuedoVinculado(pool, config, usuarioAuth) {
+  const estadoActual = await buscarPerfilPorCodigo(pool, config.codigo);
+  return estadoActual?.auth_user_id === usuarioAuth.id
+    && estadoActual.correo?.toLowerCase() === config.correo;
+}
+
+async function vincularPerfil(pool, config, perfil, usuarioAuth) {
+  if (perfil.auth_user_id === usuarioAuth.id) {
+    return resultado('already-linked', config, usuarioAuth);
   }
+  const actualizado = await pool.query(
+    `UPDATE estudiantes
+     SET auth_user_id = $2, correo = COALESCE(correo, $3)
+     WHERE codigo_estudiante = $1
+       AND auth_user_id IS NULL
+       AND (correo IS NULL OR LOWER(correo) = LOWER($3))
+     RETURNING codigo_estudiante`,
+    [config.codigo, usuarioAuth.id, config.correo]
+  );
+  if (actualizado.rowCount === 1) {
+    return resultado('linked-existing-profile', config, usuarioAuth);
+  }
+  if (await yaQuedoVinculado(pool, config, usuarioAuth)) {
+    return resultado('already-linked', config, usuarioAuth);
+  }
+  throw new Error(
+    `La cuenta Auth ${usuarioAuth.id} existe, pero el perfil ${config.codigo} cambió durante la vinculación; reconcilie manualmente`
+  );
+}
 
+async function crearPerfil(pool, config, usuarioAuth) {
   const insertado = await pool.query(
     `INSERT INTO estudiantes (
        auth_user_id, codigo_estudiante, correo, cedula_sintetica, nombre, activa
@@ -206,19 +239,23 @@ async function provisionarEstudiante({ pool, authAdmin, config }) {
     [usuarioAuth.id, config.codigo, config.correo, config.cedula, config.nombre]
   );
   if (insertado.rowCount === 1) {
-    return { status: 'created-profile', codigo: config.codigo, authUserId: usuarioAuth.id };
+    return resultado('created-profile', config, usuarioAuth);
   }
-
-  const estadoActual = await buscarPerfilPorCodigo(pool, config.codigo);
-  if (
-    estadoActual?.auth_user_id === usuarioAuth.id
-    && estadoActual.correo?.toLowerCase() === config.correo
-  ) {
-    return { status: 'already-linked', codigo: config.codigo, authUserId: usuarioAuth.id };
+  if (await yaQuedoVinculado(pool, config, usuarioAuth)) {
+    return resultado('already-linked', config, usuarioAuth);
   }
   throw new Error(
     `La identidad Auth ${usuarioAuth.id} está disponible, pero no se creó/vinculó el perfil ${config.codigo}; ejecute la reconciliación`
   );
+}
+
+async function provisionarEstudiante({ pool, authAdmin, config }) {
+  const perfil = await validarPerfilLocal(pool, config);
+  const usuarioAuth = await resolverUsuarioAuth(authAdmin, config, perfil);
+  await verificarAuthLibre(pool, usuarioAuth, config);
+  return perfil
+    ? vincularPerfil(pool, config, perfil, usuarioAuth)
+    : crearPerfil(pool, config, usuarioAuth);
 }
 
 async function seedDemoStudent({
