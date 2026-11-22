@@ -169,4 +169,18 @@ Este documento registra, de forma trazable, el uso de IA generativa durante el d
 | **Rechazado** | Usuarios y roles con JWT (exige el contexto Identidad; ADR-0007, opción C), restringir por IP (opción D), publicar `/api/v2` y mantener `/api/v1` abierto (dejaría la vulnerabilidad viva; excepción documentada en ADR-0007), agregar `helmet` y `express-rate-limit` como dependencias (más superficie de cadena de suministro para cinco cabeceras; el límite de tasa se pide al proxy) y podar `pubspec.yaml` sin poder ejecutar `flutter pub get`. |
 | **Motivo** | Cerrar primero la amenaza de mayor riesgo (T1) con un cambio pequeño, probado y reversible, y documentar como IMPLEMENTADO solo lo que tiene prueba. |
 
+## Entrega final — Hallazgos de SonarCloud en la app Android
+
+| Campo | Detalle |
+|---|---|
+| **Fecha** | 22 de noviembre de 2026 |
+| **Herramienta** | Claude (claude.ai), con acceso de lectura al repositorio clonado |
+| **Prompt utilizado (resumido)** | Se compartieron las capturas de los dos hallazgos de seguridad que SonarCloud abrió en `main`: ofuscación deshabilitada en el build de release (`build.gradle.kts`, L33) y respaldo de datos de la aplicación habilitado (`AndroidManifest.xml`, L4, regla `xml:S6358`). |
+| **Salida generada** | (1) `isMinifyEnabled = true`, `isShrinkResources = true` y `proguardFiles(...)` en el tipo `release`; (2) `docs/Flutter/android/app/proguard-rules.pro` con reglas para Play Core y ML Kit; (3) `android:allowBackup="false"` en `<application>`; (4) esta entrada. |
+| **Verificación** | SonarCloud debe cerrar ambos hallazgos tras el análisis de `main`. La APK de release debe compilarse con `flutter build apk --release` y el escáner QR probarse en un celular, porque R8 puede eliminar clases usadas por reflexión. No se compiló en el entorno de análisis (sin SDK de Flutter). **Revisión por el equipo:** ☐ fecha y responsable. |
+| **Aceptado** | Ofuscación y reducción con R8 en release; respaldo deshabilitado, porque la app guarda la sesión del estudiante y el token del operador. |
+| **Corregido** | Se propuso además `android:fullBackupContent="false"`; se retiró porque ese atributo espera un recurso XML y `allowBackup="false"` basta para la regla. |
+| **Rechazado** | Marcar los hallazgos como "Safe" o "Won't fix" en SonarCloud sin cambiar el código. |
+| **Motivo** | Corregir la causa en el código en lugar de ocultar los hallazgos. |
+
 *Este registro se actualiza en cada corte con los usos de IA generativa relevantes al entregable correspondiente.*
