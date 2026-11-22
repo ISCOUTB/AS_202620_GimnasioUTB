@@ -16,7 +16,13 @@ void main() {
         return http.Response(
           jsonEncode({
             'status': 'success',
-            'data': {'aforoActual': 0},
+            'data': {
+              'aforoActual': 0,
+              'capacidadMaxima': 30,
+              'abierto': true,
+              'motivoCierre': null,
+              'porcentajeOcupacion': 0,
+            },
           }),
           200,
         );

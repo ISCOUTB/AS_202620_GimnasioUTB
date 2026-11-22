@@ -15,9 +15,11 @@ El corte vertical actual permite:
 - Persistir el contador en PostgreSQL cuando se ejecuta el servidor real.
 - Consultar liveness, readiness y un contador operacional de accesos.
 - Iniciar sesión con una cuenta sintética de demostración y mostrar un QR temporal de un solo uso.
-- Escanear el QR desde la cuenta de operador y registrar la entrada o salida junto con la actualización transaccional del aforo.
+- Escanear el QR desde la cuenta de operador, o buscar al estudiante por cédula, y registrar la entrada o salida junto con la actualización transaccional del aforo.
+- Abrir y cerrar el gimnasio con un motivo opcional: cerrado, se bloquean los nuevos ingresos y quienes están dentro siguen registrados hasta que salen ([ADR 0012](docs/adr/0012-estado-capacidad-y-registro-por-cedula.md)).
+- Definir la capacidad máxima y mostrar el porcentaje de ocupación y los cupos. Si un ingreso la supera, la app pide confirmación al encargado antes de registrarlo.
 
-El QR no contiene datos personales legibles, expira en 60 segundos y solo puede consumirse una vez. Las cuentas de prueba se cargan desde la variable `DEMO_STUDENTS` en cada deploy. El registro manual del operador sigue modificando únicamente el contador.
+El QR no contiene datos personales legibles, expira en 60 segundos y solo puede consumirse una vez. Las cuentas de prueba se cargan desde la variable `DEMO_STUDENTS` en cada deploy. El registro sin identificación (para visitantes) modifica únicamente el contador.
 
 ## Stack actual
 
@@ -56,7 +58,7 @@ Cada paso exige su propia variable de autorización (`DB_BOOTSTRAP_ENABLED`, `DB
 | `DB_ADMIN_URL` | Solo `db:bootstrap` | Superusuario del PostgreSQL local; nunca llega a la API. |
 | `DB_MIGRATIONS_URL` | Solo comandos de esquema y seed | Rol `gimnasio_migrator`, dueño de las tablas. |
 | `DB_MIGRATIONS_HOST`, `DB_MIGRATIONS_TARGET` | Con `DB_MIGRATIONS_URL` | Confirmación explícita del host y la base. |
-| `DEMO_STUDENTS` | No | `codigo|correo|nombre|contraseña` separados por `;`. Correo `@utb.edu.co`, contraseña de 12 caracteres o más. |
+| `DEMO_STUDENTS` | No | `codigo|correo|nombre|contraseña|cedula` separados por `;`. Correo `@utb.edu.co`, contraseña de 12 caracteres o más; la cédula (5 a 12 dígitos) es opcional y permite buscar al estudiante. |
 
 ## Deployment en Dokploy (ADR-0011)
 
@@ -75,7 +77,7 @@ Verificación después de cada deploy:
 GET https://gimnasio-utb.iscoutb.dev/          -> 200, descripción del servicio
 GET https://gimnasio-utb.iscoutb.dev/health    -> 200 {"status":"ok",...}
 GET https://gimnasio-utb.iscoutb.dev/ready     -> 200 (la API alcanza PostgreSQL)
-GET https://gimnasio-utb.iscoutb.dev/api/v1/aforo -> 200 {"status":"success","data":{"aforoActual":N}}
+GET https://gimnasio-utb.iscoutb.dev/api/v1/aforo -> 200 {"status":"success","data":{"aforoActual":N,"capacidadMaxima":30,"abierto":true,...}}
 ```
 
 Historia: en S8 el Compose tenía `postgres`, `db-init` y `api` con un único usuario de base de datos, y se verificó una entrada y una salida (aforo 0 → 1 → 0). En noviembre de 2026 se intentó mover base y login a Supabase (ADR-0009 y ADR-0010); ese deployment nunca llegó a funcionar y se revirtió con ADR-0011, conservando las mejoras de la API y de Flutter. El volumen de S8 se reutiliza.
@@ -90,11 +92,18 @@ Los archivos de deployment son `Dockerfile`, `.dockerignore`, `deploy/compose.la
 | `GET /health` | Liveness estático. Responde `200` con `{"status":"ok","service":"gimnasio-utb-backend"}`. |
 | `GET /ready` | Consulta el repositorio. Responde `200` si está disponible y `503` si la consulta falla. |
 | `GET /metrics` | Devuelve `access_operations_total` (`entrada`, `salida`, `total`), en memoria por proceso. Se reinicia con el proceso; no es Prometheus ni una métrica persistente. |
-| `GET /api/v1/aforo` | Devuelve el aforo actual en `data.aforoActual`. |
+| `GET /api/v1/aforo` | Devuelve `aforoActual`, `capacidadMaxima`, `abierto`, `motivoCierre` y `porcentajeOcupacion`. |
 | `POST /api/v1/aforo/acceso` | Exige `Authorization: Bearer <OPERADOR_TOKEN>`. Recibe `{"tipoAcceso":"ENTRADA"}` o `{"tipoAcceso":"SALIDA"}`. Responde `201` si se registra, `400` si falla la entrada o regla de dominio, `401` sin token válido, `413` si el cuerpo supera 1 KB, `503` si el repositorio no está disponible o el servidor no tiene token configurado, y `500` ante errores inesperados. |
-| `POST /api/v1/estudiantes/sesion` | Inicia sesión con correo sintético y contraseña; devuelve un token de sesión aleatorio y su vencimiento (8 horas). |
+| `POST /api/v1/estudiantes/sesion` | Inicia sesión con correo `@utb.edu.co` y contraseña; devuelve un token de sesión aleatorio y su vencimiento (8 horas). |
 | `POST /api/v1/estudiantes/qr` | Requiere la sesión de estudiante; devuelve un QR de un solo uso válido por 60 segundos. |
 | `POST /api/v1/aforo/acceso-qr` | Requiere token de operador; consume el QR y registra la transición individual y el aforo en la misma transacción. |
+| `POST /api/v1/aforo/acceso-cedula` | Igual que el QR, identificando al estudiante por su cédula. |
+| `PUT /api/v1/aforo/estado` | Token de operador. `{"abierto":false,"motivoCierre":"..."}` cierra; `{"abierto":true}` abre. |
+| `PUT /api/v1/aforo/capacidad` | Token de operador. `{"capacidadMaxima":30}` (1 a 10000). |
+| `POST /api/v1/estudiantes/busqueda` | Token de operador. `{"cedula":"..."}` devuelve nombre, código y si está dentro. |
+| `POST /api/v1/operador/verificacion` | Comprueba el token de operador; la app lo usa al ingresar como encargado. |
+
+Con el gimnasio cerrado, toda entrada responde `409` con `code: GIMNASIO_CERRADO`. Una entrada que supera la capacidad responde `409` con `code: CAPACIDAD_SUPERADA` hasta que se repite con `"confirmarExcesoCapacidad": true`.
 
 Ejemplo observado después de una entrada y una salida en una ejecución de producción (no es historial persistente):
 
@@ -127,6 +136,11 @@ El backend expone los siguientes endpoints para consultar el estado del servicio
 | POST | `/api/v1/estudiantes/sesion` | Inicia sesión del estudiante con correo y contraseña. |
 | POST | `/api/v1/estudiantes/qr` | Emite el QR personal de un solo uso (60 s). |
 | POST | `/api/v1/aforo/acceso-qr` | El operador consume el QR; la API decide ENTRADA o SALIDA. |
+| POST | `/api/v1/aforo/acceso-cedula` | El operador registra por cédula; la API decide ENTRADA o SALIDA. |
+| PUT | `/api/v1/aforo/estado` | Abre o cierra el gimnasio (motivo opcional). |
+| PUT | `/api/v1/aforo/capacidad` | Cambia la capacidad máxima. |
+| POST | `/api/v1/estudiantes/busqueda` | Busca un estudiante por cédula. |
+| POST | `/api/v1/operador/verificacion` | Valida la contraseña de encargado. |
 
 ### Ejemplos de uso
 
@@ -234,6 +248,7 @@ tests/                             # dominio, integración, contrato, seguridad 
 - [ADR 0009: Supabase Auth para estudiantes](docs/adr/0009-supabase-auth.md) (reemplazado por ADR 0011).
 - [ADR 0010: PostgreSQL gestionado en Supabase](docs/adr/0010-postgresql-gestionado-en-supabase.md) (reemplazado por ADR 0011).
 - [ADR 0011: Volver a PostgreSQL propio y login local](docs/adr/0011-volver-a-postgresql-propio-y-login-local.md).
+- [ADR 0012: Estado del gimnasio, capacidad máxima y registro por cédula](docs/adr/0012-estado-capacidad-y-registro-por-cedula.md).
 - [Guía de base de datos: roles, permisos y estudiantes de prueba](docs/base-de-datos.md).
 - [Taller: prototipo aislado de mensajería asíncrona](docs/taller-mensajeria/README.md).
 

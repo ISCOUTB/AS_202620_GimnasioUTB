@@ -8,11 +8,45 @@
  */
 
 const TIPOS_ACCESO_VALIDOS = ['ENTRADA', 'SALIDA'];
+const CAPACIDAD_MINIMA = 1;
+const CAPACIDAD_MAXIMA_PERMITIDA = 10000;
+const LONGITUD_MAXIMA_MOTIVO = 200;
 
 class AforoDomainError extends Error {
   constructor(message) {
     super(message);
     this.name = 'AforoDomainError';
+  }
+}
+
+/** Ingreso rechazado porque el encargado cerró el gimnasio (ADR-0012). */
+class GimnasioCerradoError extends AforoDomainError {
+  constructor(motivoCierre) {
+    super(
+      motivoCierre
+        ? `El gimnasio está cerrado (${motivoCierre}). Solo se pueden registrar salidas.`
+        : 'El gimnasio está cerrado. Solo se pueden registrar salidas.'
+    );
+    this.name = 'GimnasioCerradoError';
+    this.code = 'GIMNASIO_CERRADO';
+  }
+}
+
+/**
+ * El ingreso superaría la capacidad máxima y el encargado todavía no lo
+ * confirmó. No es un bloqueo: repetir la solicitud con la confirmación
+ * registra el ingreso (ADR-0012).
+ */
+class CapacidadSuperadaError extends AforoDomainError {
+  constructor(aforoActual, capacidadMaxima) {
+    super(
+      `El gimnasio ya tiene ${aforoActual} de ${capacidadMaxima} personas. `
+      + 'Confirma para registrar el ingreso de todas formas.'
+    );
+    this.name = 'CapacidadSuperadaError';
+    this.code = 'CAPACIDAD_SUPERADA';
+    this.aforoActual = aforoActual;
+    this.capacidadMaxima = capacidadMaxima;
   }
 }
 
@@ -40,4 +74,92 @@ function aplicarAcceso(aforoActual, tipoAcceso) {
   return aforoActual - 1;
 }
 
-module.exports = { aplicarAcceso, TIPOS_ACCESO_VALIDOS, AforoDomainError };
+/**
+ * Igual que aplicarAcceso, pero respeta el estado del gimnasio:
+ * - cerrado: se rechazan las entradas; las salidas siempre se permiten,
+ *   porque quien ya está dentro sigue registrado hasta que sale;
+ * - una entrada que supera la capacidad exige confirmación del encargado.
+ *
+ * @param {{aforoActual: number, abierto?: boolean, capacidadMaxima?: number|null,
+ *          motivoCierre?: string|null}} estado
+ * @param {'ENTRADA'|'SALIDA'} tipoAcceso
+ * @param {{confirmarExcesoCapacidad?: boolean}} [opciones]
+ * @returns {number} nuevo aforo
+ */
+function aplicarAccesoConEstado(estado, tipoAcceso, { confirmarExcesoCapacidad = false } = {}) {
+  if (tipoAcceso === 'ENTRADA') {
+    if (estado.abierto === false) {
+      throw new GimnasioCerradoError(estado.motivoCierre);
+    }
+    const capacidad = estado.capacidadMaxima;
+    if (Number.isInteger(capacidad) && estado.aforoActual + 1 > capacidad && !confirmarExcesoCapacidad) {
+      throw new CapacidadSuperadaError(estado.aforoActual, capacidad);
+    }
+  }
+  return aplicarAcceso(estado.aforoActual, tipoAcceso);
+}
+
+/**
+ * Porcentaje entero de ocupación. Puede pasar de 100 cuando el encargado
+ * confirmó ingresos por encima de la capacidad.
+ */
+function calcularPorcentajeOcupacion(aforoActual, capacidadMaxima) {
+  if (!Number.isInteger(capacidadMaxima) || capacidadMaxima <= 0) return null;
+  return Math.round((aforoActual * 100) / capacidadMaxima);
+}
+
+/**
+ * Abre o cierra el gimnasio. El motivo es opcional al cerrar y se borra al
+ * abrir. Cerrar no saca a nadie: el aforo no cambia.
+ *
+ * @returns {{abierto: boolean, motivoCierre: string|null}}
+ */
+function cambiarApertura({ abierto, motivoCierre } = {}) {
+  if (typeof abierto !== 'boolean') {
+    throw new AforoDomainError('Indica si el gimnasio queda abierto (true) o cerrado (false).');
+  }
+  if (abierto) return { abierto: true, motivoCierre: null };
+
+  if (motivoCierre !== undefined && motivoCierre !== null && typeof motivoCierre !== 'string') {
+    throw new AforoDomainError('El motivo del cierre debe ser un texto.');
+  }
+  const motivo = (motivoCierre || '').trim();
+  if (motivo.length > LONGITUD_MAXIMA_MOTIVO) {
+    throw new AforoDomainError(
+      `El motivo del cierre admite como máximo ${LONGITUD_MAXIMA_MOTIVO} caracteres.`
+    );
+  }
+  return { abierto: false, motivoCierre: motivo || null };
+}
+
+/**
+ * Valida la nueva capacidad máxima. Puede quedar por debajo del aforo
+ * actual: nadie sale por eso, y la app muestra la capacidad superada.
+ */
+function cambiarCapacidad(capacidadMaxima) {
+  if (
+    !Number.isInteger(capacidadMaxima)
+    || capacidadMaxima < CAPACIDAD_MINIMA
+    || capacidadMaxima > CAPACIDAD_MAXIMA_PERMITIDA
+  ) {
+    throw new AforoDomainError(
+      `La capacidad máxima debe ser un número entero entre ${CAPACIDAD_MINIMA} y ${CAPACIDAD_MAXIMA_PERMITIDA}.`
+    );
+  }
+  return { capacidadMaxima };
+}
+
+module.exports = {
+  aplicarAcceso,
+  aplicarAccesoConEstado,
+  calcularPorcentajeOcupacion,
+  cambiarApertura,
+  cambiarCapacidad,
+  TIPOS_ACCESO_VALIDOS,
+  CAPACIDAD_MINIMA,
+  CAPACIDAD_MAXIMA_PERMITIDA,
+  LONGITUD_MAXIMA_MOTIVO,
+  AforoDomainError,
+  GimnasioCerradoError,
+  CapacidadSuperadaError,
+};

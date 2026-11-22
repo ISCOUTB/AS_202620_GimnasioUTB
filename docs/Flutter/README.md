@@ -1,9 +1,12 @@
 # Aplicación Flutter — Gimnasio UTB
 
-Cliente móvil del backend. Permite consultar el aforo, iniciar sesión con una
-cuenta sintética de demostración para mostrar un QR personal y usar el token
-del operador para escanearlo o registrar una transición manual. La cuenta
-estudiantil no representa una identidad institucional UTB.
+Cliente móvil del backend. Muestra el estado del gimnasio (abierto o cerrado
+con su motivo), el aforo, la capacidad máxima, el porcentaje de ocupación y los
+cupos. El estudiante inicia sesión con su correo estudiantil y muestra un QR
+personal. El encargado entra con la contraseña de encargado: registra accesos
+por QR, por cédula o sin identificación, abre y cierra el gimnasio y cambia la
+capacidad máxima (ADR-0012). Las cuentas son sintéticas y no representan una
+identidad institucional UTB.
 
 ## Ejecutar
 
@@ -49,11 +52,13 @@ firma de release y un identificador de aplicación propio.
 `--web-port 8080` fija el puerto: sin él Flutter elige uno aleatorio y el
 origen no coincidiría con la lista blanca de CORS.
 
-La consulta del aforo funciona sin credenciales. Para **Estudiante**, usa el
-correo sintético y la contraseña de una de las cuentas de `DEMO_STUDENTS`. Para **Operación de
-aforo**, escribe el token de operador (`OPERADOR_TOKEN` del servidor) en la
-pantalla de inicio. Si el token es incorrecto, el registro muestra el mensaje
-`401` del backend. Ninguna sesión se guarda en disco.
+La consulta del aforo funciona sin credenciales (**Continuar como visitante**).
+Para **estudiante**, usa el correo y la contraseña de una de las cuentas de
+`DEMO_STUDENTS`. Para **Ingresar como encargado**, escribe la contraseña de
+encargado (el `OPERADOR_TOKEN` del servidor): la app la verifica con
+`POST /api/v1/operador/verificacion` antes de abrir el panel y muestra
+"La contraseña de encargado no es válida." si no coincide. Ninguna sesión se
+guarda en disco.
 
 El token de estudiante es un token de sesión opaco que emite la propia API
 (ADR-0011): dura 8 horas y la base solo guarda su hash. La app lo mantiene en
@@ -65,12 +70,21 @@ crean en cada deploy desde la variable `DEMO_STUDENTS`; consulta la
 
 ## Integración disponible
 
-- `GET /api/v1/aforo`: lee `data.aforoActual`. Se refresca al abrir el panel,
-  manualmente y cada 30 segundos; si falla una actualización conserva y marca
-  como desactualizado el último valor recibido.
-- `POST /api/v1/aforo/acceso`: envía exactamente
-  `{"tipoAcceso":"ENTRADA"}` o `{"tipoAcceso":"SALIDA"}` y muestra el aforo
-  devuelto.
+- `GET /api/v1/aforo`: estado completo del gimnasio. `EstadoGimnasioController`
+  lo consulta al abrir, cada 15 segundos, con el botón de actualizar y después
+  de cada registro o cambio; todas las pestañas lo comparten. Si falla una
+  actualización, conserva y marca como desactualizado el último valor.
+- `POST /api/v1/aforo/acceso`: registro sin identificación (visitantes).
+- `PUT /api/v1/aforo/estado` y `PUT /api/v1/aforo/capacidad`: el encargado
+  cierra (con motivo opcional en un diálogo), abre y cambia la capacidad con
+  teclado numérico.
+- `POST /api/v1/estudiantes/busqueda` y `POST /api/v1/aforo/acceso-cedula`:
+  el encargado busca por cédula, ve el nombre y si el estudiante está dentro, y
+  registra la entrada o la salida.
+- Capacidad superada: si el servidor responde `409 CAPACIDAD_SUPERADA`, la app
+  pregunta "¿Registrar de todas formas?" y, si el encargado acepta, repite la
+  misma operación con `confirmarExcesoCapacidad: true`. Con el gimnasio
+  cerrado (`409 GIMNASIO_CERRADO`) muestra que solo se registran salidas.
 - `POST /api/v1/estudiantes/sesion` y `POST /api/v1/estudiantes/qr`: inicio de
   sesión de demostración y emisión de QR temporal de un solo uso.
 - `POST /api/v1/aforo/acceso-qr`: el operador escanea el código y el backend
@@ -86,13 +100,11 @@ operaciones de la instancia desde su inicio, no ofrece historial diario.
   autentica con contraseña (scrypt) y sesiones propias. No hay SSO ni
   validación de identidad institucional. El QR lo genera la API, dura 60
   segundos y se invalida al consumirse.
-- **Operación:** el registro exige un token de operador compartido (ADR-0007),
-  que se escribe en la pantalla de inicio y se mantiene solo en memoria.
-  Cualquiera que conozca ese token puede operar. La consulta del aforo es
-  pública.
-- **Capacidad:** la API devuelve solo el contador actual. No hay capacidad
-  máxima ni forma correcta de calcular porcentaje o cupos; la interfaz lo
-  identifica como no disponible.
+- **Operación:** la contraseña de encargado es un secreto compartido
+  (ADR-0007) que se mantiene solo en memoria. Cualquiera que la conozca puede
+  operar. La consulta del aforo es pública.
+- **Registro sin identificación:** cuenta para el aforo, pero no para el
+  estado individual de ningún estudiante.
 - **Cuentas de prueba:** se crean en cada deploy con
   `npm run db:seed-demo-students` a partir de `DEMO_STUDENTS` (Dokploy), con
   autorización explícita y confirmación del host y la base. Solo correos
@@ -102,8 +114,8 @@ operaciones de la instancia desde su inicio, no ofrece historial diario.
   se evalúa automáticamente y no se envían notificaciones push. La API tendría
   que implementar persistencia de preferencias, evaluación y un canal de envío
   para completar ese flujo.
-- **Sesiones:** el token de operador no se persiste (ni en `SharedPreferences`
-  ni en disco); se descarta al cerrar la vista de operación.
+- **Sesiones:** la contraseña de encargado no se persiste (ni en
+  `SharedPreferences` ni en disco); se descarta al cerrar sesión.
   La sesión de estudiante también es local y en memoria; al expirar, la vista
   de QR regresa al login. No hay revocación ni renovación remota en esta etapa.
 

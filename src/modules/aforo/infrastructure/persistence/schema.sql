@@ -1,6 +1,18 @@
+-- Una sola fila con el estado del gimnasio. capacidad_maxima, abierto y
+-- motivo_cierre los cambia el encargado (ADR-0012); en una base anterior los
+-- agrega la migración 20261122_002.
 CREATE TABLE IF NOT EXISTS aforo_estado (
   id SMALLINT PRIMARY KEY CHECK (id = 1),
-  aforo_actual INTEGER NOT NULL DEFAULT 0 CHECK (aforo_actual >= 0)
+  aforo_actual INTEGER NOT NULL DEFAULT 0 CHECK (aforo_actual >= 0),
+  capacidad_maxima INTEGER NOT NULL DEFAULT 30,
+  abierto BOOLEAN NOT NULL DEFAULT TRUE,
+  motivo_cierre TEXT,
+  CONSTRAINT aforo_estado_capacidad_rango_check
+    CHECK (capacidad_maxima BETWEEN 1 AND 10000),
+  CONSTRAINT aforo_estado_motivo_longitud_check
+    CHECK (motivo_cierre IS NULL OR char_length(motivo_cierre) <= 200),
+  CONSTRAINT aforo_estado_motivo_solo_cerrado_check
+    CHECK (NOT abierto OR motivo_cierre IS NULL)
 );
 
 INSERT INTO aforo_estado (id, aforo_actual)

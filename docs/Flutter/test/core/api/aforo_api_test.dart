@@ -70,14 +70,14 @@ void main() {
       expect(aforo, 1);
     });
 
-    test('inicia sesión estudiantil con correo sintético', () async {
+    test('inicia sesión estudiantil con correo estudiantil', () async {
       final client = MockClient((request) async {
         expect(request.method, 'POST');
         expect(request.url.path, '/api/v1/estudiantes/sesion');
         expect(request.headers.containsKey('authorization'), isFalse);
         expect(
           jsonDecode(request.body),
-          {'correo': 'demo-001@utb.edu.co', 'contrasena': 'clave-sintetica'},
+          {'correo': 'demo-001@utb.edu.co', 'contrasena': 'clave-estudiante'},
         );
         return http.Response(
           jsonEncode({
@@ -87,7 +87,7 @@ void main() {
               'expiresAt': '2026-11-15T12:00:00.000Z',
               'estudiante': {
                 'codigoEstudiante': 'demo-001',
-                'nombre': 'Estudiante de prueba',
+                'nombre': 'Ana Pérez',
               },
             },
           }),
@@ -98,7 +98,7 @@ void main() {
       final sesion = await AforoApi(client: client, baseUrl: 'https://api.test')
           .iniciarSesionEstudiante(
         correo: 'demo-001@utb.edu.co',
-        contrasena: 'clave-sintetica',
+        contrasena: 'clave-estudiante',
       );
 
       expect(sesion.token, 'sesion-temporal');
@@ -209,7 +209,7 @@ void main() {
       expect(await api.registrarAcceso(TipoAcceso.entrada), 3);
     });
 
-    test('muestra el mensaje 401 cuando el token no es válido', () async {
+    test('traduce el 401 del encargado a un mensaje claro', () async {
       final client = MockClient(
         (_) async => http.Response(
           jsonEncode({
@@ -225,10 +225,10 @@ void main() {
             .conTokenOperador('incorrecto')
             .registrarAcceso(TipoAcceso.entrada),
         throwsA(
-          isA<AforoApiException>().having(
+          isA<ContrasenaEncargadoInvalidaException>().having(
             (error) => error.message,
             'message',
-            contains('token de operador'),
+            'La contraseña de encargado no es válida.',
           ),
         ),
       );
@@ -256,6 +256,217 @@ void main() {
             contains('aforo ya está en 0'),
           ),
         ),
+      );
+    });
+
+    test('consulta el estado completo del gimnasio', () async {
+      final client = MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'status': 'success',
+            'data': {
+              'aforoActual': 31,
+              'capacidadMaxima': 30,
+              'abierto': false,
+              'motivoCierre': 'Mantenimiento',
+              'porcentajeOcupacion': 103,
+            },
+          }),
+          200,
+        ),
+      );
+
+      final estado = await AforoApi(client: client, baseUrl: 'https://api.test')
+          .consultarEstado();
+
+      expect(estado.abierto, isFalse);
+      expect(estado.motivoCierre, 'Mantenimiento');
+      expect(estado.porcentajeOcupacion, 103);
+      expect(estado.cuposDisponibles, 0);
+      expect(estado.capacidadSuperada, isTrue);
+    });
+
+    test('la capacidad superada se reconoce y la confirmación viaja en el cuerpo',
+        () async {
+      final cuerpos = <Object?>[];
+      final client = MockClient((request) async {
+        final cuerpo = jsonDecode(request.body) as Map<String, dynamic>;
+        cuerpos.add(cuerpo);
+        if (cuerpo['confirmarExcesoCapacidad'] == true) {
+          return http.Response(
+            jsonEncode({
+              'status': 'success',
+              'data': {'aforoActual': 31},
+            }),
+            201,
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'status': 'error',
+            'code': 'CAPACIDAD_SUPERADA',
+            'message': 'El gimnasio ya tiene 30 de 30 personas.',
+            'data': {'aforoActual': 30, 'capacidadMaxima': 30},
+          }),
+          409,
+        );
+      });
+      final api = AforoApi(client: client, baseUrl: 'https://api.test')
+          .conTokenOperador('token-operador');
+
+      await expectLater(
+        api.registrarAcceso(TipoAcceso.entrada),
+        throwsA(
+          isA<CapacidadSuperadaException>()
+              .having((error) => error.aforoActual, 'aforoActual', 30)
+              .having((error) => error.capacidadMaxima, 'capacidad', 30),
+        ),
+      );
+      expect(
+        await api.registrarAcceso(
+          TipoAcceso.entrada,
+          confirmarExcesoCapacidad: true,
+        ),
+        31,
+      );
+      expect(cuerpos, [
+        {'tipoAcceso': 'ENTRADA'},
+        {'tipoAcceso': 'ENTRADA', 'confirmarExcesoCapacidad': true},
+      ]);
+    });
+
+    test('el gimnasio cerrado se reconoce al registrar un QR', () async {
+      final client = MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'status': 'error',
+            'code': 'GIMNASIO_CERRADO',
+            'message': 'El gimnasio está cerrado. Solo se pueden registrar salidas.',
+          }),
+          409,
+        ),
+      );
+
+      await expectLater(
+        AforoApi(client: client, baseUrl: 'https://api.test')
+            .conTokenOperador('token-operador')
+            .registrarAccesoQr('qr'),
+        throwsA(isA<GimnasioCerradoException>()),
+      );
+    });
+
+    test('busca por cédula y registra con el nombre del estudiante', () async {
+      final client = MockClient((request) async {
+        expect(request.headers['authorization'], 'Bearer token-operador');
+        final cuerpo = jsonDecode(request.body) as Map<String, dynamic>;
+        if (request.url.path == '/api/v1/estudiantes/busqueda') {
+          if (cuerpo['cedula'] == '99999') {
+            return http.Response(
+              jsonEncode({'status': 'error', 'message': 'No existe.'}),
+              404,
+            );
+          }
+          return http.Response(
+            jsonEncode({
+              'status': 'success',
+              'data': {
+                'codigoEstudiante': 'T001',
+                'nombre': 'Ana Pérez',
+                'activa': true,
+                'dentro': false,
+              },
+            }),
+            200,
+          );
+        }
+        expect(request.url.path, '/api/v1/aforo/acceso-cedula');
+        expect(cuerpo, {'cedula': '1012345678'});
+        return http.Response(
+          jsonEncode({
+            'status': 'success',
+            'data': {
+              'tipoAcceso': 'ENTRADA',
+              'aforoActual': 4,
+              'estudiante': {'codigoEstudiante': 'T001', 'nombre': 'Ana Pérez'},
+            },
+          }),
+          201,
+        );
+      });
+      final api = AforoApi(client: client, baseUrl: 'https://api.test')
+          .conTokenOperador('token-operador');
+
+      expect(await api.buscarEstudiantePorCedula('99999'), isNull);
+      final encontrado = await api.buscarEstudiantePorCedula('1012345678');
+      expect(encontrado?.nombre, 'Ana Pérez');
+      expect(encontrado?.dentro, isFalse);
+      final resultado = await api.registrarAccesoCedula('1012345678');
+      expect(resultado.tipoAcceso, TipoAcceso.entrada);
+      expect(resultado.nombreEstudiante, 'Ana Pérez');
+    });
+
+    test('el encargado abre, cierra con motivo y cambia la capacidad', () async {
+      final solicitudes = <String>[];
+      final client = MockClient((request) async {
+        expect(request.method, 'PUT');
+        expect(request.headers['authorization'], 'Bearer token-operador');
+        solicitudes.add('${request.url.path} ${request.body}');
+        return http.Response(
+          jsonEncode({
+            'status': 'success',
+            'data': {
+              'aforoActual': 2,
+              'capacidadMaxima': 40,
+              'abierto': true,
+              'motivoCierre': null,
+              'porcentajeOcupacion': 5,
+            },
+          }),
+          200,
+        );
+      });
+      final api = AforoApi(client: client, baseUrl: 'https://api.test')
+          .conTokenOperador('token-operador');
+
+      await api.cambiarApertura(abierto: false, motivoCierre: '  Fumigación ');
+      await api.cambiarApertura(abierto: true, motivoCierre: 'ignorado');
+      final estado = await api.cambiarCapacidad(40);
+
+      expect(estado.capacidadMaxima, 40);
+      expect(solicitudes, [
+        '/api/v1/aforo/estado {"abierto":false,"motivoCierre":"Fumigación"}',
+        '/api/v1/aforo/estado {"abierto":true}',
+        '/api/v1/aforo/capacidad {"capacidadMaxima":40}',
+      ]);
+    });
+
+    test('verifica la contraseña de encargado antes de ingresar', () async {
+      final client = MockClient((request) async {
+        expect(request.url.path, '/api/v1/operador/verificacion');
+        final valida =
+            request.headers['authorization'] == 'Bearer contrasena-correcta';
+        return valida
+            ? http.Response(
+                jsonEncode({
+                  'status': 'success',
+                  'data': {'valido': true},
+                }),
+                200,
+              )
+            : http.Response(
+                jsonEncode({
+                  'status': 'error',
+                  'message': 'Se requiere un token de operador válido.',
+                }),
+                401,
+              );
+      });
+      final api = AforoApi(client: client, baseUrl: 'https://api.test');
+
+      await api.conTokenOperador('contrasena-correcta').verificarEncargado();
+      await expectLater(
+        api.conTokenOperador('otra').verificarEncargado(),
+        throwsA(isA<ContrasenaEncargadoInvalidaException>()),
       );
     });
   });

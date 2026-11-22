@@ -38,8 +38,8 @@ son idempotentes.
 
 | Tabla | `SELECT` | `INSERT` | `UPDATE` | Para qué |
 | --- | --- | --- | --- | --- |
-| `aforo_estado` | `id`, `aforo_actual` | — | `aforo_actual` | Leer y actualizar el contador (fila `id = 1`) |
-| `estudiantes` | `id`, `codigo_estudiante`, `correo`, `nombre`, `activa`, `password_hash` | — | `created_at` | Login y perfil. `UPDATE (created_at)` solo permite bloquear la fila |
+| `aforo_estado` | `id`, `aforo_actual`, `capacidad_maxima`, `abierto`, `motivo_cierre` | — | `aforo_actual`, `capacidad_maxima`, `abierto`, `motivo_cierre` | Contador, capacidad y apertura del gimnasio (fila `id = 1`, ADR-0012) |
+| `estudiantes` | `id`, `codigo_estudiante`, `correo`, `nombre`, `activa`, `password_hash`, `cedula_sintetica` | — | `created_at` | Login, perfil y búsqueda por cédula. `UPDATE (created_at)` solo permite bloquear la fila |
 | `sesiones_estudiantes` | `token_hash`, `codigo_estudiante`, `expires_at` | las mismas | — | Crear y validar sesiones |
 | `qr_credenciales` | `token_hash`, `codigo_estudiante`, `expires_at`, `consumido_en` | `token_hash`, `codigo_estudiante`, `expires_at` | `consumido_en` | Emitir y consumir QR |
 | `estudiante_estado_acceso` | `codigo_estudiante`, `dentro` | las mismas | `dentro` | Saber si es ENTRADA o SALIDA |
@@ -50,7 +50,7 @@ Todas las tablas tienen RLS. Políticas destacadas:
 - `aforo_estado` solo permite la fila `id = 1`.
 - `sesiones_estudiantes` permite leer e insertar, nunca actualizar.
 
-La cédula sintética no está en la matriz: la API no puede leerla.
+La API lee la cédula solo para buscar y registrar por cédula (ADR-0012); nunca la devuelve en una respuesta. `aforo_estado` además tiene restricciones `CHECK`: capacidad entre 1 y 10000, motivo de hasta 200 caracteres y motivo solo con el gimnasio cerrado.
 
 ## Contraseñas y sesiones
 
@@ -61,15 +61,16 @@ La cédula sintética no está en la matriz: la API no puede leerla.
 ## `DEMO_STUDENTS`
 
 ```text
-codigo|correo|nombre|contraseña;codigo|correo|nombre|contraseña
+codigo|correo|nombre|contraseña|cedula;codigo|correo|nombre|contraseña|cedula
 ```
 
 - Código: de 3 a 20 letras, números o guiones.
 - Correo: termina en `@utb.edu.co`; no puede pertenecer a otro código.
 - Contraseña: 12 caracteres o más, sin `|` ni `;`.
+- Cédula (opcional, quinto campo): de 5 a 12 dígitos, sin repetir. Sin ella, el encargado no puede buscar a ese estudiante por cédula. Si se omite en un deploy posterior, se conserva la que ya tenía.
 - Máximo 50 estudiantes. Si un estudiante deja de estar en la lista, no se borra.
 - Si la variable está vacía, el paso se omite y la API arranca sin cuentas.
 
-Los mensajes de error nunca repiten las contraseñas; además, los scripts
+Los mensajes de error nunca repiten las contraseñas ni las cédulas; además, los scripts
 reemplazan por `[redactado]` cualquier contraseña de las URLs o de
 `DEMO_STUDENTS` antes de imprimir.

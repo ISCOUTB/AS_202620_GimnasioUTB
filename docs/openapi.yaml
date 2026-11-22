@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: API Backend - Gimnasio UTB
-  version: 3.1.1
+  version: 4.0.0
   description: |
     Contrato HTTP del backend actual. El deployment actual utiliza Docker
     Compose en Dokploy, con PostgreSQL dentro del mismo Compose (ADR-0011). El cliente Flutter (`docs/Flutter/lib/core/api/aforo_api.dart`)
@@ -34,6 +34,17 @@ info:
     deja de depender de Supabase Auth: la API verifica la contraseña (scrypt)
     y emite su propio token de sesión opaco de 8 horas. Rutas, cuerpos y
     códigos de estado no cambian, por eso la app Flutter no se modifica.
+
+    **4.0.0 (ADR-0012):** el encargado abre y cierra el gimnasio (con motivo
+    opcional) y define la capacidad máxima; `GET /api/v1/aforo` entrega ese
+    estado y el porcentaje de ocupación. Con el gimnasio cerrado se rechazan
+    las entradas (`409 GIMNASIO_CERRADO`) y las salidas siguen permitidas. Una
+    entrada que supera la capacidad responde `409 CAPACIDAD_SUPERADA` hasta que
+    se repite con `confirmarExcesoCapacidad: true`. Se agregan el registro y la
+    búsqueda por cédula y la verificación de la contraseña de encargado.
+    Es MAJOR porque una entrada que antes siempre se registraba ahora puede
+    responder 409. Igual que en 2.0.0 y 3.0.0 se conserva `/api/v1`: el único
+    cliente es la app del equipo, que se actualiza en el mismo cambio.
 
     No hay SSO ni identidad institucional.
 
@@ -102,14 +113,14 @@ paths:
   /api/v1/aforo:
     get:
       operationId: consultarAforo
-      summary: Consulta el aforo actual del gimnasio
+      summary: Consulta el aforo, la capacidad, el estado (abierto o cerrado) y la ocupación
       responses:
         '200':
-          description: Aforo actual
+          description: Estado actual del gimnasio
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RespuestaAforo'
+                $ref: '#/components/schemas/RespuestaEstadoAforo'
         '503':
           description: No fue posible consultar el aforo
           content:
@@ -151,6 +162,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RespuestaError'
+        '409':
+          description: Gimnasio cerrado (solo se permiten salidas) o capacidad superada sin confirmar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaConflictoAcceso'
         '413':
           description: El cuerpo supera 1 KB
           content:
@@ -267,13 +284,15 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 256
+                confirmarExcesoCapacidad:
+                  $ref: '#/components/schemas/ConfirmarExcesoCapacidad'
       responses:
         '201':
           description: Acceso registrado y QR consumido
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RespuestaAccesoQr'
+                $ref: '#/components/schemas/RespuestaAccesoEstudiante'
         '400':
           description: QR inválido, vencido, ya utilizado o transición rechazada
           content:
@@ -292,8 +311,256 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RespuestaError'
+        '409':
+          description: Gimnasio cerrado (solo se permiten salidas) o capacidad superada sin confirmar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaConflictoAcceso'
         '503':
           description: Persistencia o identidad no disponible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+  /api/v1/aforo/acceso-cedula:
+    post:
+      operationId: registrarAccesoCedula
+      summary: Registra la entrada o salida de un estudiante por su cédula
+      description: |
+        Para quien no tiene el celular. Igual que con el QR, la API decide
+        ENTRADA o SALIDA según si el estudiante estaba dentro.
+      security:
+        - tokenOperador: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cedula]
+              additionalProperties: false
+              properties:
+                cedula:
+                  $ref: '#/components/schemas/Cedula'
+                confirmarExcesoCapacidad:
+                  $ref: '#/components/schemas/ConfirmarExcesoCapacidad'
+      responses:
+        '201':
+          description: Acceso registrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaAccesoEstudiante'
+        '400':
+          description: Cédula con formato inválido o transición rechazada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '401':
+          description: Contraseña de encargado inválida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '403':
+          description: Cuenta estudiantil inactiva que intenta registrar una entrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '404':
+          description: No hay ningún estudiante con esa cédula
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '409':
+          description: Gimnasio cerrado (solo se permiten salidas) o capacidad superada sin confirmar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaConflictoAcceso'
+        '503':
+          description: Persistencia o identidad no disponible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+  /api/v1/aforo/estado:
+    put:
+      operationId: cambiarAperturaGimnasio
+      summary: Abre o cierra el gimnasio, con motivo opcional al cerrar
+      description: Cerrar no saca a nadie; el motivo se borra al abrir.
+      security:
+        - tokenOperador: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [abierto]
+              additionalProperties: false
+              properties:
+                abierto:
+                  type: boolean
+                motivoCierre:
+                  type: [string, 'null']
+                  maxLength: 200
+      responses:
+        '200':
+          description: Estado actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaEstadoAforo'
+        '400':
+          description: Datos inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '401':
+          description: Contraseña de encargado inválida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '503':
+          description: No fue posible guardar el cambio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+  /api/v1/aforo/capacidad:
+    put:
+      operationId: cambiarCapacidadGimnasio
+      summary: Define la capacidad máxima del gimnasio
+      description: Puede quedar por debajo del aforo actual; nadie sale por eso.
+      security:
+        - tokenOperador: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [capacidadMaxima]
+              additionalProperties: false
+              properties:
+                capacidadMaxima:
+                  type: integer
+                  minimum: 1
+                  maximum: 10000
+      responses:
+        '200':
+          description: Capacidad actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaEstadoAforo'
+        '400':
+          description: Capacidad fuera del rango 1 a 10000
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '401':
+          description: Contraseña de encargado inválida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '503':
+          description: No fue posible guardar el cambio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+  /api/v1/estudiantes/busqueda:
+    post:
+      operationId: buscarEstudiantePorCedula
+      summary: El encargado busca a un estudiante por cédula antes de registrarlo
+      description: Se usa POST para que la cédula no quede en la URL ni en los registros de acceso.
+      security:
+        - tokenOperador: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cedula]
+              additionalProperties: false
+              properties:
+                cedula:
+                  $ref: '#/components/schemas/Cedula'
+      responses:
+        '200':
+          description: Estudiante encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaBusquedaEstudiante'
+        '400':
+          description: Cédula con formato inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '401':
+          description: Contraseña de encargado inválida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '404':
+          description: No hay ningún estudiante con esa cédula
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '503':
+          description: Identidad no disponible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+  /api/v1/operador/verificacion:
+    post:
+      operationId: verificarEncargado
+      summary: Comprueba la contraseña de encargado antes de abrir su panel en la app
+      security:
+        - tokenOperador: []
+      responses:
+        '200':
+          description: Contraseña válida
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                additionalProperties: false
+                properties:
+                  status:
+                    const: success
+                  data:
+                    type: object
+                    required: [valido]
+                    additionalProperties: false
+                    properties:
+                      valido:
+                        const: true
+        '401':
+          description: Contraseña de encargado inválida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '503':
+          description: El servidor no tiene configurado OPERADOR_TOKEN (falla cerrado)
           content:
             application/json:
               schema:
@@ -304,9 +571,9 @@ components:
       type: http
       scheme: bearer
       description: |
-        Secreto compartido del operador del gimnasio (variable OPERADOR_TOKEN
-        del servidor, mínimo 32 caracteres). Medida provisional hasta que
-        exista el contexto Identidad con usuarios y roles (ADR-0007).
+        Contraseña de encargado: secreto compartido del gimnasio (variable
+        OPERADOR_TOKEN del servidor, mínimo 32 caracteres). Medida provisional
+        hasta que existan usuarios y roles por encargado (ADR-0007).
     sesionEstudiante:
       type: http
       scheme: bearer
@@ -319,6 +586,88 @@ components:
         tipoAcceso:
           type: string
           enum: [ENTRADA, SALIDA]
+        confirmarExcesoCapacidad:
+          $ref: '#/components/schemas/ConfirmarExcesoCapacidad'
+    ConfirmarExcesoCapacidad:
+      type: boolean
+      description: true cuando el encargado confirma una entrada que supera la capacidad máxima.
+    Cedula:
+      type: string
+      pattern: '^[0-9]{5,12}$'
+    EstadoGimnasio:
+      type: object
+      required: [aforoActual, capacidadMaxima, abierto, motivoCierre, porcentajeOcupacion]
+      additionalProperties: false
+      properties:
+        aforoActual:
+          type: integer
+          minimum: 0
+        capacidadMaxima:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        abierto:
+          type: boolean
+        motivoCierre:
+          type: [string, 'null']
+          maxLength: 200
+        porcentajeOcupacion:
+          type: integer
+          minimum: 0
+          description: Puede pasar de 100 si el encargado confirmó ingresos por encima de la capacidad.
+    RespuestaEstadoAforo:
+      type: object
+      required: [status, data]
+      additionalProperties: false
+      properties:
+        status:
+          const: success
+        data:
+          $ref: '#/components/schemas/EstadoGimnasio'
+    RespuestaConflictoAcceso:
+      type: object
+      required: [status, code, message]
+      additionalProperties: false
+      properties:
+        status:
+          const: error
+        code:
+          type: string
+          enum: [GIMNASIO_CERRADO, CAPACIDAD_SUPERADA]
+        message:
+          type: string
+        data:
+          type: object
+          description: Solo con CAPACIDAD_SUPERADA.
+          required: [aforoActual, capacidadMaxima]
+          additionalProperties: false
+          properties:
+            aforoActual:
+              type: integer
+              minimum: 0
+            capacidadMaxima:
+              type: integer
+              minimum: 1
+    RespuestaBusquedaEstudiante:
+      type: object
+      required: [status, data]
+      additionalProperties: false
+      properties:
+        status:
+          const: success
+        data:
+          type: object
+          required: [codigoEstudiante, nombre, activa, dentro]
+          additionalProperties: false
+          properties:
+            codigoEstudiante:
+              type: string
+            nombre:
+              type: string
+            activa:
+              type: boolean
+            dentro:
+              type: boolean
     RespuestaAforo:
       type: object
       required: [status, data]
@@ -452,7 +801,7 @@ components:
             expiresAt:
               type: string
               format: date-time
-    RespuestaAccesoQr:
+    RespuestaAccesoEstudiante:
       type: object
       required: [status, data]
       additionalProperties: false
@@ -470,3 +819,12 @@ components:
             aforoActual:
               type: integer
               minimum: 0
+            estudiante:
+              type: object
+              required: [codigoEstudiante, nombre]
+              additionalProperties: false
+              properties:
+                codigoEstudiante:
+                  type: string
+                nombre:
+                  type: string
