@@ -32,9 +32,10 @@ class AforoRepositoryPort {
    * el aforo, la transacción en curso (si la hay) y el estado completo
    * bloqueado en esa misma transacción.
    * @param {(aforoActual: number, transaccion?: object, estado?: object) => number | Promise<number>} transicionar
+   * @param {(transaccion: object, nuevoAforo: number, estado: object) => Promise<void>} [despuesDeTransicionar]
    * @returns {Promise<number>} el nuevo aforo
    */
-  async actualizarAforo(transicionar) {
+  async actualizarAforo(transicionar, despuesDeTransicionar) {
     throw new Error('AforoRepositoryPort.actualizarAforo no implementado');
   }
 
@@ -43,9 +44,10 @@ class AforoRepositoryPort {
    * forma atómica. La función recibe el estado actual y devuelve solo los
    * campos que cambian.
    * @param {(estado: object) => {abierto?: boolean, motivoCierre?: string|null, capacidadMaxima?: number}} transformar
+   * @param {(transaccion: object, nuevoEstado: object) => Promise<void>} [despuesDeModificar]
    * @returns {Promise<object>} el estado resultante
    */
-  async modificarEstado(transformar) {
+  async modificarEstado(transformar, despuesDeModificar) {
     throw new Error('AforoRepositoryPort.modificarEstado no implementado');
   }
 }

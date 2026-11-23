@@ -125,6 +125,93 @@ class EstadoGimnasio {
   }
 }
 
+class PreferenciasAlertaAforo {
+  const PreferenciasAlertaAforo({
+    required this.habilitada,
+    required this.umbral,
+    required this.dias,
+    required this.horaInicio,
+    required this.horaFin,
+    required this.compatible,
+  });
+
+  final bool habilitada;
+  final int? umbral;
+  final List<int> dias;
+  final int horaInicio;
+  final int horaFin;
+  final bool compatible;
+
+  static PreferenciasAlertaAforo desdeJson(Map<String, dynamic> data) {
+    final habilitada = data['habilitada'];
+    final umbral = data['umbral'];
+    final dias = data['dias'];
+    final horaInicio = data['horaInicio'];
+    final horaFin = data['horaFin'];
+    final compatible = data['compatible'];
+    if (habilitada is! bool ||
+        (umbral != null && umbral is! int) ||
+        dias is! List<dynamic> ||
+        dias.any((day) => day is! int) ||
+        horaInicio is! int ||
+        horaFin is! int ||
+        compatible is! bool) {
+      throw const AforoApiException(AforoApi.respuestaInesperada);
+    }
+    return PreferenciasAlertaAforo(
+      habilitada: habilitada,
+      umbral: umbral as int?,
+      dias: dias.cast<int>(),
+      horaInicio: horaInicio,
+      horaFin: horaFin,
+      compatible: compatible,
+    );
+  }
+}
+
+class NotificacionEstudiante {
+  const NotificacionEstudiante({
+    required this.id,
+    required this.tipo,
+    required this.mensaje,
+    required this.creadaEn,
+    this.leidaEn,
+  });
+
+  final int id;
+  final String tipo;
+  final String mensaje;
+  final DateTime creadaEn;
+  final DateTime? leidaEn;
+
+  static NotificacionEstudiante desdeJson(Map<String, dynamic> data) {
+    final id = data['id'];
+    final tipo = data['tipo'];
+    final mensaje = data['mensaje'];
+    final creadaEn = data['creadaEn'];
+    final leidaEn = data['leidaEn'];
+    if (id is! int ||
+        tipo is! String ||
+        mensaje is! String ||
+        creadaEn is! String ||
+        (leidaEn != null && leidaEn is! String)) {
+      throw const AforoApiException(AforoApi.respuestaInesperada);
+    }
+    final fecha = DateTime.tryParse(creadaEn);
+    final fechaLeida = leidaEn == null ? null : DateTime.tryParse(leidaEn as String);
+    if (fecha == null || (leidaEn != null && fechaLeida == null)) {
+      throw const AforoApiException(AforoApi.respuestaInesperada);
+    }
+    return NotificacionEstudiante(
+      id: id,
+      tipo: tipo,
+      mensaje: mensaje,
+      creadaEn: fecha,
+      leidaEn: fechaLeida,
+    );
+  }
+}
+
 /// Resultado de registrar a un estudiante por QR o por cédula.
 class ResultadoAccesoEstudiante {
   const ResultadoAccesoEstudiante({
@@ -293,6 +380,100 @@ class AforoApi {
     );
   }
 
+  Future<({PreferenciasAlertaAforo? preferencias, int capacidadMaxima})>
+      consultarPreferenciasAlerta() async {
+    final response = await _enviar(
+      'GET',
+      '/api/v1/notificaciones/preferencias',
+      bearerToken: _studentToken,
+    );
+    final Map<String, dynamic> data;
+    try {
+      data = _parseData(response, expectedStatusCode: 200);
+    } on AforoApiException catch (error) {
+      if (error.statusCode == 401) {
+        throw const SesionEstudianteExpiradaException();
+      }
+      rethrow;
+    }
+    final capacidadMaxima = data['capacidadMaxima'];
+    final rawPreferencias = data['preferencias'];
+    if (capacidadMaxima is! int ||
+        capacidadMaxima < 1 ||
+        (rawPreferencias != null && rawPreferencias is! Map<String, dynamic>)) {
+      throw const AforoApiException(respuestaInesperada);
+    }
+    return (
+      preferencias: rawPreferencias == null
+          ? null
+          : PreferenciasAlertaAforo.desdeJson(
+              rawPreferencias as Map<String, dynamic>,
+            ),
+      capacidadMaxima: capacidadMaxima,
+    );
+  }
+
+  Future<PreferenciasAlertaAforo> guardarPreferenciasAlerta({
+    required bool habilitada,
+    required int? umbral,
+    required List<int> dias,
+    required int horaInicio,
+    required int horaFin,
+  }) async {
+    final response = await _enviar(
+      'PUT',
+      '/api/v1/notificaciones/preferencias',
+      body: {
+        'habilitada': habilitada,
+        'umbral': umbral,
+        'dias': dias,
+        'horaInicio': horaInicio,
+        'horaFin': horaFin,
+      },
+      bearerToken: _studentToken,
+    );
+    final Map<String, dynamic> data;
+    try {
+      data = _parseData(response, expectedStatusCode: 200);
+    } on AforoApiException catch (error) {
+      if (error.statusCode == 401) {
+        throw const SesionEstudianteExpiradaException();
+      }
+      rethrow;
+    }
+    final rawPreferencias = data['preferencias'];
+    if (rawPreferencias is! Map<String, dynamic>) {
+      throw const AforoApiException(respuestaInesperada);
+    }
+    return PreferenciasAlertaAforo.desdeJson(rawPreferencias);
+  }
+
+  Future<List<NotificacionEstudiante>> consultarNotificaciones() async {
+    final response = await _enviar(
+      'GET',
+      '/api/v1/notificaciones',
+      bearerToken: _studentToken,
+    );
+    final Map<String, dynamic> data;
+    try {
+      data = _parseData(response, expectedStatusCode: 200);
+    } on AforoApiException catch (error) {
+      if (error.statusCode == 401) {
+        throw const SesionEstudianteExpiradaException();
+      }
+      rethrow;
+    }
+    final items = data['notificaciones'];
+    if (items is! List<dynamic> ||
+        items.any((item) => item is! Map<String, dynamic>)) {
+      throw const AforoApiException(respuestaInesperada);
+    }
+    return items
+        .cast<Map<String, dynamic>>()
+        .map(NotificacionEstudiante.desdeJson)
+        .toList(growable: false);
+  }
+
   Future<ResultadoAccesoEstudiante> registrarAccesoQr(
     String qr, {
     bool confirmarExcesoCapacidad = false,
@@ -399,7 +580,7 @@ class AforoApi {
   Future<http.Response> _enviar(
     String metodo,
     String path, {
-    Map<String, Object>? body,
+    Map<String, Object?>? body,
     String? bearerToken,
   }) async {
     final uri = Uri.parse('$_baseUrl$path');

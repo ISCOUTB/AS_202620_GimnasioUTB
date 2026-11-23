@@ -130,6 +130,105 @@ void main() {
       expect(qr.expiresAt, DateTime.parse('2026-11-15T12:00:00.000Z'));
     });
 
+    test('consulta y guarda las preferencias remotas de alertas', () async {
+      final client = MockClient((request) async {
+        expect(request.headers['authorization'], 'Bearer sesion-estudiante');
+        if (request.method == 'GET') {
+          expect(request.url.path, '/api/v1/notificaciones/preferencias');
+          return http.Response(
+            jsonEncode({
+              'status': 'success',
+              'data': {
+                'capacidadMaxima': 20,
+                'preferencias': {
+                  'habilitada': true,
+                  'umbral': 8,
+                  'dias': [1, 3, 5],
+                  'horaInicio': 480,
+                  'horaFin': 1080,
+                  'compatible': true,
+                },
+              },
+            }),
+            200,
+          );
+        }
+        expect(request.method, 'PUT');
+        expect(request.url.path, '/api/v1/notificaciones/preferencias');
+        expect(jsonDecode(request.body), {
+          'habilitada': true,
+          'umbral': 8,
+          'dias': [1, 3, 5],
+          'horaInicio': 480,
+          'horaFin': 1080,
+        });
+        return http.Response(
+          jsonEncode({
+            'status': 'success',
+            'data': {
+              'capacidadMaxima': 20,
+              'preferencias': {
+                'habilitada': true,
+                'umbral': 8,
+                'dias': [1, 3, 5],
+                'horaInicio': 480,
+                'horaFin': 1080,
+                'compatible': true,
+              },
+            },
+          }),
+          200,
+        );
+      });
+      final api = AforoApi(client: client, baseUrl: 'https://api.test')
+          .conTokenEstudiante('sesion-estudiante');
+
+      final result = await api.consultarPreferenciasAlerta();
+      expect(result.capacidadMaxima, 20);
+      expect(result.preferencias?.umbral, 8);
+      final saved = await api.guardarPreferenciasAlerta(
+        habilitada: true,
+        umbral: 8,
+        dias: [1, 3, 5],
+        horaInicio: 480,
+        horaFin: 1080,
+      );
+      expect(saved.compatible, isTrue);
+    });
+
+    test('consulta la bandeja de notificaciones autenticada', () async {
+      final client = MockClient((request) async {
+        expect(request.method, 'GET');
+        expect(request.url.path, '/api/v1/notificaciones');
+        expect(request.headers['authorization'], 'Bearer sesion-estudiante');
+        return http.Response(
+          jsonEncode({
+            'status': 'success',
+            'data': {
+              'notificaciones': [
+                {
+                  'id': 42,
+                  'tipo': 'AFORO_BAJO',
+                  'mensaje': 'El aforo está bajo.',
+                  'creadaEn': '2026-11-23T15:00:00.000Z',
+                  'leidaEn': null,
+                },
+              ],
+            },
+          }),
+          200,
+        );
+      });
+
+      final notifications = await AforoApi(
+        client: client,
+        baseUrl: 'https://api.test',
+      ).conTokenEstudiante('sesion-estudiante').consultarNotificaciones();
+
+      expect(notifications.single.id, 42);
+      expect(notifications.single.tipo, 'AFORO_BAJO');
+    });
+
     test('clasifica un 401 al solicitar el QR como sesión expirada', () async {
       final client = MockClient(
         (_) async => http.Response(
@@ -286,7 +385,8 @@ void main() {
       expect(estado.capacidadSuperada, isTrue);
     });
 
-    test('la capacidad superada se reconoce y la confirmación viaja en el cuerpo',
+    test(
+        'la capacidad superada se reconoce y la confirmación viaja en el cuerpo',
         () async {
       final cuerpos = <Object?>[];
       final client = MockClient((request) async {
@@ -341,7 +441,8 @@ void main() {
           jsonEncode({
             'status': 'error',
             'code': 'GIMNASIO_CERRADO',
-            'message': 'El gimnasio está cerrado. Solo se pueden registrar salidas.',
+            'message':
+                'El gimnasio está cerrado. Solo se pueden registrar salidas.',
           }),
           409,
         ),
@@ -405,7 +506,8 @@ void main() {
       expect(resultado.nombreEstudiante, 'Ana Pérez');
     });
 
-    test('el encargado abre, cierra con motivo y cambia la capacidad', () async {
+    test('el encargado abre, cierra con motivo y cambia la capacidad',
+        () async {
       final solicitudes = <String>[];
       final client = MockClient((request) async {
         expect(request.method, 'PUT');

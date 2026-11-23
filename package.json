@@ -15,7 +15,7 @@
     "db:check-security": "node scripts/check-db-security.js",
     "db:seed-demo-students": "node scripts/seed-demo-students.js",
     "test": "npm run test:base && npm run test:contrato && npm run test:mensajeria && npm run test:postgres",
-    "test:base": "node --test tests/health.test.js tests/domain/aforo.test.js tests/aforo.integration.test.js tests/identidad.test.js tests/autenticacion-local.test.js tests/seguridad.test.js tests/environment.test.js tests/migrate-db.test.js tests/db-security-check.test.js tests/postgres-connection-boundaries.test.js tests/secret-boundary.test.js tests/grant-runtime-db.test.js tests/local-db-setup.test.js",
+    "test:base": "node --test tests/health.test.js tests/domain/aforo.test.js tests/aforo.integration.test.js tests/identidad.test.js tests/notificaciones.test.js tests/autenticacion-local.test.js tests/seguridad.test.js tests/environment.test.js tests/migrate-db.test.js tests/db-security-check.test.js tests/postgres-connection-boundaries.test.js tests/secret-boundary.test.js tests/grant-runtime-db.test.js tests/local-db-setup.test.js",
     "test:contrato": "node --test tests/contrato.test.js",
     "test:postgres": "node --test tests/postgres/*.integration.test.js",
     "test:mensajeria": "node --test tests/messaging.test.js",

@@ -18,15 +18,21 @@ function conPorcentaje(estado) {
  *
  * @param {import('./ports/aforo-repository.port').AforoRepositoryPort} aforoRepository
  */
-function crearConfigurarGimnasioUseCases(aforoRepository) {
+function crearConfigurarGimnasioUseCases(aforoRepository, despuesDeCambiarEstado) {
   return {
     async cambiarApertura(solicitud) {
       const cambios = cambiarApertura(solicitud);
-      return conPorcentaje(await aforoRepository.modificarEstado(() => cambios));
+      return conPorcentaje(await aforoRepository.modificarEstado(
+        () => cambios,
+        despuesDeCambiarEstado
+      ));
     },
     async cambiarCapacidad(capacidadMaxima) {
       const cambios = cambiarCapacidad(capacidadMaxima);
-      return conPorcentaje(await aforoRepository.modificarEstado(() => cambios));
+      return conPorcentaje(await aforoRepository.modificarEstado(
+        () => cambios,
+        despuesDeCambiarEstado
+      ));
     },
   };
 }

@@ -27,15 +27,19 @@ class AforoMemoriaAdapter extends AforoRepositoryPort {
     return { ...this.#estado };
   }
 
-  async actualizarAforo(transicionar) {
+  async actualizarAforo(transicionar, despuesDeTransicionar) {
     const nuevoAforo = await transicionar(this.#estado.aforoActual, undefined, { ...this.#estado });
     this.#estado = { ...this.#estado, aforoActual: nuevoAforo };
+    if (despuesDeTransicionar) {
+      await despuesDeTransicionar(undefined, nuevoAforo, { ...this.#estado });
+    }
     return nuevoAforo;
   }
 
-  async modificarEstado(transformar) {
+  async modificarEstado(transformar, despuesDeModificar) {
     const cambios = await transformar({ ...this.#estado });
     this.#estado = { ...this.#estado, ...cambios };
+    if (despuesDeModificar) await despuesDeModificar(undefined, { ...this.#estado });
     return { ...this.#estado };
   }
 }

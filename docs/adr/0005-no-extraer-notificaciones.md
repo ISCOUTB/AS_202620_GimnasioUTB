@@ -4,6 +4,15 @@
 
 Aceptada — 18 de octubre de 2026. Se revisa cuando se cumpla alguna de las condiciones de la sección "Cuándo revisar esta decisión".
 
+> **Implementación posterior (22 de noviembre de 2026):** la decisión de no
+> extraer el módulo se mantiene. Ya existe evaluación transaccional y
+> periódica de alertas de aforo, preferencias sincronizadas y una bandeja in-app
+> dentro del monolito. Se usa PostgreSQL directamente —no el outbox ni el relay
+> FCM descritos como diseño futuro en esta ADR—. Firebase Cloud Messaging,
+> tokens de dispositivo y push siguen sin estar configurados. Las afirmaciones
+> históricas siguientes sobre la inexistencia del módulo describen el estado
+> al aceptar esta ADR.
+
 ## Contexto
 
 En S6 se identificaron cuatro contextos delimitados: Aforo, Identidad/Estudiante, Gestión Operativa y Notificaciones. El documento de [contextos delimitados](../contextos-delimitados.md) señaló a **Notificaciones** como el candidato natural para separarse: es un subdominio genérico, depende de un tercero (FCM), solo **lee** el aforo (nunca lo escribe) y su carga es distinta a la del registro de accesos (envíos masivos en ráfaga).

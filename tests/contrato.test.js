@@ -17,6 +17,9 @@ const {
   CuentaEstudianteInactivaError,
   EstudianteNoEncontradoError,
 } = require('../src/modules/identidad/application/identidad.errors');
+const {
+  PreferenciasAlertaInvalidasError,
+} = require('../src/modules/notificaciones/domain/alerta-aforo');
 
 const TOKEN = 'token-de-prueba-de-al-menos-32-caracteres-xx';
 const SPEC_ID = 'https://gimnasio-utb.local/openapi.json';
@@ -43,13 +46,15 @@ async function withServer(
   aforoRepository,
   operadorToken = TOKEN,
   identidadRepository,
-  autenticacion
+  autenticacion,
+  notificacionesRepository
 ) {
   const app = createApp({
     aforoRepository,
     operadorToken,
     identidadRepository,
     autenticacion,
+    notificacionesRepository,
   });
   const server = app.listen(0);
   const { port } = server.address();
@@ -76,6 +81,70 @@ const casos = [
   },
   { nombre: 'GET /metrics -> 200', metodo: 'get', ruta: '/metrics', status: 200 },
   { nombre: 'GET /api/v1/aforo -> 200', metodo: 'get', ruta: '/api/v1/aforo', status: 200 },
+  {
+    nombre: 'GET /api/v1/notificaciones/preferencias -> 200',
+    metodo: 'get', ruta: '/api/v1/notificaciones/preferencias', status: 200,
+    tokenEstudiante: 'sesion-valida',
+    identidadRepository: { obtenerEstudiantePorCodigo: async (id) => ({ codigo_estudiante: id }) },
+    autenticacion: { obtenerUsuario: async () => ({ id: 'demo-001' }) },
+    notificacionesRepository: {
+      obtenerPreferencias: async () => ({ preferencias: null, capacidadMaxima: 30 }),
+    },
+  },
+  {
+    nombre: 'GET /api/v1/notificaciones/preferencias -> 401',
+    metodo: 'get', ruta: '/api/v1/notificaciones/preferencias', status: 401,
+    identidadRepository: { obtenerEstudiantePorCodigo: async (id) => ({ codigo_estudiante: id }) },
+    autenticacion: { obtenerUsuario: async () => null },
+    notificacionesRepository: {
+      obtenerPreferencias: async () => assert.fail('no debe consultar'),
+    },
+  },
+  {
+    nombre: 'GET /api/v1/notificaciones/preferencias -> 503',
+    metodo: 'get', ruta: '/api/v1/notificaciones/preferencias', status: 503,
+    tokenEstudiante: 'sesion-valida',
+    identidadRepository: { obtenerEstudiantePorCodigo: async (id) => ({ codigo_estudiante: id }) },
+    autenticacion: { obtenerUsuario: async () => ({ id: 'demo-001' }) },
+    notificacionesRepository: {
+      obtenerPreferencias: async () => { throw new Error('fallo controlado'); },
+    },
+  },
+  {
+    nombre: 'GET /api/v1/notificaciones -> 200',
+    metodo: 'get', ruta: '/api/v1/notificaciones', status: 200,
+    tokenEstudiante: 'sesion-valida',
+    identidadRepository: { obtenerEstudiantePorCodigo: async (id) => ({ codigo_estudiante: id }) },
+    autenticacion: { obtenerUsuario: async () => ({ id: 'demo-001' }) },
+    notificacionesRepository: {
+      listarNotificaciones: async () => [{
+        id: 1,
+        tipo: 'AFORO_BAJO',
+        mensaje: 'Aforo bajo',
+        creadaEn: '2026-11-23T15:00:00.000Z',
+        leidaEn: null,
+      }],
+    },
+  },
+  {
+    nombre: 'GET /api/v1/notificaciones -> 401',
+    metodo: 'get', ruta: '/api/v1/notificaciones', status: 401,
+    identidadRepository: { obtenerEstudiantePorCodigo: async (id) => ({ codigo_estudiante: id }) },
+    autenticacion: { obtenerUsuario: async () => null },
+    notificacionesRepository: {
+      listarNotificaciones: async () => assert.fail('no debe consultar'),
+    },
+  },
+  {
+    nombre: 'GET /api/v1/notificaciones -> 503',
+    metodo: 'get', ruta: '/api/v1/notificaciones', status: 503,
+    tokenEstudiante: 'sesion-valida',
+    identidadRepository: { obtenerEstudiantePorCodigo: async (id) => ({ codigo_estudiante: id }) },
+    autenticacion: { obtenerUsuario: async () => ({ id: 'demo-001' }) },
+    notificacionesRepository: {
+      listarNotificaciones: async () => { throw new Error('fallo controlado'); },
+    },
+  },
   {
     nombre: 'GET /api/v1/aforo -> 503', metodo: 'get', ruta: '/api/v1/aforo', status: 503,
     aforoRepository: {
@@ -491,6 +560,68 @@ casos.push(
     body: { cedula: '1012345678' }, cumpleSolicitud: true,
   },
   {
+    nombre: 'PUT /api/v1/notificaciones/preferencias -> 200',
+    metodo: 'put', ruta: '/api/v1/notificaciones/preferencias', status: 200,
+    tokenEstudiante: 'sesion-valida',
+    body: {
+      habilitada: true, umbral: 8, dias: [1, 3, 5], horaInicio: 480, horaFin: 1080,
+    },
+    cumpleSolicitud: true,
+    identidadRepository: { obtenerEstudiantePorCodigo: async (id) => ({ codigo_estudiante: id }) },
+    autenticacion: { obtenerUsuario: async () => ({ id: 'demo-001' }) },
+    notificacionesRepository: {
+      guardarPreferencias: async (_id, data) => ({
+        preferencias: { ...data, compatible: true },
+        capacidadMaxima: 30,
+      }),
+    },
+  },
+  {
+    nombre: 'PUT /api/v1/notificaciones/preferencias -> 400',
+    metodo: 'put', ruta: '/api/v1/notificaciones/preferencias', status: 400,
+    tokenEstudiante: 'sesion-valida',
+    body: {
+      habilitada: true, umbral: 31, dias: [1], horaInicio: 480, horaFin: 1080,
+    },
+    cumpleSolicitud: true,
+    identidadRepository: { obtenerEstudiantePorCodigo: async (id) => ({ codigo_estudiante: id }) },
+    autenticacion: { obtenerUsuario: async () => ({ id: 'demo-001' }) },
+    notificacionesRepository: {
+      guardarPreferencias: async () => {
+        throw new PreferenciasAlertaInvalidasError('Umbral inválido');
+      },
+    },
+    respuestaEsperada: { status: 'error', message: 'Umbral inválido' },
+  },
+  {
+    nombre: 'PUT /api/v1/notificaciones/preferencias -> 401',
+    metodo: 'put', ruta: '/api/v1/notificaciones/preferencias', status: 401,
+    body: {
+      habilitada: true, umbral: 8, dias: [1], horaInicio: 480, horaFin: 1080,
+    },
+    cumpleSolicitud: true,
+    sinToken: true,
+    identidadRepository: { obtenerEstudiantePorCodigo: async (id) => ({ codigo_estudiante: id }) },
+    autenticacion: { obtenerUsuario: async () => null },
+    notificacionesRepository: {
+      guardarPreferencias: async () => assert.fail('no debe guardar'),
+    },
+  },
+  {
+    nombre: 'PUT /api/v1/notificaciones/preferencias -> 503',
+    metodo: 'put', ruta: '/api/v1/notificaciones/preferencias', status: 503,
+    tokenEstudiante: 'sesion-valida',
+    body: {
+      habilitada: true, umbral: 8, dias: [1], horaInicio: 480, horaFin: 1080,
+    },
+    cumpleSolicitud: true,
+    identidadRepository: { obtenerEstudiantePorCodigo: async (id) => ({ codigo_estudiante: id }) },
+    autenticacion: { obtenerUsuario: async () => ({ id: 'demo-001' }) },
+    notificacionesRepository: {
+      guardarPreferencias: async () => { throw new Error('fallo controlado'); },
+    },
+  },
+  {
     nombre: 'POST /api/v1/operador/verificacion -> 200',
     metodo: 'post', ruta: '/api/v1/operador/verificacion', status: 200,
   },
@@ -528,7 +659,8 @@ for (const caso of casos) {
           method: caso.metodo.toUpperCase(),
           headers: {
             'Content-Type': solicitud.contentType || 'application/json',
-            ...(['post', 'put'].includes(caso.metodo) && !caso.sinToken
+            ...((['post', 'put'].includes(caso.metodo) && !caso.sinToken)
+              || (caso.metodo === 'get' && caso.tokenEstudiante)
               ? { Authorization: `Bearer ${caso.tokenEstudiante || TOKEN}` }
               : {}),
           },
@@ -575,7 +707,7 @@ for (const caso of casos) {
 
       cubiertos.add(`${caso.metodo.toUpperCase()} ${caso.ruta} ${caso.status}`);
     }, caso.aforoRepository, caso.operadorToken === undefined ? TOKEN : caso.operadorToken,
-    caso.identidadRepository, caso.autenticacion);
+    caso.identidadRepository, caso.autenticacion, caso.notificacionesRepository);
   });
 }
 

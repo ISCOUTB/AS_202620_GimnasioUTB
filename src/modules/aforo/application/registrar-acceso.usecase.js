@@ -18,10 +18,12 @@ function estadoDeTransicion(aforoActual, estado) {
  *
  * @param {import('../application/ports/aforo-repository.port').AforoRepositoryPort} aforoRepository
  */
-function crearRegistrarAccesoUseCase(aforoRepository) {
+function crearRegistrarAccesoUseCase(aforoRepository, despuesDeCambiarAforo) {
   return async function registrarAcceso(tipoAcceso, opciones = {}) {
-    return aforoRepository.actualizarAforo((aforoActual, _transaccion, estado) =>
-      aplicarAccesoConEstado(estadoDeTransicion(aforoActual, estado), tipoAcceso, opciones)
+    return aforoRepository.actualizarAforo(
+      (aforoActual, _transaccion, estado) =>
+        aplicarAccesoConEstado(estadoDeTransicion(aforoActual, estado), tipoAcceso, opciones),
+      despuesDeCambiarAforo
     );
   };
 }

@@ -57,6 +57,11 @@ void main() {
     expect(find.text('Gimnasio cerrado'), findsOneWidget);
     expect(find.textContaining('Motivo: Mantenimiento'), findsOneWidget);
     expect(find.text('33 % de ocupación'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('30 personas'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('30 personas'), findsOneWidget);
     expect(find.text('20'), findsOneWidget);
     expect(find.text('API'), findsNothing);
@@ -137,6 +142,7 @@ void main() {
 
     expect(registros, 2);
     expect(find.text('Registro completado'), findsOneWidget);
-    expect(find.textContaining('Se superó la capacidad máxima'), findsOneWidget);
+    expect(
+        find.textContaining('Se superó la capacidad máxima'), findsOneWidget);
   });
 }

@@ -20,7 +20,7 @@ El propósito del producto es ofrecer información confiable sobre la disponibil
 
 **IMPLEMENTADO:** backend Node.js/Express con Arquitectura Hexagonal / Ports and Adapters; consulta y registro de aforo; cuentas estudiantiles sintéticas; sesión temporal; QR de un solo uso; escaneo desde Flutter; transacción PostgreSQL; readiness, liveness, métricas locales, logs estructurados y cierre ordenado ante `SIGTERM`.
 
-**IMPLEMENTADO:** la app Flutter consulta el aforo, permite iniciar sesión con una cuenta estudiantil sintética y muestra un QR temporal; el operador puede escanearlo, buscar al estudiante por cédula o registrar una transición sin identificación. El QR se consume y el aforo se actualiza en una transacción PostgreSQL. El encargado abre y cierra el gimnasio (con motivo opcional) y define la capacidad máxima; con el gimnasio cerrado se bloquean las entradas, y una entrada que supera la capacidad exige su confirmación (ADR-0012). La app muestra estado, aforo, porcentaje de ocupación y cupos, y se actualiza cada 15 segundos. **OBJETIVO / FUTURO:** SSO institucional; roles individuales; historial completo de eventos y deduplicación de operaciones manuales; WebSocket; FCM; IaC completa y definición final de costos. La API y PostgreSQL se despliegan juntos en Dokploy con Docker Compose y login propio (ADR-0011); Render y Supabase fueron alternativas que no se mantuvieron.
+**IMPLEMENTADO:** la app Flutter consulta el aforo, permite iniciar sesión con una cuenta estudiantil sintética y muestra un QR temporal; el operador puede escanearlo, buscar al estudiante por cédula o registrar una transición sin identificación. El QR se consume y el aforo se actualiza en una transacción PostgreSQL. El encargado abre y cierra el gimnasio (con motivo opcional) y define la capacidad máxima; con el gimnasio cerrado se bloquean las entradas, y una entrada que supera la capacidad exige su confirmación (ADR-0012). La app muestra estado, aforo, porcentaje de ocupación y cupos, y se actualiza cada 15 segundos. Los estudiantes sincronizan preferencias individuales de alertas de aforo y ven los avisos en la pestaña existente; evaluación horaria y deduplicación persisten en PostgreSQL. **OBJETIVO / FUTURO:** SSO institucional; roles individuales; historial completo de accesos y deduplicación de operaciones manuales; WebSocket; push FCM; IaC completa y definición final de costos. La API y PostgreSQL se despliegan juntos en Dokploy con Docker Compose y login propio (ADR-0011); Render y Supabase fueron alternativas que no se mantuvieron.
 
 La identidad usada es sintética y no representa cuentas UTB reales. La tabla de estado individual no constituye un historial de eventos.
 
@@ -60,7 +60,7 @@ La solución se desarrolla como proyecto académico incremental y su arquitectur
 
 ## 2.3 Restricciones y requisitos futuros
 
-El repositorio contiene el proyecto Flutter/UI y la configuración de deployment Docker Compose para Dokploy. El flujo QR usa cuentas sintéticas y no integra SSO ni datos institucionales. Roles individuales de operadores, notificaciones y WebSocket no están implementados. La infraestructura de Dokploy es externa al repositorio; Compose es configuración de deployment versionada, no IaC completa.
+El repositorio contiene el proyecto Flutter/UI y la configuración de deployment Docker Compose para Dokploy. El flujo QR usa cuentas sintéticas y no integra SSO ni datos institucionales. Roles individuales de operadores, push FCM y WebSocket no están implementados. La infraestructura de Dokploy es externa al repositorio; Compose es configuración de deployment versionada, no IaC completa.
 
 # 3. Contexto y alcance del sistema
 
@@ -78,7 +78,7 @@ flowchart LR
 
 El cliente HTTP invoca la API. El servidor real persiste el contador en PostgreSQL mediante `AforoPostgresAdapter`. En pruebas, `createApp()` puede componer `AforoMemoriaAdapter`.
 
-El cliente Flutter consume las rutas de aforo y estudiantes descritas en `docs/openapi.yaml`. El operador envía `Authorization: Bearer` con el token compartido (ADR-0007); la sesión de estudiante es separada y solo aplica a cuentas sintéticas. Notificaciones, estado operativo, WebSocket y FCM siguen siendo futuros.
+El cliente Flutter consume las rutas de aforo, estudiantes y notificaciones descritas en `docs/openapi.yaml`. El operador envía `Authorization: Bearer` con el token compartido (ADR-0007); la sesión de estudiante es separada y solo aplica a cuentas sintéticas. La bandeja de notificaciones in-app está implementada; FCM y WebSocket siguen siendo futuros.
 
 ## 3.3 Interfaces HTTP implementadas
 
@@ -110,7 +110,7 @@ La observabilidad implementada es básica: logs JSON en stdout, `/health`, `/rea
 
 ## 4.3 Arquitectura objetivo
 
-**OBJETIVO / FUTURO:** añadir SSO, roles individuales de operador, historial completo y canales de notificación. El deployment runtime actual se describe en la sección 7.
+**OBJETIVO / FUTURO:** añadir SSO, roles individuales de operador, historial completo, WebSocket y push FCM. El deployment runtime actual se describe en la sección 7.
 
 # 5. Vista de bloques
 
@@ -129,6 +129,9 @@ flowchart LR
     READ --> PORT
     EST -. función inyectada .-> ID[IdentidadPostgresAdapter<br/>consumirQr / registrarPorCedula]
     PORT --> PG[AforoPostgresAdapter]
+    SERVER --> NOTIF[Notificaciones<br/>preferencias, evaluación y bandeja]
+    NOTIF --> DB
+    PG -. callback en transacción .-> NOTIF
     PG --> DB[(PostgreSQL<br/>aforo_estado)]
     WRITE -. reglas .-> DOMAIN[domain/aforo.js<br/>aplicarAccesoConEstado]
     EST -. reglas .-> DOMAIN
@@ -152,9 +155,10 @@ El composition root inyecta el repositorio y la función de identidad que resuel
 | Adapter PostgreSQL | Ejecuta transacción, bloqueo de fila, actualización y rollback. | `src/modules/aforo/infrastructure/persistence/aforo-postgres.adapter.js` |
 | Adapter en memoria | Implementación en RAM del mismo puerto. | `src/modules/aforo/infrastructure/persistence/aforo-memoria.adapter.js` |
 | Identidad | Login propio, sesiones, QR, búsqueda y registro por cédula y estado individual dentro/fuera. | `src/modules/identidad/` |
-| Esquema | Fila única `aforo_estado` (aforo, capacidad, apertura y motivo, con `CHECK`), cuentas sintéticas, sesiones, QR y estado individual. | `src/modules/aforo/infrastructure/persistence/schema.sql`, `db/migrations/` |
+| Notificaciones | Sincroniza preferencias, evalúa episodios bajo umbral con zona `America/Bogota` y expone la bandeja del estudiante. FCM no está configurado. | `src/modules/notificaciones/` |
+| Esquema | Fila única `aforo_estado` (aforo, capacidad, apertura y motivo, con `CHECK`), cuentas sintéticas, sesiones, QR, estado individual, preferencias y notificaciones. | `src/modules/aforo/infrastructure/persistence/schema.sql`, `db/migrations/` |
 
-No existen en los bloques implementados usuarios por encargado, historial de eventos, notificaciones, WebSocket ni Firebase.
+No existen usuarios por encargado, historial de accesos, WebSocket ni Firebase Cloud Messaging.
 
 # 6. Vista de ejecución
 
@@ -188,7 +192,11 @@ La prueba de integración PostgreSQL comprueba rechazo de salida desde cero y ro
 
 ## 6.3 Flujos fuera del alcance
 
-El QR de cuenta sintética sí está implementado. La apertura/cierre y la capacidad están implementadas (ADR-0012). El historial completo, la corrección con trazabilidad, difusión WebSocket y notificaciones FCM no forman parte de estos flujos.
+El QR de cuenta sintética sí está implementado. La apertura/cierre y la capacidad están implementadas (ADR-0012). El historial completo de accesos, la corrección con trazabilidad, difusión WebSocket y push FCM no forman parte de estos flujos.
+
+## 6.4 Alertas automáticas de aforo
+
+Las preferencias de cada estudiante se guardan en `preferencias_alerta_aforo`; el umbral se valida contra la capacidad bajo bloqueo de la fila de `aforo_estado`. Cada transición de aforo y cada cambio de capacidad evalúan las preferencias dentro de la misma transacción, actualizando el episodio y, si corresponde, insertando la notificación de forma idempotente. El proceso también reevalúa cada 30 segundos, de modo que una condición detectada fuera de horario se comprueba de nuevo en el siguiente período permitido. Se usa la zona `America/Bogota`; el inicio es inclusivo y el fin exclusivo. Si la capacidad disminuye bajo un umbral guardado, se conserva la preferencia y la alerta queda pausada. La bandeja se consulta en la app; el envío push requiere configuración Firebase pendiente.
 
 # 7. Vista de despliegue
 
@@ -289,7 +297,7 @@ Cuando PostgreSQL no responde, las escrituras fallan con `503`: se prefiere no r
 
 ## 8.5 Conceptos futuros
 
-**OBJETIVO / FUTURO:** SSO, roles individuales de operadores, historial completo, deduplicación de operaciones manuales, WebSocket y FCM.
+**OBJETIVO / FUTURO:** SSO, roles individuales de operadores, historial completo, deduplicación de operaciones manuales, WebSocket y push FCM.
 
 ## 8.6 Caché
 
@@ -352,7 +360,7 @@ Modelo de amenazas completo, análisis de dependencias y privacidad en la [evide
 | Identidad sintética, sesión temporal y QR de un solo uso consumido en la transacción del aforo. | **IMPLEMENTADO:** módulo `identidad`, `qr_credenciales`, `estudiante_estado_acceso`. | [ADR-0008](../adr/0008-identidad-de-prueba-y-qr-de-acceso.md). |
 | Estado del gimnasio (apertura con motivo y capacidad máxima), confirmación al superar la capacidad y registro por cédula. | **IMPLEMENTADO:** reglas en `aforo.js`, migración `20261122_002`, `PUT /api/v1/aforo/estado` y `/capacidad`, `POST /acceso-cedula`; pruebas de dominio, HTTP, contrato y PostgreSQL. | [ADR-0012](../adr/0012-estado-capacidad-y-registro-por-cedula.md). |
 | Métricas en memoria, logs JSON y cierre ante SIGTERM. | **IMPLEMENTADO** en la composición del servidor y `src/shared/logger.js`. | No hay ADR independiente para estas decisiones operativas básicas. |
-| No extraer Notificaciones a un servicio. | **DECIDIDO, NO IMPLEMENTADO:** Notificaciones, su puerto, outbox y relay aún no existen; son parte del diseño futuro evaluado, no componentes actuales. Se compararon "no extraer", "servicio + broker" y "servicio + HTTP". | [ADR-0005](../adr/0005-no-extraer-notificaciones.md). Modos de fallo en la [evidencia S11](../s11-fallos-parciales.md). |
+| No extraer Notificaciones a un servicio. | **DECIDIDO E IMPLEMENTADO COMO MÓDULO DEL MONOLITO:** preferencias, evaluación transaccional, scheduler y bandeja in-app. El envío FCM no está implementado. | [ADR-0005](../adr/0005-no-extraer-notificaciones.md). |
 | Proteger el registro de accesos con token de operador y limitar CORS a una lista blanca. | **IMPLEMENTADO:** `src/shared/http/seguridad.js`, `server.js`, cliente Flutter; pruebas en `tests/seguridad.test.js` y contrato. Excepción documentada a la regla de versionado (`2.0.0` en `/api/v1`). | [ADR-0007](../adr/0007-autenticacion-operador-y-cors.md). Amenazas en la [evidencia S13](../s13-seguridad-amenazas.md). |
 | Registrar cada transición en un log de eventos append-only junto al contador. | **DECIDIDO, NO IMPLEMENTADO:** hoy solo existe `aforo_estado`. Se compararon "solo estado", "estado + log", "event sourcing puro" y "broker como fuente". Refina las tablas de idempotencia y outbox de S11. | [ADR-0006](../adr/0006-log-de-eventos-de-acceso.md). Estrategia de datos en la [evidencia S12](../s12-datos-eventos.md). |
 
@@ -385,7 +393,7 @@ La evidencia fechada de [S9](../s9-cadena-verificada.md) reporta una ejecución 
 - `/metrics` tiene prueba de conteo de entradas y salidas completadas. No es una prueba de consistencia ni un benchmark.
 - **S8 — Deployment y señales operativas:** Compose define el healthcheck de PostgreSQL, la inicialización con `db-init` y el healthcheck de `api` sobre `/ready`. El equipo reportó un deployment exitoso y verificó públicamente `/health`, `/ready`, `/metrics` y las operaciones de consulta/registro. Esto verifica el despliegue y esas respuestas en una ejecución; no mide disponibilidad, rendimiento, p95, throughput ni retención tras redeploy.
 - **Q3 — Frescura de la consulta (S12, OBJETIVO no medido):** el aforo que entrega `GET /api/v1/aforo` no debe tener más de 2 s de atraso respecto al último `COMMIT`. No hay una medición de frescura que permita comprobar el límite; la ausencia actual de caché no constituye evidencia medida de cumplimiento. El riesgo y el límite de consistencia deben reevaluarse si se implementa la caché descrita en la sección 8.6.
-- Umbrales de 200 ms, P95 de WebSocket, carga de 50 clientes, cambio automático de apertura/cierre y notificaciones en dos minutos no cuentan con implementación/evidencia actual. Si se conservan como metas académicas, deben etiquetarse como objetivos futuros no medidos.
+- Umbrales de 200 ms, P95 de WebSocket, carga de 50 clientes, cambio automático de apertura/cierre y latencia de entrega de alertas no cuentan con medición actual.
 
 ## 10.4 Contraste de resultados con los umbrales
 
@@ -411,9 +419,9 @@ El análisis completo, con el diseño de cada mitigación, está en la [evidenci
 | F5 | Resultado incierto del `COMMIT` (conexión cortada). | Alto. La API responde `503` aunque el cambio pudo aplicarse; el reintento duplica. | Misma clave de idempotencia que F1. | DISEÑO |
 | F6 | El proceso muere a mitad de la transacción. | Bajo. | Atomicidad de PostgreSQL y `ROLLBACK` del adapter. | IMPLEMENTADO |
 | F7 | Redeploy con peticiones en vuelo. | Medio. | Cierre ordenado ante `SIGTERM` (existe) + idempotencia. | PARCIAL |
-| F8 | Escritura doble aforo + push (Notificaciones). | Alto cuando exista. | Patrón outbox en la misma transacción. | FUTURO / DISEÑO |
-| F9 | FCM lento o caído. | Alto si se llamara en la petición. | Relay asíncrono con timeout y circuit breaker. | FUTURO / DISEÑO |
-| F10 | La entrega al menos una vez puede producir mensajes duplicados. | Bajo-medio. | Diseño futuro: procesamiento idempotente por ID estable; no garantiza que FCM o el dispositivo no muestren duplicados. No hay mecanismo implementado. | FUTURO / DISEÑO |
+| F8 | Desacople entre cambios de aforo y aviso in-app. | Medio. | Inserción de notificación y cambio de episodio en la misma transacción PostgreSQL. | Mitigado y probado con integración PostgreSQL. |
+| F9 | FCM lento o caído. | No aplica al flujo actual; FCM no está configurado. | Cuando se habilite push: outbox/relay asíncrono, timeout y reintentos sin bloquear accesos. | Pendiente |
+| F10 | Notificaciones in-app repetidas por concurrencia o reintentos. | Medio. | Bloqueos transaccionales y restricción única por estudiante, tipo y episodio. | Implementado; FCM/device push no cubierto. |
 | F11 | Identidad no responde al validar el QR, si fuera un servicio. | Alto solo si se extrajera. | Identidad permanece como módulo interno y consume el QR en la transacción local; si se extrajera: timeout, breaker y saga con compensación. | Implementado en monolito; extracción futura |
 
 La decisión de no extraer Notificaciones a un servicio propio, y las condiciones para revisarla, están en [ADR-0005](../adr/0005-no-extraer-notificaciones.md).
@@ -429,7 +437,7 @@ Los siguientes puntos son límites actuales, no mitigaciones implementadas:
 - Las sesiones vencidas no se limpian de `sesiones_estudiantes` y no hay recuperación de contraseña: las cuentas sintéticas se administran con `DEMO_STUDENTS`.
 - CI todavía no aprovisiona PostgreSQL ni ejecuta `test:postgres`.
 - La estrategia final de costos cloud no está definida.
-- Las pruebas automatizadas cubren cliente y backend por separado; no se ha ejecutado una prueba extremo a extremo contra el deployment. WebSocket, FCM y estado operativo permanecen pendientes.
+- Las pruebas automatizadas cubren cliente y backend por separado; no se ha ejecutado una prueba extremo a extremo contra el deployment. WebSocket y FCM permanecen pendientes.
 - Erosión vigilada (S9): `npm run arch:check` y el CI aplican 11 reglas de dependencias derivadas de ADR-0001; los hallazgos abiertos (lógica acumulada en `server.js`, `catch {}` vacíos, CI sin `test:postgres`) están en [la auditoría de erosión](../auditoria-erosion.md).
 - Dependencias (S9): `npm audit` sin vulnerabilidades tras la actualización; `express` 4.x y `js-yaml` 4.x están una versión mayor por detrás de `latest`. Ver [la auditoría de dependencias](../auditoria-dependencias.md).
 - **Historia no registrada (S12):** mientras ADR-0006 no se implemente, cada transición sobrescribe el contador y la historia se pierde de forma irreversible.
@@ -480,7 +488,7 @@ No se encontró en el repositorio un acta, comentario o documento que identifiqu
 | **Adapter de memoria** | Implementación en RAM de `AforoRepositoryPort`, usada por defecto en `createApp()` y pruebas sin DB. |
 | **QR e identidad** | **IMPLEMENTADO para demostración:** cuentas sintéticas, sesión temporal y QR de un solo uso; SSO institucional FUTURO. |
 | **Historial de accesos** | **OBJETIVO / FUTURO:** registros individuales; el esquema actual solo almacena el contador agregado. |
-| **WebSocket y FCM** | **OBJETIVO / FUTURO:** canales de tiempo real y notificaciones no implementados. |
+| **WebSocket y FCM** | **OBJETIVO / FUTURO:** actualización del aforo en tiempo real y push no implementados. La bandeja in-app de alertas de aforo sí está implementada. |
 | **Render y cold start** | Render fue una alternativa considerada; no es el deployment actual. No se reportan mediciones de cold start del deployment Dokploy. |
 | **Flutter** | App cliente en `docs/Flutter`; consulta el aforo, muestra QR con sesión sintética y envía el token de operador para escanear o registrar. |
 | **Consistencia eventual con atraso acotado** | La lectura puede no tener el último valor, pero su atraso no supera una cota conocida (2 s para el aforo). **DISEÑO.** |

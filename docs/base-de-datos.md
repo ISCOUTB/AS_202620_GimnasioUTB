@@ -43,6 +43,9 @@ son idempotentes.
 | `sesiones_estudiantes` | `token_hash`, `codigo_estudiante`, `expires_at` | las mismas | — | Crear y validar sesiones |
 | `qr_credenciales` | `token_hash`, `codigo_estudiante`, `expires_at`, `consumido_en` | `token_hash`, `codigo_estudiante`, `expires_at` | `consumido_en` | Emitir y consumir QR |
 | `estudiante_estado_acceso` | `codigo_estudiante`, `dentro` | las mismas | `dentro` | Saber si es ENTRADA o SALIDA |
+| `preferencias_alerta_aforo` | `codigo_estudiante`, `habilitada`, `umbral`, `dias`, `hora_inicio`, `hora_fin` | las mismas | mismas + `actualizado_en` | Preferencias individuales sincronizadas desde la app |
+| `estado_alerta_aforo` | `codigo_estudiante`, `en_periodo_bajo`, `notificado`, `episodio` | las mismas | mismas + `actualizado_en` | Deduplicación y reactivación transaccional por episodio |
+| `notificaciones` | `id`, `codigo_estudiante`, `tipo`, `mensaje`, `episodio`, `creada_en`, `leida_en` | las mismas | — | Bandeja por estudiante y log de notificaciones |
 
 Todas las tablas tienen RLS. Políticas destacadas:
 

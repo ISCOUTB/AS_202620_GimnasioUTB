@@ -18,6 +18,7 @@ El corte vertical actual permite:
 - Escanear el QR desde la cuenta de operador, o buscar al estudiante por cédula, y registrar la entrada o salida junto con la actualización transaccional del aforo.
 - Abrir y cerrar el gimnasio con un motivo opcional: cerrado, se bloquean los nuevos ingresos y quienes están dentro siguen registrados hasta que salen ([ADR 0012](docs/adr/0012-estado-capacidad-y-registro-por-cedula.md)).
 - Definir la capacidad máxima y mostrar el porcentaje de ocupación y los cupos. Si un ingreso la supera, la app pide confirmación al encargado antes de registrarlo.
+- Configurar alertas automáticas individuales por umbral, días y horario; consultar los avisos en la pestaña existente. La evaluación respeta `America/Bogota`, evita duplicados por episodio y vuelve a evaluar el aforo en el horario permitido.
 
 El QR no contiene datos personales legibles, expira en 60 segundos y solo puede consumirse una vez. Las cuentas de prueba se cargan desde la variable `DEMO_STUDENTS` en cada deploy. El registro sin identificación (para visitantes) modifica únicamente el contador.
 
@@ -55,6 +56,7 @@ Cada paso exige su propia variable de autorización (`DB_BOOTSTRAP_ENABLED`, `DB
 | `DATABASE_SSL_CA_CERT_PATH` / `DATABASE_SSL_CA_CERT_BASE64` | No | CA en PEM para un PostgreSQL remoto con certificado propio. Solo una de las dos. |
 | `OPERADOR_TOKEN` | Para registrar accesos | Secreto de mínimo 32 caracteres; sin él los registros responden `503` (ADR-0007). |
 | `CORS_ORIGINS` | No | Orígenes web permitidos, separados por coma. |
+| `ALERTAS_AFORO_INTERVAL_MS` | No | Frecuencia de respaldo para revaluar alertas (mínimo 1000 ms, predeterminado 30000); las transiciones de aforo también se evalúan dentro de su transacción. |
 | `DB_ADMIN_URL` | Solo `db:bootstrap` | Superusuario del PostgreSQL local; nunca llega a la API. |
 | `DB_MIGRATIONS_URL` | Solo comandos de esquema y seed | Rol `gimnasio_migrator`, dueño de las tablas. |
 | `DB_MIGRATIONS_HOST`, `DB_MIGRATIONS_TARGET` | Con `DB_MIGRATIONS_URL` | Confirmación explícita del host y la base. |
@@ -96,6 +98,9 @@ Los archivos de deployment son `Dockerfile`, `.dockerignore`, `deploy/compose.la
 | `POST /api/v1/aforo/acceso` | Exige `Authorization: Bearer <OPERADOR_TOKEN>`. Recibe `{"tipoAcceso":"ENTRADA"}` o `{"tipoAcceso":"SALIDA"}`. Responde `201` si se registra, `400` si falla la entrada o regla de dominio, `401` sin token válido, `413` si el cuerpo supera 1 KB, `503` si el repositorio no está disponible o el servidor no tiene token configurado, y `500` ante errores inesperados. |
 | `POST /api/v1/estudiantes/sesion` | Inicia sesión con correo `@utb.edu.co` y contraseña; devuelve un token de sesión aleatorio y su vencimiento (8 horas). |
 | `POST /api/v1/estudiantes/qr` | Requiere la sesión de estudiante; devuelve un QR de un solo uso válido por 60 segundos. |
+| `GET /api/v1/notificaciones/preferencias` | Sesión de estudiante. Devuelve sus preferencias y la capacidad vigente; una configuración ya guardada puede aparecer como incompatible si el encargado redujo la capacidad. |
+| `PUT /api/v1/notificaciones/preferencias` | Sesión de estudiante. Sincroniza habilitación, umbral, días y minutos desde medianoche. Un umbral habilitado superior a la capacidad vigente se rechaza. |
+| `GET /api/v1/notificaciones` | Sesión de estudiante. Devuelve las últimas 50 notificaciones, incluidas las alertas de aforo automáticas. |
 | `POST /api/v1/aforo/acceso-qr` | Requiere token de operador; consume el QR y registra la transición individual y el aforo en la misma transacción. |
 | `POST /api/v1/aforo/acceso-cedula` | Igual que el QR, identificando al estudiante por su cédula. |
 | `PUT /api/v1/aforo/estado` | Token de operador. `{"abierto":false,"motivoCierre":"..."}` cierra; `{"abierto":true}` abre. |
@@ -104,6 +109,10 @@ Los archivos de deployment son `Dockerfile`, `.dockerignore`, `deploy/compose.la
 | `POST /api/v1/operador/verificacion` | Comprueba el token de operador; la app lo usa al ingresar como encargado. |
 
 Con el gimnasio cerrado, toda entrada responde `409` con `code: GIMNASIO_CERRADO`. Una entrada que supera la capacidad responde `409` con `code: CAPACIDAD_SUPERADA` hasta que se repite con `"confirmarExcesoCapacidad": true`.
+
+Solo las alertas automáticas `AFORO_BAJO` aplican días y horarios; los avisos de otros tipos no pasan por ese filtro. El umbral es estricto (`aforoActual < umbral`), los intervalos incluyen el inicio y excluyen el fin. Al reducir la capacidad, las preferencias se conservan y las incompatibles quedan pausadas hasta que el estudiante ajuste su umbral. La evaluación se hace dentro de las transacciones de aforo/capacidad/preferencias y, como respaldo, cada 30 segundos. Las alertas disponibles aparecen en la bandeja dentro de la app; FCM no está configurado.
+
+Para habilitar push FCM faltan el proyecto y configuración Firebase de las apps Android/iOS, las dependencias y permisos Flutter (`firebase_core`/`firebase_messaging`), el registro/renovación del token de dispositivo, y las credenciales de servidor con un adaptador de envío y reintentos. No hay secretos ni archivos `google-services.json` / `GoogleService-Info.plist` versionados.
 
 Ejemplo observado después de una entrada y una salida en una ejecución de producción (no es historial persistente):
 
@@ -184,7 +193,7 @@ GET /metrics
 
 ## Arquitectura y consistencia
 
-El dominio contiene las reglas del aforo: la transición del contador, el bloqueo de entradas con el gimnasio cerrado y la confirmación al superar la capacidad (ADR-0012). La aplicación depende de `AforoRepositoryPort`, cuyo contrato incluye `obtenerAforoActual()`, `obtenerEstado()`, `actualizarAforo(transicionar)` y `modificarEstado(transformar)`. La infraestructura ofrece el adapter PostgreSQL y el adapter en memoria.
+El dominio contiene las reglas del aforo: la transición del contador, el bloqueo de entradas con el gimnasio cerrado y la confirmación al superar la capacidad (ADR-0012). La aplicación depende de `AforoRepositoryPort`, cuyo contrato incluye `obtenerAforoActual()`, `obtenerEstado()`, `actualizarAforo(transicionar)` y `modificarEstado(transformar)`. La infraestructura ofrece el adapter PostgreSQL y el adapter en memoria. El módulo Notificaciones evalúa las preferencias y escribe el aviso en la misma transacción de aforo; un evaluador periódico revalida los períodos permitidos.
 
 `AforoPostgresAdapter` ejecuta la transición dentro de una transacción y bloquea la fila con `SELECT ... FOR UPDATE` antes de actualizarla. Confirma con `COMMIT`, intenta `ROLLBACK` ante errores y libera el cliente. El servidor real compone la aplicación con PostgreSQL y cierra el adapter tras drenar las solicitudes al recibir `SIGTERM`.
 
@@ -196,7 +205,7 @@ La suite PostgreSQL incluye persistencia entre instancias, rollback, 20 entradas
 npm test
 ```
 
-`npm test` ejecuta pruebas base, de contrato y PostgreSQL. Las pruebas base y de contrato usan `createApp()` con el adapter en memoria; las pruebas PostgreSQL requieren `DATABASE_URL` apuntando a una base cuyo nombre incluya `test`, y se omiten si no está configurada.
+`npm test` ejecuta pruebas base, de contrato y PostgreSQL. Las pruebas base y de contrato usan `createApp()` con el adapter en memoria; las pruebas PostgreSQL requieren `DATABASE_URL` apuntando a una base cuyo nombre incluya `test`, y se omiten si no está configurada. Las pruebas de alertas cubren umbrales individuales y estrictos, zona/días/horas, episodios, cambios de capacidad y concurrencia.
 
 El workflow de GitHub Actions usa Node.js 24 y ejecuta `npm ci --ignore-scripts`, `npm run test:base` (incluye las pruebas de seguridad de S13), `npm run test:contrato`, `npm run test:mensajeria`, `npm run arch:check`, `npm audit --audit-level=high` y `npm audit signatures`, con permisos de solo lectura sobre el repositorio. Dependabot (`.github/dependabot.yml`) propone actualizaciones semanales de npm, pub, Docker y GitHub Actions. No aprovisiona PostgreSQL ni ejecuta `test:postgres`; la automatización de pruebas PostgreSQL en CI no está implementada. SonarCloud analiza el repositorio mediante la integración de la organización en GitHub y el Quality Gate se consulta en su panel.
 
@@ -211,6 +220,7 @@ src/
     │   ├── domain/aforo.js
     │   ├── application/           # casos de uso y puerto del repositorio
     │   └── infrastructure/        # router HTTP, adapters PostgreSQL y memoria, schema.sql
+    ├── notificaciones/             # preferencias, evaluación y bandeja del estudiante
     └── identidad/
         ├── application/           # errores y puerto de autenticación
         └── infrastructure/        # router HTTP, adapter PostgreSQL, autenticación local (scrypt)

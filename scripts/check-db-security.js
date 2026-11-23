@@ -10,6 +10,9 @@ const SECURITY_QUERY = `
       ('public', 'sesiones_estudiantes', TRUE, TRUE, FALSE),
       ('public', 'qr_credenciales', TRUE, TRUE, TRUE),
       ('public', 'estudiante_estado_acceso', TRUE, TRUE, TRUE),
+      ('public', 'preferencias_alerta_aforo', TRUE, TRUE, TRUE),
+      ('public', 'estado_alerta_aforo', TRUE, TRUE, TRUE),
+      ('public', 'notificaciones', TRUE, TRUE, FALSE),
       ('public', 'schema_migrations', FALSE, FALSE, FALSE)
   ),
   role_state AS (
@@ -149,6 +152,9 @@ const REQUIRED_TABLES = new Set([
   'public.sesiones_estudiantes',
   'public.qr_credenciales',
   'public.estudiante_estado_acceso',
+  'public.preferencias_alerta_aforo',
+  'public.estado_alerta_aforo',
+  'public.notificaciones',
 ]);
 const PRIVILEGES = [
   'can_select',
@@ -170,6 +176,21 @@ const EXPECTED_COLUMN_PRIVILEGES = {
     select_columns: ['abierto', 'aforo_actual', 'capacidad_maxima', 'id', 'motivo_cierre'],
     insert_columns: [],
     update_columns: ['abierto', 'aforo_actual', 'capacidad_maxima', 'motivo_cierre'],
+  },
+  'public.preferencias_alerta_aforo': {
+    select_columns: ['codigo_estudiante', 'dias', 'habilitada', 'hora_fin', 'hora_inicio', 'umbral'],
+    insert_columns: ['codigo_estudiante', 'dias', 'habilitada', 'hora_fin', 'hora_inicio', 'umbral'],
+    update_columns: ['actualizado_en', 'dias', 'habilitada', 'hora_fin', 'hora_inicio', 'umbral'],
+  },
+  'public.estado_alerta_aforo': {
+    select_columns: ['codigo_estudiante', 'en_periodo_bajo', 'episodio', 'notificado'],
+    insert_columns: ['actualizado_en', 'codigo_estudiante', 'en_periodo_bajo', 'episodio', 'notificado'],
+    update_columns: ['actualizado_en', 'en_periodo_bajo', 'episodio', 'notificado'],
+  },
+  'public.notificaciones': {
+    select_columns: ['codigo_estudiante', 'creada_en', 'episodio', 'id', 'leida_en', 'mensaje', 'tipo'],
+    insert_columns: ['codigo_estudiante', 'episodio', 'mensaje', 'tipo'],
+    update_columns: [],
   },
   'public.estudiantes': {
     select_columns: [
@@ -230,11 +251,18 @@ function evaluarEstadoSeguridad(rows, { tlsRequerido = true } = {}) {
     const expected = {
       can_select: [
         'aforo_estado', 'estudiantes', 'sesiones_estudiantes',
-        'qr_credenciales', 'estudiante_estado_acceso',
+        'qr_credenciales', 'estudiante_estado_acceso', 'preferencias_alerta_aforo',
+        'estado_alerta_aforo', 'notificaciones',
       ].includes(row.table_name),
-      can_insert: ['sesiones_estudiantes', 'qr_credenciales', 'estudiante_estado_acceso']
+      can_insert: [
+        'sesiones_estudiantes', 'qr_credenciales', 'estudiante_estado_acceso',
+        'preferencias_alerta_aforo', 'estado_alerta_aforo', 'notificaciones',
+      ]
         .includes(row.table_name),
-      can_update: ['aforo_estado', 'estudiantes', 'qr_credenciales', 'estudiante_estado_acceso']
+      can_update: [
+        'aforo_estado', 'estudiantes', 'qr_credenciales', 'estudiante_estado_acceso',
+        'preferencias_alerta_aforo', 'estado_alerta_aforo',
+      ]
         .includes(row.table_name),
       can_delete: false,
       can_truncate: false,

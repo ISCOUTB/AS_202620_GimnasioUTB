@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: API Backend - Gimnasio UTB
-  version: 4.0.0
+  version: 4.1.0
   description: |
     Contrato HTTP del backend actual. El deployment actual utiliza Docker
     Compose en Dokploy, con PostgreSQL dentro del mismo Compose (ADR-0011). El cliente Flutter (`docs/Flutter/lib/core/api/aforo_api.dart`)
@@ -47,6 +47,12 @@ info:
     cliente es la app del equipo, que se actualiza en el mismo cambio.
 
     No hay SSO ni identidad institucional.
+
+    **4.1.0:** se agregan preferencias de alertas de aforo sincronizadas y una
+    bandeja de notificaciones para estudiantes. La evaluación usa
+    `America/Bogota`, se repite cada 30 segundos y también se ejecuta dentro de
+    las transacciones de cambios de aforo/capacidad/preferencias. FCM no está
+    configurado; la entrega disponible es la bandeja dentro de la app.
 
     Versionado (semver sobre este archivo):
     - MAJOR: cambio incompatible. En un servicio publicado requiere un nuevo
@@ -261,6 +267,98 @@ paths:
                 $ref: '#/components/schemas/RespuestaError'
         '503':
           description: Identidad no disponible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+  /api/v1/notificaciones/preferencias:
+    get:
+      operationId: consultarPreferenciasAlerta
+      summary: Consulta las preferencias de alerta del estudiante autenticado
+      security:
+        - sesionEstudiante: []
+      responses:
+        '200':
+          description: Preferencias actuales y capacidad máxima vigente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaPreferenciasAlerta'
+        '401':
+          description: Sesión ausente, inválida o vencida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '503':
+          description: No fue posible consultar las preferencias
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+    put:
+      operationId: guardarPreferenciasAlerta
+      summary: Guarda el umbral, los días y las horas de alertas automáticas
+      description: |
+        Solo afecta las alertas automáticas de aforo. El inicio es inclusivo,
+        el fin exclusivo; en horarios nocturnos, el día seleccionado es el día
+        en que inicia el período. Un umbral superior a la capacidad vigente se
+        rechaza al guardar; si el encargado reduce después la capacidad, la
+        preferencia se conserva y queda pausada hasta que vuelva a ser compatible.
+      security:
+        - sesionEstudiante: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreferenciasAlerta'
+      responses:
+        '200':
+          description: Preferencias guardadas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaPreferenciasAlertaGuardadas'
+        '400':
+          description: Umbral incompatible o preferencias inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '401':
+          description: Sesión ausente, inválida o vencida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '503':
+          description: No fue posible guardar las preferencias
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+  /api/v1/notificaciones:
+    get:
+      operationId: listarNotificacionesEstudiante
+      summary: Lista las últimas 50 notificaciones del estudiante autenticado
+      security:
+        - sesionEstudiante: []
+      responses:
+        '200':
+          description: Notificaciones más recientes primero
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaListaNotificaciones'
+        '401':
+          description: Sesión ausente, inválida o vencida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaError'
+        '503':
+          description: No fue posible consultar las notificaciones
           content:
             application/json:
               schema:
@@ -801,6 +899,125 @@ components:
             expiresAt:
               type: string
               format: date-time
+    PreferenciasAlerta:
+      type: object
+      required: [habilitada, umbral, dias, horaInicio, horaFin]
+      additionalProperties: false
+      properties:
+        habilitada:
+          type: boolean
+        umbral:
+          type: [integer, 'null']
+          minimum: 1
+          description: Obligatorio cuando habilitada es true; debe ser menor o igual a la capacidad.
+        dias:
+          type: array
+          uniqueItems: true
+          items:
+            type: integer
+            minimum: 1
+            maximum: 7
+            description: 1 lunes, 2 martes, ..., 7 domingo.
+        horaInicio:
+          type: integer
+          minimum: 0
+          maximum: 1439
+          description: Minutos desde medianoche en America/Bogota.
+        horaFin:
+          type: integer
+          minimum: 0
+          maximum: 1439
+          description: Fin exclusivo, en minutos desde medianoche en America/Bogota.
+    PreferenciasAlertaGuardadas:
+      type: object
+      required: [habilitada, umbral, dias, horaInicio, horaFin, compatible]
+      additionalProperties: false
+      properties:
+        habilitada:
+          type: boolean
+        umbral:
+          type: [integer, 'null']
+          minimum: 1
+        dias:
+          type: array
+          uniqueItems: true
+          items:
+            type: integer
+            minimum: 1
+            maximum: 7
+        horaInicio:
+          type: integer
+          minimum: 0
+          maximum: 1439
+        horaFin:
+          type: integer
+          minimum: 0
+          maximum: 1439
+        compatible:
+          type: boolean
+    RespuestaPreferenciasAlerta:
+      type: object
+      required: [status, data]
+      properties:
+        status:
+          const: success
+        data:
+          type: object
+          required: [preferencias, capacidadMaxima]
+          properties:
+            preferencias:
+              oneOf:
+                - $ref: '#/components/schemas/PreferenciasAlertaGuardadas'
+                - type: 'null'
+            capacidadMaxima:
+              type: integer
+              minimum: 1
+    RespuestaPreferenciasAlertaGuardadas:
+      type: object
+      required: [status, data]
+      properties:
+        status:
+          const: success
+        data:
+          type: object
+          required: [preferencias, capacidadMaxima]
+          properties:
+            preferencias:
+              $ref: '#/components/schemas/PreferenciasAlertaGuardadas'
+            capacidadMaxima:
+              type: integer
+              minimum: 1
+    Notificacion:
+      type: object
+      required: [id, tipo, mensaje, creadaEn, leidaEn]
+      properties:
+        id:
+          type: integer
+        tipo:
+          type: string
+          enum: [AFORO_BAJO, ADMINISTRATIVA, APERTURA, CIERRE, SISTEMA]
+        mensaje:
+          type: string
+        creadaEn:
+          type: string
+          format: date-time
+        leidaEn:
+          type: [string, 'null']
+          format: date-time
+    RespuestaListaNotificaciones:
+      type: object
+      required: [status, data]
+      properties:
+        status:
+          const: success
+        data:
+          type: object
+          required: [notificaciones]
+          properties:
+            notificaciones:
+              type: array
+              items:
+                $ref: '#/components/schemas/Notificacion'
     RespuestaAccesoEstudiante:
       type: object
       required: [status, data]

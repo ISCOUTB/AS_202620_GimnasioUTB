@@ -58,7 +58,7 @@ async function bloquearEstado(client) {
  * del dominio y confirma. Los errores de la transición (p. ej. AforoDomainError)
  * se propagan sin envolver; los de PostgreSQL ya llegan como AforoRepositoryError.
  */
-async function transicionarEnTransaccion(client, transicionar) {
+async function transicionarEnTransaccion(client, transicionar, despuesDeTransicionar) {
   const estado = await bloquearEstado(client);
   const nuevoAforo = await transicionar(estado.aforoActual, client, estado);
   const result = await ejecutar(
@@ -66,10 +66,16 @@ async function transicionarEnTransaccion(client, transicionar) {
     'UPDATE aforo_estado SET aforo_actual = $1 WHERE id = 1 RETURNING aforo_actual',
     [nuevoAforo]
   );
+  if (despuesDeTransicionar) {
+    await despuesDeTransicionar(client, result.rows[0].aforo_actual, {
+      ...estado,
+      aforoActual: result.rows[0].aforo_actual,
+    });
+  }
   return result.rows[0].aforo_actual;
 }
 
-async function modificarEnTransaccion(client, transformar) {
+async function modificarEnTransaccion(client, transformar, despuesDeModificar) {
   const estado = await bloquearEstado(client);
   const nuevo = { ...estado, ...(await transformar(estado)) };
   const { rows } = await ejecutar(
@@ -80,7 +86,9 @@ async function modificarEnTransaccion(client, transformar) {
      RETURNING aforo_actual, capacidad_maxima, abierto, motivo_cierre`,
     [nuevo.capacidadMaxima, nuevo.abierto, nuevo.motivoCierre]
   );
-  return estadoDesdeFila(rows[0]);
+  const estadoActualizado = estadoDesdeFila(rows[0]);
+  if (despuesDeModificar) await despuesDeModificar(client, estadoActualizado);
+  return estadoActualizado;
 }
 
 class AforoPostgresAdapter extends AforoRepositoryPort {
@@ -115,18 +123,22 @@ class AforoPostgresAdapter extends AforoRepositoryPort {
     }
   }
 
-  async actualizarAforo(transicionar) {
+  async actualizarAforo(transicionar, despuesDeTransicionar) {
     if (typeof transicionar !== 'function') {
       throw new TypeError('La transición del aforo debe ser una función');
     }
-    return this.#enTransaccion((client) => transicionarEnTransaccion(client, transicionar));
+    return this.#enTransaccion((client) =>
+      transicionarEnTransaccion(client, transicionar, despuesDeTransicionar)
+    );
   }
 
-  async modificarEstado(transformar) {
+  async modificarEstado(transformar, despuesDeModificar) {
     if (typeof transformar !== 'function') {
       throw new TypeError('El cambio de estado debe ser una función');
     }
-    return this.#enTransaccion((client) => modificarEnTransaccion(client, transformar));
+    return this.#enTransaccion((client) =>
+      modificarEnTransaccion(client, transformar, despuesDeModificar)
+    );
   }
 
   /** BEGIN, cuerpo y COMMIT; ante cualquier error, ROLLBACK y se propaga. */

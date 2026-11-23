@@ -26,6 +26,17 @@ GRANT SELECT (codigo_estudiante, dentro),
   INSERT (codigo_estudiante, dentro),
   UPDATE (dentro)
   ON TABLE public.estudiante_estado_acceso TO gimnasio_runtime;
+GRANT SELECT (codigo_estudiante, habilitada, umbral, dias, hora_inicio, hora_fin),
+  INSERT (codigo_estudiante, habilitada, umbral, dias, hora_inicio, hora_fin),
+  UPDATE (habilitada, umbral, dias, hora_inicio, hora_fin, actualizado_en)
+  ON TABLE public.preferencias_alerta_aforo TO gimnasio_runtime;
+GRANT SELECT (codigo_estudiante, en_periodo_bajo, notificado, episodio),
+  INSERT (codigo_estudiante, en_periodo_bajo, notificado, episodio, actualizado_en),
+  UPDATE (en_periodo_bajo, notificado, episodio, actualizado_en)
+  ON TABLE public.estado_alerta_aforo TO gimnasio_runtime;
+GRANT SELECT (id, codigo_estudiante, tipo, mensaje, episodio, creada_en, leida_en),
+  INSERT (codigo_estudiante, tipo, mensaje, episodio)
+  ON TABLE public.notificaciones TO gimnasio_runtime;
 
 DO $$
 DECLARE
@@ -59,7 +70,23 @@ BEGIN
       ('estudiante_estado_acceso', 'gimnasio_runtime_estado_insert',
         'FOR INSERT TO gimnasio_runtime WITH CHECK (true)'),
       ('estudiante_estado_acceso', 'gimnasio_runtime_estado_update',
-        'FOR UPDATE TO gimnasio_runtime USING (true) WITH CHECK (true)')
+        'FOR UPDATE TO gimnasio_runtime USING (true) WITH CHECK (true)'),
+      ('preferencias_alerta_aforo', 'gimnasio_runtime_preferencias_read',
+        'FOR SELECT TO gimnasio_runtime USING (true)'),
+      ('preferencias_alerta_aforo', 'gimnasio_runtime_preferencias_insert',
+        'FOR INSERT TO gimnasio_runtime WITH CHECK (true)'),
+      ('preferencias_alerta_aforo', 'gimnasio_runtime_preferencias_update',
+        'FOR UPDATE TO gimnasio_runtime USING (true) WITH CHECK (true)'),
+      ('estado_alerta_aforo', 'gimnasio_runtime_alerta_estado_read',
+        'FOR SELECT TO gimnasio_runtime USING (true)'),
+      ('estado_alerta_aforo', 'gimnasio_runtime_alerta_estado_insert',
+        'FOR INSERT TO gimnasio_runtime WITH CHECK (true)'),
+      ('estado_alerta_aforo', 'gimnasio_runtime_alerta_estado_update',
+        'FOR UPDATE TO gimnasio_runtime USING (true) WITH CHECK (true)'),
+      ('notificaciones', 'gimnasio_runtime_notificaciones_read',
+        'FOR SELECT TO gimnasio_runtime USING (true)'),
+      ('notificaciones', 'gimnasio_runtime_notificaciones_insert',
+        'FOR INSERT TO gimnasio_runtime WITH CHECK (true)')
     ) AS p(tabla, nombre, definicion)
   LOOP
     IF NOT EXISTS (
