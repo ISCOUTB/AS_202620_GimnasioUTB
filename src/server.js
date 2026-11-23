@@ -7,9 +7,15 @@ const { crearRegistrarAccesoQrUseCase } = require('./modules/aforo/application/r
 const { crearRegistrarAccesoEstudianteUseCase } = require('./modules/aforo/application/registrar-acceso-estudiante.usecase');
 const { crearConsultarAforoUseCase } = require('./modules/aforo/application/consultar-aforo.usecase');
 const { crearConfigurarGimnasioUseCases } = require('./modules/aforo/application/configurar-gimnasio.usecase');
-const { crearIdentidadRouter } = require('./modules/identidad/infrastructure/http/identidad.router');
+const {
+  crearIdentidadRouter,
+  crearAutenticacionEstudiante,
+} = require('./modules/identidad/infrastructure/http/identidad.router');
 const { IdentidadPostgresAdapter } = require('./modules/identidad/infrastructure/persistence/identidad-postgres.adapter');
 const { AutenticacionLocalAdapter } = require('./modules/identidad/infrastructure/auth/autenticacion-local.adapter');
+const { NotificacionesPostgresAdapter } = require('./modules/notificaciones/infrastructure/persistence/notificaciones-postgres.adapter');
+const { crearNotificacionesRouter } = require('./modules/notificaciones/infrastructure/http/notificaciones.router');
+const { crearEvaluadorAlertasAforo } = require('./modules/notificaciones/application/evaluar-alertas-aforo.usecase');
 const { logger } = require('./shared/logger');
 const { cargarEntornoRuntime } = require('./shared/environment');
 const {
@@ -40,6 +46,8 @@ const NOMBRE_SERVICIO = 'gimnasio-utb-backend';
  * @param {object} [opciones.autenticacion] adaptador del puerto de autenticación de estudiantes
  * @param {string} [opciones.operadorToken] secreto del encargado para registrar y configurar (ADR-0007)
  * @param {string[]} [opciones.origenesCors] orígenes web permitidos (ADR-0007)
+ * @param {object} [opciones.notificacionesRepository] almacenamiento de preferencias y bandeja
+ * @param {object} [opciones.evaluadorAlertas] evaluación transaccional y periódica de alertas
  */
 function createApp({
   aforoRepository,
@@ -47,6 +55,8 @@ function createApp({
   autenticacion,
   operadorToken,
   origenesCors = [],
+  notificacionesRepository,
+  evaluadorAlertas,
 } = {}) {
   const app = express();
   app.disable('x-powered-by');
@@ -119,17 +129,20 @@ function createApp({
   });
 
   // --- Composición del módulo aforo (corte vertical) ---
-  const registrarAcceso = crearRegistrarAccesoUseCase(repository);
+  const evaluarTrasCambio = evaluadorAlertas?.alCambiarAforo.bind(evaluadorAlertas);
+  const registrarAcceso = crearRegistrarAccesoUseCase(repository, evaluarTrasCambio);
   const registrarAccesoQr = identityRepository
     ? crearRegistrarAccesoQrUseCase(
       repository,
-      (transaccion, qr) => identityRepository.consumirQr(transaccion, qr)
+      (transaccion, qr) => identityRepository.consumirQr(transaccion, qr),
+      evaluarTrasCambio
     )
     : null;
   const registrarAccesoCedula = identityRepository
     ? crearRegistrarAccesoEstudianteUseCase(
       repository,
-      (transaccion, cedula) => identityRepository.registrarPorCedula(transaccion, cedula)
+      (transaccion, cedula) => identityRepository.registrarPorCedula(transaccion, cedula),
+      evaluarTrasCambio
     )
     : null;
   const alRegistrar = (tipoAcceso, canal) => {
@@ -143,12 +156,34 @@ function createApp({
   app.use('/api/v1/aforo', crearAforoRouter({
     registrarAcceso,
     consultarAforo: crearConsultarAforoUseCase(repository),
-    configurar: crearConfigurarGimnasioUseCases(repository),
+    configurar: crearConfigurarGimnasioUseCases(repository, async (transaccion, estado) => {
+      if (evaluadorAlertas) {
+        await evaluadorAlertas.alCambiarAforo(transaccion, estado.aforoActual, estado);
+      }
+    }),
     registrarAccesoQr,
     registrarAccesoCedula,
     alRegistrar,
   }));
   app.use('/api/v1/estudiantes', crearIdentidadRouter(identityRepository, autenticacion));
+  if (notificacionesRepository && identityRepository && autenticacion) {
+    app.use('/api/v1/notificaciones', crearNotificacionesRouter({
+      autenticarEstudiante: crearAutenticacionEstudiante(autenticacion, identityRepository),
+      repository: notificacionesRepository,
+      evaluarAlGuardarPreferencias: evaluadorAlertas
+        ? async (transaccion, estado) => evaluadorAlertas.alCambiarAforo(
+          transaccion,
+          estado.aforo_actual,
+          {
+            aforoActual: estado.aforo_actual,
+            capacidadMaxima: estado.capacidad_maxima,
+            abierto: estado.abierto,
+            motivoCierre: estado.motivo_cierre,
+          }
+        )
+        : undefined,
+    }));
+  }
 
   // La app valida la contraseña de encargado al ingresar, antes de mostrar
   // el panel. Si llega aquí, el middleware ya la aceptó.
@@ -170,13 +205,32 @@ if (require.main === module) {
   const autenticacion = new AutenticacionLocalAdapter({
     pool: aforoRepository.pool,
   });
+  const notificacionesRepository = new NotificacionesPostgresAdapter({
+    pool: aforoRepository.pool,
+  });
+  const evaluadorAlertas = crearEvaluadorAlertasAforo({
+    repository: notificacionesRepository,
+  });
   const app = createApp({
     aforoRepository,
     identidadRepository,
     autenticacion,
     operadorToken: process.env.OPERADOR_TOKEN,
     origenesCors: parsearOrigenes(process.env.CORS_ORIGINS),
+    notificacionesRepository,
+    evaluadorAlertas,
   });
+  const intervalMs = Number.parseInt(process.env.ALERTAS_AFORO_INTERVAL_MS || '30000', 10);
+  if (!Number.isInteger(intervalMs) || intervalMs < 1000) {
+    throw new Error('ALERTAS_AFORO_INTERVAL_MS debe ser un entero de al menos 1000 ms');
+  }
+  const evaluarAlertas = () => {
+    evaluadorAlertas.evaluarAhora().catch(() => {
+      logger.error('notifications.occupancy_evaluation_failed', 'Failed to evaluate occupancy alerts');
+    });
+  };
+  evaluarAlertas();
+  const evaluacionTimer = setInterval(evaluarAlertas, intervalMs);
   const port = process.env.PORT || 3000;
   const server = app.listen(port, () => {
     logger.info('server.started', `HTTP server listening on port ${port}`);
@@ -184,6 +238,7 @@ if (require.main === module) {
 
   process.once('SIGTERM', () => {
     logger.info('server.shutdown_started', 'SIGTERM received; draining HTTP connections');
+    clearInterval(evaluacionTimer);
     server.close(() => {
       aforoRepository.cerrar().then(() => {
         logger.info('server.shutdown_complete', 'PostgreSQL pool closed');

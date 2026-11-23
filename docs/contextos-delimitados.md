@@ -60,9 +60,9 @@ flowchart TD
 | **Aforo** | Contador de ocupación actual; historial de eventos de entrada/salida | Notificaciones (para decidir si envía push), Gestión Operativa (para mostrar en panel del encargado) | Implementado (contador; historial completo no persistido) |
 | **Identidad / Estudiante** | Cuentas sintéticas, sesiones, QR temporales y estado individual dentro/fuera | Aforo (valida y consume el QR dentro de la transacción) | Implementado para demostración; sin SSO ni identidad UTB |
 | **Gestión Operativa (Encargado)** | Estado de apertura/cierre del gimnasio y capacidad máxima; marca de "corrección manual" sobre un evento de acceso | Aforo (para bloquear registros si está cerrado), app del estudiante (solo lectura del estado) | Apertura/cierre y capacidad implementadas **dentro del módulo Aforo** (ADR-0012): viven en la misma fila que el contador porque cada registro debe leerlas con la fila bloqueada. La corrección manual no está implementada |
-| **Notificaciones** | Log de notificaciones enviadas; estado de suscripción push del dispositivo | — (nodo terminal, nadie más necesita leer esto) | No implementado |
+| **Notificaciones** | Preferencias de alerta de aforo, estado de deduplicación y bandeja de notificaciones | Lee el estado/capacidad vigente de Aforo | Implementado en el monolito; FCM y tokens push pendientes |
 
-**Regla que se debe respetar al crecer:** Aforo nunca escribe preferencias del estudiante, y Notificaciones nunca escribe el contador de aforo — solo lo lee. Esa separación es la que permitiría, si se quisiera, extraer Notificaciones como servicio aparte sin tocar Aforo.
+**Regla que se debe respetar al crecer:** Aforo nunca escribe preferencias del estudiante, y Notificaciones nunca escribe el contador de aforo — solo lo lee. Las preferencias y el log de notificaciones pertenecen a Notificaciones; Aforo invoca su callback transaccional sin importar el módulo. FCM y la suscripción de dispositivos aún no existen.
 
 ## Estado actual de consistencia y riesgos identificados en S6
 
@@ -72,4 +72,4 @@ Los módulos Aforo e Identidad están implementados. El servidor real usa Postgr
 |---|---|---|---|
 | V1 | `AforoMemoriaAdapter` exponía `this.aforoActual` como propiedad pública mutable. | El estado ahora es el campo privado `#aforoActual`, modificado mediante `actualizarAforo()`. | **Corregida.** No es un riesgo vigente en la implementación actual. |
 | V2 | La lectura de aforo saltaba la capa de aplicación y llegaba al repositorio desde `server.js`. | `crearConsultarAforoUseCase` existe y `server.js` lo compone e inyecta en el router. | **Corregida.** Las consultas actuales pasan por el caso de uso. |
-| V3 | Futuros módulos podrían necesitar un contrato de lectura propio en vez de depender del adapter concreto. | Actualmente solo existe el módulo Aforo; no hay módulo Notificaciones que consuma esa consulta. | **Riesgo futuro abierto/aceptado.** Revaluar al introducir otro módulo consumidor. |
+| V3 | Futuros módulos podrían necesitar un contrato de lectura propio en vez de depender del adapter concreto. | Notificaciones recibe el estado bloqueado a través de callbacks transaccionales y no importa el adapter concreto. | **Mitigado para Notificaciones.** Reevaluar si aparece otro consumidor. |

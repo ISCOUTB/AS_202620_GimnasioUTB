@@ -4,3 +4,5 @@ node_modules/
 .dart_tool/
 build/
 prod-ca-2021.crt
+**/google-services.json
+**/GoogleService-Info.plist

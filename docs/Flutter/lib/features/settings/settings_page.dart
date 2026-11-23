@@ -1,14 +1,24 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/api/aforo_api.dart';
 import '../../core/theme/app_theme.dart';
 import '../../widgets/page_header.dart';
 import '../../widgets/status_card.dart';
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key});
+  const SettingsPage({
+    required this.api,
+    required this.onStudentSessionExpired,
+    super.key,
+  });
+
+  final AforoApi api;
+  final VoidCallback onStudentSessionExpired;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -30,65 +40,100 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _enabled = false;
   bool _loading = true;
   bool _saving = false;
+  bool _refreshingNotifications = false;
+  int? _capacity;
   Set<int> _selectedDays = {};
   TimeOfDay _startTime = const TimeOfDay(hour: 8, minute: 0);
   TimeOfDay _endTime = const TimeOfDay(hour: 18, minute: 0);
   String? _error;
   String? _savedMessage;
+  List<NotificacionEstudiante> _notifications = [];
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _loadPreferences();
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _loadNotifications(showErrors: false),
+    );
   }
 
   @override
   void dispose() {
     _thresholdController.dispose();
+    _refreshTimer?.cancel();
     super.dispose();
   }
 
   Future<void> _loadPreferences() async {
+    if (!widget.api.tieneSesionEstudiante) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'Inicia sesión como estudiante para sincronizar las alertas.';
+        });
+      }
+      return;
+    }
     try {
       final preferences = await SharedPreferences.getInstance();
       final raw = preferences.getString(_preferencesKey);
-      if (raw == null) {
-        if (mounted) setState(() => _loading = false);
-        return;
+      final local = raw == null ? null : _decodeLocalPreferences(raw);
+      final remote = await widget.api.consultarPreferenciasAlerta();
+      _capacity = remote.capacidadMaxima;
+      final serverPreferences = remote.preferencias;
+      if (serverPreferences != null) {
+        _applyPreferences(
+          enabled: serverPreferences.habilitada,
+          threshold: serverPreferences.umbral?.toString() ?? '',
+          days: serverPreferences.dias,
+          startMinutes: serverPreferences.horaInicio,
+          endMinutes: serverPreferences.horaFin,
+        );
+        await _saveLocalPreferences();
+      } else if (local != null) {
+        final thresholdText = local['threshold'] as String;
+        final threshold = thresholdText.isEmpty ? null : int.tryParse(thresholdText);
+        if (thresholdText.isNotEmpty && (threshold == null || threshold < 1)) {
+          throw const FormatException('El umbral local guardado no es válido.');
+        }
+        final enabled = local['enabled'] as bool;
+        if (enabled && threshold == null) {
+          throw const FormatException('El umbral local guardado no es válido.');
+        }
+        final days = (local['days'] as List<dynamic>).cast<int>();
+        final startMinutes = local['startMinutes'] as int;
+        final endMinutes = local['endMinutes'] as int;
+        _applyPreferences(
+          enabled: enabled,
+          threshold: thresholdText,
+          days: days,
+          startMinutes: startMinutes,
+          endMinutes: endMinutes,
+        );
+        final saved = await widget.api.guardarPreferenciasAlerta(
+          habilitada: enabled,
+          umbral: threshold,
+          dias: days,
+          horaInicio: startMinutes,
+          horaFin: endMinutes,
+        );
+        _applyPreferences(
+          enabled: saved.habilitada,
+          threshold: saved.umbral?.toString() ?? '',
+          days: saved.dias,
+          startMinutes: saved.horaInicio,
+          endMinutes: saved.horaFin,
+        );
       }
-
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map<String, dynamic> ||
-          decoded['enabled'] is! bool ||
-          decoded['days'] is! List<dynamic> ||
-          decoded['startMinutes'] is! int ||
-          decoded['endMinutes'] is! int ||
-          decoded['threshold'] is! String) {
-        throw const FormatException('Formato de preferencias inválido.');
-      }
-
-      final days = (decoded['days'] as List<dynamic>)
-          .whereType<int>()
-          .where((day) => day >= 1 && day <= 7)
-          .toSet();
-      final startMinutes = decoded['startMinutes'] as int;
-      final endMinutes = decoded['endMinutes'] as int;
-      if (startMinutes < 0 ||
-          startMinutes >= 24 * 60 ||
-          endMinutes < 0 ||
-          endMinutes >= 24 * 60) {
-        throw const FormatException('Horario guardado inválido.');
-      }
-
+      await _saveLocalPreferences();
+      await _loadNotifications(showErrors: false);
       if (!mounted) return;
-      setState(() {
-        _enabled = decoded['enabled'] as bool;
-        _selectedDays = days;
-        _startTime = _timeFromMinutes(startMinutes);
-        _endTime = _timeFromMinutes(endMinutes);
-        _thresholdController.text = decoded['threshold'] as String;
-        _loading = false;
-      });
+      setState(() => _loading = false);
+    } on SesionEstudianteExpiradaException {
+      widget.onStudentSessionExpired();
     } on FormatException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -99,8 +144,86 @@ class _SettingsPageState extends State<SettingsPage> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = 'No se pudieron cargar las preferencias locales: $error';
+        _error = 'No se pudieron sincronizar las preferencias: $error';
       });
+    }
+  }
+
+  Map<String, dynamic> _decodeLocalPreferences(String raw) {
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map<String, dynamic> ||
+        decoded['enabled'] is! bool ||
+        decoded['days'] is! List<dynamic> ||
+        decoded['startMinutes'] is! int ||
+        decoded['endMinutes'] is! int ||
+        decoded['threshold'] is! String) {
+      throw const FormatException('Formato de preferencias inválido.');
+    }
+    final days = (decoded['days'] as List<dynamic>)
+        .whereType<int>()
+        .where((day) => day >= 1 && day <= 7)
+        .toList();
+    final startMinutes = decoded['startMinutes'] as int;
+    final endMinutes = decoded['endMinutes'] as int;
+    if (days.length != (decoded['days'] as List<dynamic>).length ||
+        startMinutes < 0 ||
+        startMinutes >= 24 * 60 ||
+        endMinutes < 0 ||
+        endMinutes >= 24 * 60) {
+      throw const FormatException('Preferencias locales inválidas.');
+    }
+    return {...decoded, 'days': days};
+  }
+
+  void _applyPreferences({
+    required bool enabled,
+    required String threshold,
+    required List<int> days,
+    required int startMinutes,
+    required int endMinutes,
+  }) {
+    if (startMinutes < 0 ||
+        startMinutes >= 24 * 60 ||
+        endMinutes < 0 ||
+        endMinutes >= 24 * 60) {
+      throw const FormatException('Horario guardado inválido.');
+    }
+    _enabled = enabled;
+    _selectedDays = days.toSet();
+    _startTime = _timeFromMinutes(startMinutes);
+    _endTime = _timeFromMinutes(endMinutes);
+    _thresholdController.text = threshold;
+  }
+
+  Future<void> _saveLocalPreferences() async {
+    final preferences = await SharedPreferences.getInstance();
+    final saved = await preferences.setString(
+      _preferencesKey,
+      jsonEncode({
+        'enabled': _enabled,
+        'days': _selectedDays.toList()..sort(),
+        'startMinutes': _minutesFromTime(_startTime),
+        'endMinutes': _minutesFromTime(_endTime),
+        'threshold': _thresholdController.text.trim(),
+      }),
+    );
+    if (!saved) throw StateError('El almacenamiento local rechazó el cambio.');
+  }
+
+  Future<void> _loadNotifications({bool showErrors = true}) async {
+    if (_refreshingNotifications || !widget.api.tieneSesionEstudiante) return;
+    _refreshingNotifications = true;
+    try {
+      final notifications = await widget.api.consultarNotificaciones();
+      if (mounted) setState(() => _notifications = notifications);
+    } on SesionEstudianteExpiradaException {
+      widget.onStudentSessionExpired();
+    } on AforoApiException catch (error) {
+      if (showErrors && mounted) {
+        setState(() => _error = 'No se pudieron actualizar las notificaciones: $error');
+      }
+    } finally {
+      _refreshingNotifications = false;
     }
   }
 
@@ -110,6 +233,20 @@ class _SettingsPageState extends State<SettingsPage> {
     if (_enabled && (threshold == null || threshold <= 0)) {
       setState(() {
         _error = 'Ingresa un umbral entero mayor que cero para activar alertas.';
+        _savedMessage = null;
+      });
+      return;
+    }
+    if (thresholdText.isNotEmpty && (threshold == null || threshold <= 0)) {
+      setState(() {
+        _error = 'El umbral debe ser un entero positivo.';
+        _savedMessage = null;
+      });
+      return;
+    }
+    if (_enabled && _capacity != null && threshold! > _capacity!) {
+      setState(() {
+        _error = 'El umbral no puede superar la capacidad máxima de $_capacity personas.';
         _savedMessage = null;
       });
       return;
@@ -136,24 +273,29 @@ class _SettingsPageState extends State<SettingsPage> {
     });
 
     try {
-      final preferences = await SharedPreferences.getInstance();
-      final saved = await preferences.setString(
-        _preferencesKey,
-        jsonEncode({
-          'enabled': _enabled,
-          'days': _selectedDays.toList()..sort(),
-          'startMinutes': _minutesFromTime(_startTime),
-          'endMinutes': _minutesFromTime(_endTime),
-          'threshold': thresholdText,
-        }),
+      final saved = await widget.api.guardarPreferenciasAlerta(
+        habilitada: _enabled,
+        umbral: threshold,
+        dias: _selectedDays.toList()..sort(),
+        horaInicio: _minutesFromTime(_startTime),
+        horaFin: _minutesFromTime(_endTime),
       );
-      if (!saved) {
-        throw StateError('El almacenamiento local rechazó el cambio.');
-      }
+      _capacity = (await widget.api.consultarPreferenciasAlerta()).capacidadMaxima;
+      _applyPreferences(
+        enabled: saved.habilitada,
+        threshold: saved.umbral?.toString() ?? '',
+        days: saved.dias,
+        startMinutes: saved.horaInicio,
+        endMinutes: saved.horaFin,
+      );
+      await _saveLocalPreferences();
+      await _loadNotifications(showErrors: false);
       if (!mounted) return;
       setState(() {
-        _savedMessage = 'Preferencias guardadas en este dispositivo.';
+        _savedMessage = 'Preferencias sincronizadas con el gimnasio.';
       });
+    } on SesionEstudianteExpiradaException {
+      widget.onStudentSessionExpired();
     } on Exception catch (error) {
       if (!mounted) return;
       setState(() {
@@ -193,8 +335,12 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     final thresholdText = _thresholdController.text.trim();
     final thresholdPhrase = thresholdText.isEmpty ? 'N' : thresholdText;
+    final thresholdValue = int.tryParse(thresholdText);
 
-    return ListView(
+    return RefreshIndicator(
+      onRefresh: () => _loadNotifications(),
+      child: ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
       children: [
         const PageHeader(
@@ -204,13 +350,14 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         const SizedBox(height: 18),
         const StatusCard(
-          title: 'Configuración local solamente',
+          title: 'Alertas automáticas de aforo',
           message:
-              'Estas preferencias se guardan en este dispositivo. El backend '
-              'no permite sincronizarlas, evaluar el umbral ni enviar '
-              'notificaciones push.',
-          icon: Icons.notifications_off_outlined,
-          color: AppTheme.warning,
+              'Las preferencias se sincronizan con el servidor. Las alertas '
+              'automáticas respetan la hora de Colombia; los demás avisos del '
+              'sistema no dependen de estos horarios. Los avisos aparecen aquí; '
+              'Firebase push no está configurado.',
+          icon: Icons.notifications_active_outlined,
+          color: AppTheme.accent,
         ),
         const SizedBox(height: 14),
         if (_loading)
@@ -221,12 +368,31 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           )
         else ...[
+          if (_capacity != null) ...[
+            Text('Capacidad máxima vigente: $_capacity personas'),
+            const SizedBox(height: 8),
+          ],
+          if (_enabled &&
+              thresholdValue != null &&
+              _capacity != null &&
+              thresholdValue > _capacity!) ...[
+            StatusCard(
+              title: 'Alerta pausada por capacidad',
+              message:
+                  'Tu umbral supera la capacidad máxima actual. La '
+                  'preferencia se conserva, pero la alerta se reanudará al '
+                  'ajustar el umbral a $_capacity personas o menos.',
+              icon: Icons.pause_circle_outline_rounded,
+              color: AppTheme.warning,
+            ),
+            const SizedBox(height: 14),
+          ],
           Card(
             child: SwitchListTile.adaptive(
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               title: const Text('Activar preferencias de alerta'),
-              subtitle: const Text('No activa el envío de notificaciones.'),
+              subtitle: const Text('Activa solo las alertas automáticas de aforo.'),
               value: _enabled,
               onChanged: (value) {
                 setState(() {
@@ -293,7 +459,7 @@ class _SettingsPageState extends State<SettingsPage> {
             decoration: const InputDecoration(
               labelText: 'Umbral de aforo',
               hintText: 'Cantidad de personas',
-              helperText: 'Se aplica a la frase de preferencia, no se evalúa.',
+              helperText: 'Debe ser compatible con la capacidad máxima vigente.',
               prefixIcon: Icon(Icons.groups_outlined),
             ),
           ),
@@ -324,6 +490,40 @@ class _SettingsPageState extends State<SettingsPage> {
                 : const Icon(Icons.save_outlined),
             label: const Text('Guardar preferencias'),
           ),
+          const SizedBox(height: 24),
+          Text(
+            'Notificaciones',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 8),
+          if (_notifications.isEmpty)
+            const Card(
+            child: ListTile(
+              leading: Icon(Icons.notifications_none_rounded),
+              title: Text('No tienes notificaciones todavía'),
+              subtitle: Text('Las alertas automáticas aparecerán aquí.'),
+            ),
+            )
+          else
+            ..._notifications.map((notification) => Card(
+                child: ListTile(
+                  leading: Icon(
+                    notification.tipo == 'AFORO_BAJO'
+                        ? Icons.groups_rounded
+                        : Icons.info_outline_rounded,
+                  ),
+                  title: Text(
+                    notification.tipo == 'AFORO_BAJO'
+                        ? 'Aforo por debajo de tu umbral'
+                        : 'Aviso del gimnasio',
+                  ),
+                  subtitle: Text(
+                    '${notification.mensaje}\n'
+                    '${DateFormat('d MMM, HH:mm').format(notification.creadaEn.toLocal())}',
+                  ),
+                  isThreeLine: true,
+                ),
+              )),
         ],
         if (_error != null) ...[
           const SizedBox(height: 14),
@@ -344,6 +544,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ],
       ],
+      ),
     );
   }
 }

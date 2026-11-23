@@ -123,7 +123,10 @@ class _HomeShellState extends State<HomeShell> {
               estadoGimnasio: _estadoGimnasio,
               onStudentSessionExpired: _studentSessionExpired,
             ),
-            const SettingsPage(),
+            SettingsPage(
+              api: widget.api,
+              onStudentSessionExpired: _studentSessionExpired,
+            ),
           ];
 
     return Scaffold(

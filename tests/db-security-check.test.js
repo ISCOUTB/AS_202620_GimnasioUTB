@@ -12,6 +12,9 @@ const TABLES = [
   ['public', 'sesiones_estudiantes', true, true, false],
   ['public', 'qr_credenciales', true, true, true],
   ['public', 'estudiante_estado_acceso', true, true, true],
+  ['public', 'preferencias_alerta_aforo', true, true, true],
+  ['public', 'estado_alerta_aforo', true, true, true],
+  ['public', 'notificaciones', true, true, false],
   ['public', 'schema_migrations', false, false, false],
 ];
 const COLUMN_PRIVILEGES = {
@@ -41,6 +44,21 @@ const COLUMN_PRIVILEGES = {
     select_columns: ['codigo_estudiante', 'dentro'],
     insert_columns: ['codigo_estudiante', 'dentro'],
     update_columns: ['dentro'],
+  },
+  'public.preferencias_alerta_aforo': {
+    select_columns: ['codigo_estudiante', 'dias', 'habilitada', 'hora_fin', 'hora_inicio', 'umbral'],
+    insert_columns: ['codigo_estudiante', 'dias', 'habilitada', 'hora_fin', 'hora_inicio', 'umbral'],
+    update_columns: ['actualizado_en', 'dias', 'habilitada', 'hora_fin', 'hora_inicio', 'umbral'],
+  },
+  'public.estado_alerta_aforo': {
+    select_columns: ['codigo_estudiante', 'en_periodo_bajo', 'episodio', 'notificado'],
+    insert_columns: ['actualizado_en', 'codigo_estudiante', 'en_periodo_bajo', 'episodio', 'notificado'],
+    update_columns: ['actualizado_en', 'en_periodo_bajo', 'episodio', 'notificado'],
+  },
+  'public.notificaciones': {
+    select_columns: ['codigo_estudiante', 'creada_en', 'episodio', 'id', 'leida_en', 'mensaje', 'tipo'],
+    insert_columns: ['codigo_estudiante', 'episodio', 'mensaje', 'tipo'],
+    update_columns: [],
   },
   'public.schema_migrations': {
     select_columns: [],
